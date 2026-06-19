@@ -1,0 +1,27 @@
+import { PrismaPg } from "@prisma/adapter-pg";
+import { PrismaClient } from "@prisma/client";
+
+import { env } from "./env.js";
+
+const adapter = new PrismaPg({
+  connectionString: env.DATABASE_URL,
+});
+
+export const prisma = new PrismaClient({
+  adapter,
+  log:
+    env.NODE_ENV === "development"
+      ? [
+          { emit: "event", level: "warn" },
+          { emit: "event", level: "error" },
+        ]
+      : [{ emit: "event", level: "error" }],
+});
+
+export async function checkDatabaseConnection() {
+  await prisma.$queryRaw`SELECT 1`;
+}
+
+export async function disconnectDatabase() {
+  await prisma.$disconnect();
+}

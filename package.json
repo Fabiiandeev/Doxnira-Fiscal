@@ -1,0 +1,20 @@
+{
+  "name": "ns-fiscal-cloud",
+  "private": true,
+  "packageManager": "pnpm@11.8.0",
+  "engines": {
+    "node": ">=20.19"
+  },
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "pnpm --filter @ns-fiscal/web dev",
+    "dev:api": "pnpm --filter @ns-fiscal/api-js dev",
+    "build": "pnpm --filter @ns-fiscal/web build",
+    "lint": "pnpm --filter @ns-fiscal/web lint",
+    "typecheck": "pnpm --filter @ns-fiscal/web typecheck",
+    "api:prisma:generate": "pnpm --filter @ns-fiscal/api-js prisma:generate",
+    "api:prisma:validate": "pnpm --filter @ns-fiscal/api-js prisma:validate"
+  }
+}

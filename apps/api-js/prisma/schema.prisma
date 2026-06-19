@@ -1,0 +1,414 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  OWNER
+  ADMIN
+  ACCOUNTANT
+  OPERATOR
+  VIEWER
+}
+
+enum Environment {
+  production
+  homologation
+}
+
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  name         String   @db.VarChar(160)
+  email        String   @unique @db.VarChar(180)
+  passwordHash String   @map("password_hash")
+  role         UserRole @default(OWNER)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  companies       Company[]
+  preferences     UserPreference?
+  savedFilters    SavedFilter[]
+  documentNotes   DocumentNote[]
+  auditLogs       AuditLog[]
+  xmlDownloadLogs XmlDownloadLog[]
+  assignedAlerts  Alert[]          @relation("AssignedAlerts")
+
+  @@map("users")
+}
+
+model Company {
+  id                   String      @id @default(uuid()) @db.Uuid
+  ownerId              String      @map("owner_id") @db.Uuid
+  legalName            String      @map("legal_name") @db.VarChar(255)
+  tradeName            String?     @map("trade_name") @db.VarChar(255)
+  cnpj                 String      @unique @db.VarChar(14)
+  stateRegistration    String?     @map("state_registration") @db.VarChar(40)
+  uf                   String?     @db.Char(2)
+  taxRegime            String?     @map("tax_regime") @db.VarChar(60)
+  environment          Environment @default(production)
+  status               String      @default("active") @db.VarChar(30)
+  nfeLastNsu           String      @default("000000000000000") @map("nfe_last_nsu") @db.VarChar(15)
+  nfeMaxNsu            String?     @map("nfe_max_nsu") @db.VarChar(15)
+  nfeNextAllowedSyncAt DateTime?   @map("nfe_next_allowed_sync_at")
+  lastSyncAt           DateTime?   @map("last_sync_at")
+  createdAt            DateTime    @default(now()) @map("created_at")
+  updatedAt            DateTime    @updatedAt @map("updated_at")
+
+  owner            User                 @relation(fields: [ownerId], references: [id])
+  certificates     DigitalCertificate[]
+  fiscalDocuments  FiscalDocument[]
+  fiscalEvents     FiscalEvent[]
+  syncLogs         SyncLog[]
+  manifestations   Manifestation[]
+  defaultForUsers  UserPreference[]     @relation("DefaultCompany")
+  savedFilters     SavedFilter[]
+  documentNotes    DocumentNote[]
+  documentTags     DocumentTag[]
+  alerts           Alert[]
+  auditLogs        AuditLog[]
+  xmlDownloadLogs  XmlDownloadLog[]
+  transportDocuments TransportDocument[]
+  fiscalDocumentLinks FiscalDocumentLink[]
+
+  @@index([ownerId])
+  @@map("companies")
+}
+
+model DigitalCertificate {
+  id                String    @id @default(uuid()) @db.Uuid
+  companyId         String    @map("company_id") @db.Uuid
+  serialNumber      String?   @map("serial_number") @db.VarChar(120)
+  subject           String?
+  issuer            String?
+  validFrom         DateTime? @map("valid_from")
+  validUntil        DateTime? @map("valid_until")
+  encryptedFile     Bytes     @map("encrypted_file")
+  encryptedPassword String    @map("encrypted_password")
+  holderCnpj        String?   @map("holder_cnpj") @db.VarChar(14)
+  validatedAt       DateTime? @map("validated_at")
+  status            String    @default("active") @db.VarChar(30)
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@index([companyId])
+  @@map("digital_certificates")
+}
+
+model FiscalDocument {
+  id                String    @id @default(uuid()) @db.Uuid
+  companyId         String    @map("company_id") @db.Uuid
+  documentType      String    @map("document_type") @db.VarChar(30)
+  invoiceNumber     String?   @map("invoice_number") @db.VarChar(30)
+  series            String?   @db.VarChar(10)
+  model             String?   @db.VarChar(10)
+  accessKey         String?   @map("access_key") @db.VarChar(44)
+  nsu               String?   @db.VarChar(15)
+  schemaName        String?   @map("schema_name") @db.VarChar(120)
+  status            String?   @db.VarChar(40)
+  protocol          String?   @db.VarChar(80)
+  manifestationStatus String  @default("PENDING") @map("manifestation_status") @db.VarChar(30)
+  issuerCnpj        String?   @map("issuer_cnpj") @db.VarChar(14)
+  issuerName        String?   @map("issuer_name") @db.VarChar(255)
+  recipientCnpj     String?   @map("recipient_cnpj") @db.VarChar(14)
+  recipientName     String?   @map("recipient_name") @db.VarChar(255)
+  uf                String?   @db.Char(2)
+  cfop              String?   @db.VarChar(10)
+  emissionDate      DateTime? @map("emission_date")
+  authorizationDate DateTime? @map("authorization_date")
+  totalAmount       Decimal?  @map("total_amount") @db.Decimal(15, 2)
+  xmlStorageKey     String    @map("xml_storage_key")
+  xmlHashSha256     String    @map("xml_hash_sha256") @db.VarChar(64)
+  rawXml            String?   @map("raw_xml")
+  products          Json?
+  taxes             Json?
+  isSummary         Boolean   @default(false) @map("is_summary")
+  isCancelled       Boolean   @default(false) @map("is_cancelled")
+  isNewSupplier     Boolean   @default(false) @map("is_new_supplier")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  company         Company           @relation(fields: [companyId], references: [id])
+  events          FiscalEvent[]
+  manifestations Manifestation[]
+  notes           DocumentNote[]
+  tags            DocumentTagLink[]
+  alerts          Alert[]
+  downloadLogs    XmlDownloadLog[]
+  transportLinks  FiscalDocumentLink[] @relation("LinkedNfe")
+
+  @@unique([companyId, nsu])
+  @@unique([companyId, accessKey, schemaName])
+  @@index([companyId, emissionDate(sort: Desc)])
+  @@index([accessKey])
+  @@index([issuerCnpj])
+  @@index([recipientCnpj])
+  @@index([companyId, nsu])
+  @@index([companyId, status])
+  @@index([companyId, isSummary])
+  @@index([companyId, isCancelled])
+  @@index([companyId, createdAt(sort: Desc)])
+  @@map("fiscal_documents")
+}
+
+model TransportDocument {
+  id             String    @id @default(uuid()) @db.Uuid
+  companyId      String    @map("company_id") @db.Uuid
+  accessKey      String    @map("access_key") @db.VarChar(44)
+  number         String?   @db.VarChar(30)
+  series         String?   @db.VarChar(10)
+  emissionDate   DateTime? @map("emission_date")
+  issuerCnpj     String?   @map("issuer_cnpj") @db.VarChar(14)
+  issuerName     String?   @map("issuer_name") @db.VarChar(255)
+  recipientCnpj  String?   @map("recipient_cnpj") @db.VarChar(14)
+  recipientName  String?   @map("recipient_name") @db.VarChar(255)
+  totalAmount    Decimal?  @map("total_amount") @db.Decimal(15, 2)
+  status         String?   @db.VarChar(40)
+  xmlStorageKey  String    @map("xml_storage_key")
+  rawXmlHash     String    @map("raw_xml_hash") @db.VarChar(64)
+  rawXml         String?   @map("raw_xml")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  company Company               @relation(fields: [companyId], references: [id])
+  nfeLinks FiscalDocumentLink[] @relation("LinkedCte")
+
+  @@unique([companyId, accessKey])
+  @@index([companyId, emissionDate(sort: Desc)])
+  @@index([issuerCnpj])
+  @@index([recipientCnpj])
+  @@index([createdAt(sort: Desc)])
+  @@map("transport_documents")
+}
+
+model FiscalDocumentLink {
+  id            String   @id @default(uuid()) @db.Uuid
+  companyId     String   @map("company_id") @db.Uuid
+  nfeDocumentId String?  @map("nfe_document_id") @db.Uuid
+  cteDocumentId String   @map("cte_document_id") @db.Uuid
+  nfeAccessKey  String   @map("nfe_access_key") @db.VarChar(44)
+  cteAccessKey  String   @map("cte_access_key") @db.VarChar(44)
+  linkType      String   @default("NFE_CTE") @map("link_type") @db.VarChar(30)
+  source        String   @default("CTE_XML") @db.VarChar(30)
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  company     Company            @relation(fields: [companyId], references: [id])
+  nfeDocument FiscalDocument?    @relation("LinkedNfe", fields: [nfeDocumentId], references: [id])
+  cteDocument TransportDocument  @relation("LinkedCte", fields: [cteDocumentId], references: [id])
+
+  @@unique([companyId, nfeAccessKey, cteAccessKey, linkType])
+  @@index([companyId])
+  @@index([nfeAccessKey])
+  @@index([cteAccessKey])
+  @@index([nfeDocumentId])
+  @@index([cteDocumentId])
+  @@index([linkType])
+  @@index([createdAt(sort: Desc)])
+  @@map("fiscal_document_links")
+}
+
+model FiscalEvent {
+  id               String    @id @default(uuid()) @db.Uuid
+  companyId        String    @map("company_id") @db.Uuid
+  fiscalDocumentId String?   @map("fiscal_document_id") @db.Uuid
+  accessKey        String?   @map("access_key") @db.VarChar(44)
+  eventType        String?   @map("event_type") @db.VarChar(80)
+  eventSequence    Int?      @map("event_sequence")
+  protocol         String?   @db.VarChar(80)
+  eventDate        DateTime? @map("event_date")
+  nsu              String?   @db.VarChar(15)
+  schemaName       String?   @map("schema_name") @db.VarChar(120)
+  xmlStorageKey    String    @map("xml_storage_key")
+  xmlHashSha256    String    @map("xml_hash_sha256") @db.VarChar(64)
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  company        Company         @relation(fields: [companyId], references: [id])
+  fiscalDocument FiscalDocument? @relation(fields: [fiscalDocumentId], references: [id])
+
+  @@index([companyId, accessKey])
+  @@map("fiscal_events")
+}
+
+model SyncLog {
+  id             String    @id @default(uuid()) @db.Uuid
+  companyId      String    @map("company_id") @db.Uuid
+  service        String    @db.VarChar(60)
+  requestType    String    @map("request_type") @db.VarChar(40)
+  requestNsu     String?   @map("request_nsu") @db.VarChar(15)
+  responseUltNsu String?   @map("response_ult_nsu") @db.VarChar(15)
+  responseMaxNsu String?   @map("response_max_nsu") @db.VarChar(15)
+  cstat          String?   @db.VarChar(10)
+  xmotivo        String?
+  documentsCount Int       @default(0) @map("documents_count")
+  status         String    @db.VarChar(30)
+  jobId          String?   @map("job_id") @db.VarChar(120)
+  errorMessage   String?   @map("error_message")
+  startedAt      DateTime  @map("started_at")
+  finishedAt     DateTime? @map("finished_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@index([companyId, startedAt(sort: Desc)])
+  @@map("sync_logs")
+}
+
+model Manifestation {
+  id                 String   @id @default(uuid()) @db.Uuid
+  companyId          String   @map("company_id") @db.Uuid
+  fiscalDocumentId   String?  @map("fiscal_document_id") @db.Uuid
+  accessKey          String   @map("access_key") @db.VarChar(44)
+  eventType          String   @map("event_type") @db.VarChar(30)
+  justification      String?
+  protocol           String?  @db.VarChar(80)
+  status             String   @db.VarChar(30)
+  responseStorageKey String?  @map("response_xml_storage_key")
+  requestXmlSanitized String? @map("request_xml_sanitized")
+  responseXmlSanitized String? @map("response_xml_sanitized")
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  company        Company         @relation(fields: [companyId], references: [id])
+  fiscalDocument FiscalDocument? @relation(fields: [fiscalDocumentId], references: [id])
+
+  @@index([companyId, createdAt(sort: Desc)])
+  @@map("manifestations")
+}
+
+model UserPreference {
+  id               String   @id @default(uuid()) @db.Uuid
+  userId           String   @unique @map("user_id") @db.Uuid
+  theme            String   @default("light") @db.VarChar(20)
+  accentColor      String?  @default("#E8FF5A") @map("accent_color") @db.VarChar(20)
+  defaultCompanyId String?  @map("default_company_id") @db.Uuid
+  dashboardLayout  Json?    @map("dashboard_layout")
+  tableDensity     String?  @default("comfortable") @map("table_density") @db.VarChar(20)
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  user           User     @relation(fields: [userId], references: [id])
+  defaultCompany Company? @relation("DefaultCompany", fields: [defaultCompanyId], references: [id])
+
+  @@map("user_preferences")
+}
+
+model SavedFilter {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  companyId String?  @map("company_id") @db.Uuid
+  name      String   @db.VarChar(120)
+  module    String   @db.VarChar(60)
+  filters   Json
+  isDefault Boolean  @default(false) @map("is_default")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user    User     @relation(fields: [userId], references: [id])
+  company Company? @relation(fields: [companyId], references: [id])
+
+  @@index([userId, module])
+  @@map("saved_filters")
+}
+
+model DocumentNote {
+  id               String   @id @default(uuid()) @db.Uuid
+  companyId        String   @map("company_id") @db.Uuid
+  fiscalDocumentId String   @map("fiscal_document_id") @db.Uuid
+  userId           String   @map("user_id") @db.Uuid
+  note             String
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  company        Company        @relation(fields: [companyId], references: [id])
+  fiscalDocument FiscalDocument @relation(fields: [fiscalDocumentId], references: [id])
+  user           User           @relation(fields: [userId], references: [id])
+
+  @@index([fiscalDocumentId, createdAt(sort: Desc)])
+  @@map("document_notes")
+}
+
+model DocumentTag {
+  id        String   @id @default(uuid()) @db.Uuid
+  companyId String   @map("company_id") @db.Uuid
+  name      String   @db.VarChar(80)
+  color     String?  @db.VarChar(20)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  company Company           @relation(fields: [companyId], references: [id])
+  links   DocumentTagLink[]
+
+  @@unique([companyId, name])
+  @@map("document_tags")
+}
+
+model DocumentTagLink {
+  fiscalDocumentId String   @map("fiscal_document_id") @db.Uuid
+  tagId            String   @map("tag_id") @db.Uuid
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  fiscalDocument FiscalDocument @relation(fields: [fiscalDocumentId], references: [id])
+  tag            DocumentTag    @relation(fields: [tagId], references: [id])
+
+  @@id([fiscalDocumentId, tagId])
+  @@map("document_tag_links")
+}
+
+model Alert {
+  id               String    @id @default(uuid()) @db.Uuid
+  companyId        String    @map("company_id") @db.Uuid
+  fiscalDocumentId String?   @map("fiscal_document_id") @db.Uuid
+  type             String    @db.VarChar(80)
+  severity         String    @db.VarChar(20)
+  title            String    @db.VarChar(180)
+  message          String
+  status           String    @default("open") @db.VarChar(30)
+  assignedToId     String?   @map("assigned_to") @db.Uuid
+  readAt            DateTime? @map("read_at")
+  resolvedAt       DateTime? @map("resolved_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  company        Company         @relation(fields: [companyId], references: [id])
+  fiscalDocument FiscalDocument? @relation(fields: [fiscalDocumentId], references: [id])
+  assignedTo     User?           @relation("AssignedAlerts", fields: [assignedToId], references: [id])
+
+  @@index([companyId, status, createdAt(sort: Desc)])
+  @@map("alerts")
+}
+
+model AuditLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  companyId  String?  @map("company_id") @db.Uuid
+  userId     String?  @map("user_id") @db.Uuid
+  action     String   @db.VarChar(120)
+  entityType String?  @map("entity_type") @db.VarChar(80)
+  entityId   String?  @map("entity_id") @db.Uuid
+  ipAddress  String?  @map("ip_address") @db.VarChar(80)
+  userAgent  String?  @map("user_agent")
+  metadata   Json?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  company Company? @relation(fields: [companyId], references: [id])
+  user    User?    @relation(fields: [userId], references: [id])
+
+  @@index([companyId, createdAt(sort: Desc)])
+  @@map("audit_logs")
+}
+
+model XmlDownloadLog {
+  id               String   @id @default(uuid()) @db.Uuid
+  companyId        String   @map("company_id") @db.Uuid
+  fiscalDocumentId String   @map("fiscal_document_id") @db.Uuid
+  userId           String   @map("user_id") @db.Uuid
+  downloadedAt     DateTime @default(now()) @map("downloaded_at")
+  ipAddress        String?  @map("ip_address") @db.VarChar(80)
+
+  company        Company        @relation(fields: [companyId], references: [id])
+  fiscalDocument FiscalDocument @relation(fields: [fiscalDocumentId], references: [id])
+  user           User           @relation(fields: [userId], references: [id])
+
+  @@index([fiscalDocumentId, downloadedAt(sort: Desc)])
+  @@map("xml_download_logs")
+}
