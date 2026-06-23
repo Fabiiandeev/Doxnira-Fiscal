@@ -10,8 +10,10 @@ import {
   Trash2,
   Upload,
 } from "lucide-react";
+import Link from "next/link";
 import { useRef, useState } from "react";
 
+import { RemoveCompanyDialog } from "@/components/companies/remove-company-dialog";
 import { PageHeader } from "@/components/page-header";
 import { notify } from "@/components/toast-viewport";
 import { Badge } from "@/components/ui/badge";
@@ -26,7 +28,8 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { getCompanyId } from "@/lib/api";
+import { ApiError, getCompanyId } from "@/lib/api";
+import { getCompany } from "@/lib/services/company-service";
 import {
   deleteCertificate,
   getCertificate,
@@ -38,7 +41,16 @@ export function CertificateView() {
   const companyId = getCompanyId();
   const queryClient = useQueryClient();
   const [password, setPassword] = useState("");
+  const [cnpjMismatch, setCnpjMismatch] = useState<{
+    companyCnpjMasked: string;
+    certificateCnpjMasked: string;
+  } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const company = useQuery({
+    queryKey: ["company", companyId],
+    queryFn: () => getCompany(companyId!),
+    enabled: Boolean(companyId),
+  });
   const certificate = useQuery({
     queryKey: ["certificate", companyId],
     queryFn: () => getCertificate(companyId!),
@@ -48,15 +60,34 @@ export function CertificateView() {
     mutationFn: async () => {
       const file = fileRef.current?.files?.[0];
       if (!file) throw new Error("Selecione um arquivo PFX ou P12.");
+      if (!/\.(pfx|p12)$/i.test(file.name)) {
+        throw new Error("Envie um certificado digital A1 .pfx ou .p12.");
+      }
+      if (!password) throw new Error("Informe a senha do certificado digital.");
       return uploadCertificate(companyId!, file, password);
     },
     onSuccess: () => {
+      setCnpjMismatch(null);
       notify({ title: "Certificado validado", description: "A1 criptografado e compatível com a empresa." });
       setPassword("");
       queryClient.invalidateQueries({ queryKey: ["certificate"] });
       queryClient.invalidateQueries({ queryKey: ["sync-readiness"] });
     },
-    onError: (error) => notify({ title: "Upload não concluído", description: error.message, tone: "error" }),
+    onError: (error) => {
+      if (error instanceof ApiError && error.code === "CERTIFICATE_CNPJ_MISMATCH") {
+        const details = error.details as Partial<{
+          companyCnpjMasked: string;
+          certificateCnpjMasked: string;
+        }>;
+        if (details.companyCnpjMasked && details.certificateCnpjMasked) {
+          setCnpjMismatch({
+            companyCnpjMasked: details.companyCnpjMasked,
+            certificateCnpjMasked: details.certificateCnpjMasked,
+          });
+        }
+      }
+      notify({ title: "Upload não concluído", description: error.message, tone: "error" });
+    },
   });
   const remove = useMutation({
     mutationFn: () => deleteCertificate(companyId!),
@@ -106,6 +137,46 @@ export function CertificateView() {
         icon={FileKey2}
         action={<div className="flex gap-2">{data && <Button variant="outline" onClick={() => window.confirm("Excluir o certificado atual?") && remove.mutate()}><Trash2 className="h-4 w-4" />Excluir</Button>}{uploader}</div>}
       />
+
+      <Card className="mb-5 flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="text-sm font-extrabold">
+            O certificado digital agora é gerenciado dentro do cadastro da empresa.
+          </h2>
+          <p className="mt-1 text-xs text-subtle">
+            Esta tela continua disponível como atalho e consulta secundária.
+          </p>
+        </div>
+        {companyId && (
+          <Button asChild variant="lime">
+            <Link href={`/companies/${companyId}/edit`}>Gerenciar na empresa</Link>
+          </Button>
+        )}
+      </Card>
+
+      {cnpjMismatch && company.data && (
+        <Card className="mb-5 border-red-200 bg-red-50 p-5">
+          <h2 className="text-sm font-extrabold text-red-800">
+            O certificado pertence a outro CNPJ.
+          </h2>
+          <div className="mt-3 space-y-1 text-xs text-red-700">
+            <p>CNPJ da empresa: {cnpjMismatch.companyCnpjMasked}</p>
+            <p>CNPJ do certificado: {cnpjMismatch.certificateCnpjMasked}</p>
+          </div>
+          <p className="mt-3 text-xs text-red-700">
+            Corrija o CNPJ da empresa ou remova esta empresa e cadastre a empresa correta.
+          </p>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Button asChild variant="outline" size="sm">
+              <Link href={`/companies/${companyId}/edit`}>Editar empresa</Link>
+            </Button>
+            <RemoveCompanyDialog company={company.data} onRemoved={() => setCnpjMismatch(null)} />
+            <Button asChild variant="lime" size="sm">
+              <Link href="/companies/new">Cadastrar nova empresa</Link>
+            </Button>
+          </div>
+        </Card>
+      )}
 
       {!data ? (
         <Card className="grid min-h-[420px] place-items-center p-8 text-center">

@@ -46,6 +46,8 @@ async function clearDatabase() {
   await prisma.fiscalEvent.deleteMany();
   await prisma.syncLog.deleteMany();
   await prisma.auditLog.deleteMany();
+  await prisma.fiscalDocumentLink.deleteMany();
+  await prisma.transportDocument.deleteMany();
   await prisma.fiscalDocument.deleteMany();
   await prisma.digitalCertificate.deleteMany();
   await prisma.savedFilter.deleteMany();
@@ -104,12 +106,38 @@ async function main() {
     const status = statusCycle[index % statusCycle.length];
     const invoiceNumber = String(10800 + index);
     const xml = `<nfeProc versao="4.00"><NFe><infNFe Id="NFe${key}"><ide><cUF>52</cUF><mod>55</mod><serie>1</serie><nNF>${invoiceNumber}</nNF></ide><emit><CNPJ>${issuerCnpj}</CNPJ><xNome>${issuerName}</xNome></emit><dest><CNPJ>${company.cnpj}</CNPJ><xNome>${company.legalName}</xNome></dest><det nItem="1"><prod><cProd>ITEM-${index + 1}</cProd><xProd>Produto fiscal ${index + 1}</xProd><qCom>${(index % 5) + 1}</qCom><vUnCom>${amount.toFixed(2)}</vUnCom></prod></det><total><ICMSTot><vNF>${amount.toFixed(2)}</vNF></ICMSTot></total></infNFe></NFe><protNFe><infProt><nProt>152260000${String(index).padStart(6, "0")}</nProt></infProt></protNFe></nfeProc>`;
+    // provide specific examples for the first indices to cover NFe/CTe inbound/outbound
+    let documentType = index % 11 === 0 ? "CTE" : "NFE";
+    let operationDirection = null;
+    let companyRole = null;
+    if (index === 0) {
+      documentType = "NFE";
+      operationDirection = "INBOUND";
+      companyRole = "RECIPIENT";
+    } else if (index === 1) {
+      documentType = "NFE";
+      operationDirection = "OUTBOUND";
+      companyRole = "ISSUER";
+    } else if (index === 2) {
+      documentType = "CTE";
+      operationDirection = "TRANSPORT_INBOUND";
+      companyRole = "RECIPIENT";
+    } else if (index === 3) {
+      documentType = "CTE";
+      operationDirection = "TRANSPORT_OUTBOUND";
+      companyRole = "ISSUER";
+    } else {
+      documentType = index % 11 === 0 ? "CTE" : "NFE";
+      operationDirection = index % 2 === 0 ? "INBOUND" : "OUTBOUND";
+      companyRole = operationDirection === "INBOUND" ? "RECIPIENT" : "ISSUER";
+    }
+
     documents.push({
       companyId: company.id,
-      documentType: index % 11 === 0 ? "CTE" : "NFE",
+      documentType,
       invoiceNumber,
       series: String((index % 3) + 1),
-      model: index % 11 === 0 ? "57" : "55",
+      model: documentType === "CTE" ? "57" : "55",
       accessKey: key,
       nsu: String(9_876_543_048 + index).padStart(15, "0"),
       schemaName: index % 4 === 0 ? "resNFe_v1.01.xsd" : "procNFe_v4.00.xsd",
@@ -127,6 +155,7 @@ async function main() {
       totalAmount: amount,
       xmlStorageKey: `seed/nfe/${key}.xml`,
       xmlHashSha256: createHash("sha256").update(xml).digest("hex"),
+      source: "SEED",
       rawXml: xml,
       products: [
         {
@@ -144,6 +173,8 @@ async function main() {
       isSummary: index % 6 === 0,
       isCancelled: status === "CANCELLED",
       isNewSupplier: index < 8,
+      operationDirection,
+      companyRole,
     });
   }
 
@@ -152,6 +183,25 @@ async function main() {
     where: { companyId: company.id },
     orderBy: { emissionDate: "desc" },
   });
+
+  // create links for CT-e seed documents to some NF-e documents to emulate real links
+  // Note: Currently disabled because CT-es are created as FiscalDocuments, not TransportDocuments
+  // This will be re-enabled when CT-e documents are properly separated
+  // const cteDocs = createdDocuments.filter((d) => d.documentType === "CTE");
+  // const nfeDocs = createdDocuments.filter((d) => d.documentType === "NFE");
+  // if (cteDocs.length && nfeDocs.length) {
+  //   const links = cteDocs.slice(0, nfeDocs.length).map((cte, i) => ({
+  //     companyId: company.id,
+  //     nfeDocumentId: nfeDocs[i].id,
+  //     cteDocumentId: cte.id,
+  //     nfeAccessKey: nfeDocs[i].accessKey,
+  //     cteAccessKey: cte.accessKey,
+  //     linkType: "CTE_TO_NFE",
+  //     source: "SEED",
+  //     createdAt: dateDaysAgo(i + 1, 10),
+  //   }));
+  //   await prisma.fiscalDocumentLink.createMany({ data: links });
+  // }
 
   await prisma.fiscalEvent.createMany({
     data: createdDocuments.slice(0, 10).map((document, index) => ({
@@ -235,6 +285,10 @@ async function main() {
               ? "Nenhum documento localizado"
               : "Consumo indevido - aguarde a janela de consulta",
         documentsCount: cstat === "138" ? 6 + index : 0,
+        documentsReceived: cstat === "138" ? 6 + index : 0,
+        documentsSaved: cstat === "138" ? 6 + index : 0,
+        mode: "mock",
+        environment: company.environment,
         status,
         startedAt,
         finishedAt,

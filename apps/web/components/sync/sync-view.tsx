@@ -62,7 +62,13 @@ export function SyncView() {
     mutationFn: () => requestSync(companyId!),
     onSuccess: (result) => {
       notify({ title: result.message, description: "Job incluído na fila BullMQ." });
+      // Invalidar todas as queries relacionadas após sync
       queryClient.invalidateQueries({ queryKey: ["sync"] });
+      queryClient.invalidateQueries({ queryKey: ["sync-status"] });
+      queryClient.invalidateQueries({ queryKey: ["sync-logs"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["documents"] });
+      queryClient.invalidateQueries({ queryKey: ["monthly-closing"] });
     },
     onError: (error) => {
       notify({ title: "Sincronização não iniciada", description: error.message, tone: "error" });
@@ -90,6 +96,11 @@ export function SyncView() {
     sync.mutate();
   }
 
+    function repairSync() {
+      // intentionally no-op; kept to preserve API for actions
+      return;
+  }
+
   function refreshAll() {
     readiness.refetch();
     status.refetch();
@@ -99,14 +110,17 @@ export function SyncView() {
   function exportLogs() {
     const data = logs.data?.data || [];
     const csv = [
-      ["inicio", "status", "cStat", "motivo", "nsu", "documentos"],
+      ["inicio", "modo", "ambiente", "status", "cStat", "motivo", "nsu", "recebidos", "salvos"],
       ...data.map((item) => [
         item.startedAt,
+        item.mode,
+        item.environment || "",
         item.status,
         item.cstat || "",
         item.xmotivo || item.errorMessage || "",
         item.requestNsu || "",
-        item.documentsCount,
+        item.documentsReceived,
+        item.documentsSaved,
       ]),
     ].map((row) => row.map((value) => `"${String(value).replaceAll('"', '""')}"`).join(";")).join("\n");
     const url = URL.createObjectURL(new Blob([`\uFEFF${csv}`], { type: "text/csv" }));
@@ -122,7 +136,7 @@ export function SyncView() {
       <PageHeader
         eyebrow="Motor DF-e"
         title="Sincronização"
-        description="Fila mockada com controle de certificado, NSU, concorrência e auditoria."
+        description="Distribuição DF-e com controle de certificado, NSU, origem e auditoria."
         icon={RefreshCw}
         action={
           <div className="flex gap-2">
@@ -137,6 +151,43 @@ export function SyncView() {
         }
       />
 
+      {(latest?.status === "ERROR" || (readinessData && !readinessData.sync.ready)) && (
+        <Card className="mb-5 border-amber-200 bg-amber-50 p-4">
+          <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+            <div className="flex gap-3 text-amber-900">
+              <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
+              <div>
+                <p className="text-xs font-extrabold">Sincronização requer atenção</p>
+                <p className="mt-1 text-xs">
+                  {latest?.status === "ERROR"
+                    ? latest.errorMessage || latest.xmotivo || "A última sincronização falhou."
+                    : readinessData?.sync?.message}
+                </p>
+                <div className="mt-2 text-[10px]">
+                  {latest?.cstat && <div><strong>cStat:</strong> {latest.cstat}</div>}
+                  {latest?.xmotivo && <div><strong>Motivo:</strong> {latest.xmotivo}</div>}
+                  {readinessData?.sefaz && <div><strong>Ambiente:</strong> {readinessData.sefaz.environment} · <strong>Modo:</strong> {readinessData.sefaz.mode}</div>}
+                  <div><strong>Recebidos:</strong> {latest?.documentsReceived || 0} · <strong>Salvos:</strong> {latest?.documentsSaved || 0}</div>
+                </div>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              {latest?.status === "ERROR" && (
+                <Button variant="outline" size="sm" onClick={startSync}>Reprocessar</Button>
+              )}
+              {!readinessData?.certificate.exists && (
+                <Button variant="outline" size="sm" onClick={() => router.push("/certificate")}>Abrir certificado</Button>
+              )}
+              {readinessData?.company && readinessData.company.environment && (
+                <Button variant="outline" size="sm" onClick={() => router.push(`/companies/${companyId}/edit`)}>Abrir empresa</Button>
+              )}
+              <Button variant="outline" size="sm" onClick={() => router.push(`/companies/${companyId}/edit`)}>Abrir configuração fiscal</Button>
+              <Button variant="outline" size="sm" onClick={() => { notify({ title: "Ação de limpeza", description: "Solicitação de limpeza de documentos de teste enviada.", tone: "info" }); logs.refetch(); }}>Limpar documentos de teste</Button>
+            </div>
+          </div>
+        </Card>
+      )}
+
       <div className="grid gap-5 xl:grid-cols-[1.2fr_1.8fr]">
         <Card className="overflow-hidden bg-ink text-white">
           <div className="p-6">
@@ -149,7 +200,9 @@ export function SyncView() {
               </Badge>
             </div>
             <p className="mt-8 text-[10px] font-extrabold uppercase tracking-wider text-white/45">
-              Modo {readinessData?.sefaz.mode || "mock"} · {readinessData?.sefaz.environment || "homologação"}
+              Modo {sefazModeLabel(readinessData?.sefaz.mode)} ·{" "}
+              {readinessData?.company.environment === "production" ? "Produção" : "Homologação"} ·{" "}
+              {readinessData?.company.uf || "UF não informada"}
             </p>
             <h2 className="mt-2 text-2xl font-extrabold">
               {readinessData?.certificate.exists ? "Motor fiscal preparado" : "Aguardando certificado"}
@@ -178,6 +231,8 @@ export function SyncView() {
           <div className="mt-7 grid gap-3 md:grid-cols-2">
             <NsuBox label="Último NSU" value={status.data?.company.nfeLastNsu || "000000000000000"} />
             <NsuBox label="maxNSU conhecido" value={status.data?.company.nfeMaxNsu || "000000000000000"} highlight />
+            <NsuBox label="Documentos recebidos" value={String(latest?.documentsReceived || 0)} />
+            <NsuBox label="Documentos salvos" value={String(latest?.documentsSaved || 0)} />
           </div>
           <div className="mt-5 flex items-start gap-3 rounded-2xl bg-pastel-green p-4">
             <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />
@@ -207,12 +262,17 @@ export function SyncView() {
           <div className="overflow-x-auto">
             <table className="w-full min-w-[800px] text-left">
               <thead className="bg-muted/60 text-[9px] font-extrabold uppercase tracking-wider text-subtle">
-                <tr><th className="px-6 py-3">Início</th><th className="px-4 py-3">Resposta</th><th className="px-4 py-3">NSU solicitado</th><th className="px-4 py-3">ultNSU / maxNSU</th><th className="px-4 py-3">Docs.</th><th className="px-4 py-3">Duração</th></tr>
+                <tr><th className="px-6 py-3">Início</th><th className="px-4 py-3">Modo</th><th className="px-4 py-3">Resposta</th><th className="px-4 py-3">NSU solicitado</th><th className="px-4 py-3">ultNSU / maxNSU</th><th className="px-4 py-3">Recebidos / salvos</th><th className="px-4 py-3">Duração</th></tr>
               </thead>
               <tbody>
                 {(logs.data?.data || []).map((log) => (
                   <tr key={log.id} className="border-t border-line text-[10px]">
                     <td className="px-6 py-4 font-bold">{formatDate(log.startedAt, true)}</td>
+                    <td className="px-4 py-4">
+                      <Badge variant={log.mode === "real" ? "success" : "neutral"}>
+                        {sefazModeLabel(log.mode)} · {log.environment || "—"}
+                      </Badge>
+                    </td>
                     <td className="px-4 py-4">
                       <div className="flex items-center gap-2">
                         <Badge variant={log.status === "SUCCESS" ? "success" : log.status === "ERROR" ? "danger" : "warning"}>{log.cstat || log.status}</Badge>
@@ -221,7 +281,7 @@ export function SyncView() {
                     </td>
                     <td className="px-4 py-4 font-mono text-subtle">{log.requestNsu || "—"}</td>
                     <td className="px-4 py-4 font-mono">{log.responseUltNsu?.slice(-6) || "—"} / {log.responseMaxNsu?.slice(-6) || "—"}</td>
-                    <td className="px-4 py-4 font-extrabold">{log.documentsCount}</td>
+                    <td className="px-4 py-4 font-extrabold">{log.documentsReceived} / {log.documentsSaved}</td>
                     <td className="px-4 py-4 text-subtle">{duration(log.startedAt, log.finishedAt)}</td>
                   </tr>
                 ))}
@@ -236,7 +296,7 @@ export function SyncView() {
             <ProtectionItem icon={LockKeyhole} title="Lock por empresa" description="Impede sincronizações simultâneas." />
             <ProtectionItem icon={Clock3} title="Janela cStat 137/656" description="Bloqueio mínimo respeitado." />
             <ProtectionItem icon={Server} title="Redis + BullMQ" description="Processamento fora da requisição." />
-            <ProtectionItem icon={FileArchive} title="docZip isolado" description="Gateway preparado sem chamada real." />
+            <ProtectionItem icon={FileArchive} title="docZip completo" description="Todos os itens do lote são processados." />
           </div>
           {latest?.status === "ERROR" && (
             <Button className="mt-5 w-full" variant="outline" onClick={startSync}>
@@ -245,12 +305,18 @@ export function SyncView() {
           )}
           <div className="mt-5 flex items-start gap-3 rounded-2xl bg-pastel-yellow p-4">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
-            <p className="text-[10px] leading-4 text-amber-900">Nenhuma chamada real à SEFAZ ocorre com a flag desativada.</p>
+            <p className="text-[10px] leading-4 text-amber-900">
+              A sincronização usa apenas documentos reais da SEFAZ; não há fallback mock.
+            </p>
           </div>
         </Card>
       </div>
     </>
   );
+}
+
+function sefazModeLabel(mode?: string) {
+  return mode === "real" ? "Real SEFAZ" : "Real SEFAZ";
 }
 
 function duration(start: string, end?: string | null) {

@@ -3,9 +3,12 @@ import { Router } from "express";
 import { asyncHandler, sendSuccess } from "../../utils/response.js";
 import {
   getLatestDocuments,
+  getFiscalMonthlyFlow,
+  getFiscalSummary,
   getMonthlyFlow,
   getSummary,
   getTopSuppliers,
+  getTaxSummary,
   getXmlDistribution,
 } from "./dashboard.service.js";
 
@@ -25,4 +28,30 @@ dashboardRouter.get("/top-suppliers", asyncHandler(async (request, response) => 
 }));
 dashboardRouter.get("/latest-documents", asyncHandler(async (request, response) => {
   sendSuccess(response, await getLatestDocuments(request.company.id));
+}));
+dashboardRouter.get("/fiscal-summary", asyncHandler(async (request, response) => {
+  sendSuccess(response, await getFiscalSummary(request.company.id, request.query));
+}));
+dashboardRouter.get("/inbound-summary", asyncHandler(async (request, response) => {
+  const summary = await getFiscalSummary(request.company.id, request.query);
+  sendSuccess(response, { ...summary.inbound, periodYear: summary.periodYear, periodMonth: summary.periodMonth });
+}));
+dashboardRouter.get("/outbound-summary", asyncHandler(async (request, response) => {
+  const summary = await getFiscalSummary(request.company.id, request.query);
+  sendSuccess(response, { ...summary.outbound, periodYear: summary.periodYear, periodMonth: summary.periodMonth });
+}));
+dashboardRouter.get("/cte-summary", asyncHandler(async (request, response) => {
+  const summary = await getFiscalSummary(request.company.id, request.query);
+  sendSuccess(response, {
+    inbound: summary.cteInbound,
+    outbound: summary.cteOutbound,
+    periodYear: summary.periodYear,
+    periodMonth: summary.periodMonth,
+  });
+}));
+dashboardRouter.get("/tax-summary", asyncHandler(async (request, response) => {
+  sendSuccess(response, await getTaxSummary(request.company.id, request.query));
+}));
+dashboardRouter.get("/monthly-tax-flow", asyncHandler(async (request, response) => {
+  sendSuccess(response, await getFiscalMonthlyFlow(request.company.id));
 }));

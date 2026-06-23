@@ -1,0 +1,31 @@
+name: My Fiscal Project Config
+version: 1.0.0
+schema: v1
+
+models:
+  - name: nex-n2-pro
+    provider: openrouter
+    model: nex-agi/nex-n2-pro:free
+    apiKey: ${{ secrets.OPENROUTER_API_KEY }}
+    defaultCompletionOptions:
+      contextLength: 32768
+      maxTokens: 16384
+    capabilities:
+      - tool_use
+    roles:
+      - chat
+      - edit
+      - apply
+      - autocomplete
+
+  - name: nemotron-3-ultra
+    provider: openrouter
+    model: nvidia/nemotron-3-ultra-550b-a55b:free
+    apiKey: ${{ secrets.OPENROUTER_API_KEY }}
+    defaultCompletionOptions:
+      contextLength: 1000000
+      maxTokens: 65536
+    capabilities:
+      - tool_use
+    roles:
+      - chat

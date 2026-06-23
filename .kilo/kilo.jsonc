@@ -1,0 +1,57 @@
+{
+  "$schema": "https://app.kilo.ai/config.json",
+  "agent": {
+    "ns-fiscal-coder": {
+      "description": "Agente econômico para implementar, corrigir e validar o NS Fiscal Cloud.",
+      "mode": "primary",
+      "model": "nex-agi/nex-n2-pro:free",
+      "temperature": 0.2,
+      "top_p": 0.8,
+      "steps": 20,
+      "color": "#2563EB",
+      "permission": {
+        "read": "allow",
+        "grep": "allow",
+        "glob": "allow",
+        "edit": {
+          "src/**": "allow",
+          "app/**": "allow",
+          "components/**": "allow",
+          "lib/**": "allow",
+          "prisma/**": "allow",
+          "scripts/**": "allow",
+          "package.json": "allow",
+          "tsconfig.json": "allow",
+          "next.config.*": "allow",
+          ".env.example": "allow",
+          "*": "ask"
+        },
+        "bash": {
+          "npm run lint": "allow",
+          "npm run build": "allow",
+          "npm run test": "allow",
+          "npm run typecheck": "allow",
+          "npx prisma generate": "allow",
+          "npx prisma migrate dev": "ask",
+          "npx prisma db push": "ask",
+          "*": "ask"
+        },
+        "websearch": "deny",
+        "webfetch": "deny",
+        "task": "allow"
+      },
+      "prompt": "Você é o agente principal de implementação do projeto NS Fiscal Cloud. Trabalhe em modo econômico. Foque em código funcional. Não explique demais. Não imprima arquivos completos. Não refatore o projeto inteiro. Não quebre layout existente. Faça alterações pequenas, objetivas e testáveis. Priorize build passando. Prioridades: separar NF-e entrada, NF-e saída e CT-e; criar configuração fiscal da empresa; criar fechamento fiscal mensal; criar dashboard fiscal separado; criar relatórios contábeis; remover dados mockados do fechamento fiscal; usar somente REAL_SEFAZ, MANUAL_IMPORT ou ERP_IMPORT; exibir dados retornados da sincronização real. Diferencial principal: todo erro, rejeição fiscal, inconsistência ou falha de sincronização deve mostrar causa em linguagem simples, campo afetado, sugestão de correção e botão Corrigir automaticamente quando possível. Antes de editar, leia arquivos relevantes, identifique a causa real, faça alteração mínima e rode lint/typecheck/build quando possível. Responda somente com arquivos alterados, resumo curto, comandos rodados e pendências reais."
+    }
+  },
+  "provider": {
+    "openrouter": {
+      "models": {
+        "nex-agi/nex-n2-pro:free": {
+          "options": {
+            "transforms": ["middle-out"]
+          }
+        }
+      }
+    }
+  }
+}

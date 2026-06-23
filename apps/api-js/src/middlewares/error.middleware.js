@@ -1,5 +1,4 @@
 import { logger } from "../config/logger.js";
-import { env } from "../config/env.js";
 
 export function errorMiddleware(error, request, response, _next) {
   const statusCode =
@@ -13,9 +12,7 @@ export function errorMiddleware(error, request, response, _next) {
 
   logger.error(
     {
-      ...(env.NODE_ENV === "production"
-        ? { error: { name: error.name, code } }
-        : { err: error }),
+      error: { name: error.name, code, cause: error.cause, field: error.field },
       requestId: request.id,
       method: request.method,
       path: request.originalUrl,
@@ -25,10 +22,13 @@ export function errorMiddleware(error, request, response, _next) {
   );
 
   response.status(statusCode).json({
-    error: true,
-    message,
     code,
-    details: error.details || [],
+    message,
+    cause: error.cause || null,
+    field: error.field || null,
+    suggestion: error.suggestion || null,
+    autoFix: error.autoFix || { available: false, action: null, label: null },
+    details: error.details || {},
     requestId: request.id,
   });
 }

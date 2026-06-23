@@ -20,29 +20,60 @@ export interface DashboardAlert {
   fiscalDocumentId: string | null;
 }
 
+export interface PortfolioDashboard {
+  companies: Array<{
+    id: string;
+    legalName: string;
+    tradeName: string | null;
+    cnpj: string;
+    revenue: number;
+    estimatedTax: number;
+    pendingCount: number;
+    closingStatus: string;
+    lastSyncAt: string | null;
+  }>;
+  kpis: {
+    companies: number;
+    ready: number;
+    pending: number;
+    rejectedNotes: number;
+    expiringCertificates: number;
+    estimatedTax: number;
+  };
+  pendingByType: Array<{ type: string; count: number }>;
+}
+
 export async function getDashboard(companyId: string) {
-  const [summary, monthly, xml, suppliers, latest, alerts] = await Promise.all([
-    apiFetch<DashboardSummary>(`/companies/${companyId}/dashboard/summary`),
-    apiFetch<{ data: Array<{ month: string; documents: number; totalAmount: number }> }>(
-      `/companies/${companyId}/dashboard/monthly-flow`,
-    ),
-    apiFetch<{ data: Array<{ name: string; value: number; percentage: number }> }>(
-      `/companies/${companyId}/dashboard/xml-distribution`,
-    ),
+  const [portfolio, fiscal, taxes, monthly, latest, alerts] = await Promise.all([
+    apiFetch<PortfolioDashboard>("/companies/portfolio/dashboard"),
     apiFetch<{
-      data: Array<{
-        issuerName: string;
-        issuerCnpj: string;
-        documents: number;
-        totalAmount: number;
-      }>;
-    }>(`/companies/${companyId}/dashboard/top-suppliers`),
-    apiFetch<{ data: FiscalDocument[] }>(
-      `/companies/${companyId}/dashboard/latest-documents`,
+      inbound: { count: number; total: number };
+      outbound: { count: number; total: number };
+      cteInbound: { count: number; total: number };
+      cteOutbound: { count: number; total: number };
+      cancelled: number;
+      missingFullXml: number;
+      estimatedTax: number;
+    }>(`/companies/${companyId}/dashboard/fiscal-summary`),
+    apiFetch<{
+      total: number;
+      definitive: boolean;
+      data: Array<{ name: string; value: number; color: string }>;
+    }>(`/companies/${companyId}/dashboard/tax-summary`),
+    apiFetch<{ data: Array<{ month: string; inbound: number; outbound: number }> }>(
+      `/companies/${companyId}/dashboard/monthly-tax-flow`,
     ),
+    apiFetch<{ data: FiscalDocument[] }>(`/companies/${companyId}/dashboard/latest-documents`),
     apiFetch<{ data: DashboardAlert[] }>(
       `/companies/${companyId}/alerts?page=1&pageSize=4&status=open`,
     ),
   ]);
-  return { summary, monthly: monthly.data, xml: xml.data, suppliers: suppliers.data, latest: latest.data, alerts: alerts.data };
+  return {
+    portfolio,
+    fiscal,
+    taxes,
+    monthly: monthly.data,
+    latest: latest.data,
+    alerts: alerts.data,
+  };
 }

@@ -5,15 +5,18 @@ import {
   BellRing,
   Building2,
   CircleHelp,
-  Download,
   FileBarChart,
   FileCheck2,
+  FileKey2,
   Settings,
   Users,
 } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
 
+import { RemoveCompanyDialog } from "@/components/companies/remove-company-dialog";
+import { CnpjLookupForm } from "@/components/companies/cnpj-lookup-form";
 import { ManifestationModal } from "@/components/manifestation-modal";
 import { PageHeader } from "@/components/page-header";
 import { notify } from "@/components/toast-viewport";
@@ -21,11 +24,19 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { getCompanyId } from "@/lib/api";
+import { getCompanyId, setCompanyId } from "@/lib/api";
 import { listAlerts, updateAlert } from "@/lib/services/alert-service";
+import { uploadCertificate } from "@/lib/services/certificate-service";
 import { createCompany, listCompanies, updateCompany } from "@/lib/services/company-service";
+import {
+  lookupToCompanyForm,
+  lookupToCompanyPayload,
+  lookupToTaxSettings,
+  type CnpjLookupResponse,
+} from "@/lib/services/cnpj-service";
 import { searchDocuments } from "@/lib/services/fiscal-service";
 import { getPreferences, savePreferences } from "@/lib/services/preference-service";
+import { saveTaxSettings } from "@/lib/services/tax-service";
 import { formatCurrency, formatDate, maskCnpj } from "@/lib/utils";
 
 type ModuleName =
@@ -35,7 +46,9 @@ type ModuleName =
   | "reports"
   | "users"
   | "settings"
-  | "help";
+  | "help"
+  | "guides"
+  | "requests";
 
 const config = {
   companies: ["Empresas", "Estrutura multiempresa", "Gerencie CNPJs, ambientes fiscais e status da operação.", Building2],
@@ -45,6 +58,8 @@ const config = {
   users: ["Usuários", "Acesso e permissões", "Papéis preparados para OWNER, ADMIN, ACCOUNTANT, OPERATOR e VIEWER.", Users],
   settings: ["Configurações", "Preferências do sistema", "Defina tema, empresa padrão e densidade de tabela.", Settings],
   help: ["Ajuda", "Suporte e documentação", "Entenda NSU, XML, manifestação e códigos de retorno.", CircleHelp],
+  guides: ["Guias", "Documentos de arrecadação", "Acompanhe guias e vencimentos vinculados ao fechamento.", FileKey2],
+  requests: ["Solicitações", "Demandas contábeis", "Centralize solicitações e documentos pendentes das empresas.", FileCheck2],
 } as const;
 
 export function ModuleView({ module }: { module: ModuleName }) {
@@ -59,21 +74,98 @@ export function ModuleView({ module }: { module: ModuleName }) {
       {module === "users" && <UsersModule />}
       {module === "settings" && <SettingsModule />}
       {module === "help" && <HelpModule />}
+      {module === "guides" && <HelpModule />}
+      {module === "requests" && <HelpModule />}
     </>
   );
 }
 
 function CompaniesModule() {
+  const router = useRouter();
   const queryClient = useQueryClient();
+  const certificateRef = useRef<HTMLInputElement>(null);
   const [formOpen, setFormOpen] = useState(false);
-  const [form, setForm] = useState({ legalName: "", tradeName: "", cnpj: "", uf: "GO" });
+  const [certificatePassword, setCertificatePassword] = useState("");
+  const [productionConfirmed, setProductionConfirmed] = useState(false);
+  const [lookupData, setLookupData] = useState<CnpjLookupResponse | null>(null);
+  const [form, setForm] = useState({
+    legalName: "",
+    tradeName: "",
+    cnpj: "",
+    uf: "GO",
+    city: "",
+    stateRegistration: "",
+    taxRegime: "",
+    environment: "homologation" as "homologation" | "production",
+  });
   const query = useQuery({ queryKey: ["companies"], queryFn: listCompanies });
+  useEffect(() => {
+    setFormOpen(new URLSearchParams(window.location.search).get("new") === "1");
+  }, []);
   const create = useMutation({
-    mutationFn: () => createCompany(form),
-    onSuccess: () => {
-      notify({ title: "Empresa criada", description: "Novo CNPJ adicionado à operação." });
+    mutationFn: async () => {
+      const file = certificateRef.current?.files?.[0];
+      if (form.environment === "production" && !productionConfirmed) {
+        throw new Error("Confirme o uso do ambiente fiscal de produção.");
+      }
+      if (file && !/\.(pfx|p12)$/i.test(file.name)) {
+        throw new Error("Envie um certificado digital A1 .pfx ou .p12.");
+      }
+      if (file && !certificatePassword) {
+        throw new Error("Informe a senha do certificado digital.");
+      }
+      const lookupPayload = lookupData
+        ? lookupToCompanyPayload(lookupData)
+        : null;
+      const company = await createCompany({
+        ...form,
+        ...(lookupPayload ?? {}),
+        cnpj: form.cnpj.replace(/\D/g, ""),
+        stateRegistration:
+          lookupPayload?.stateRegistration ||
+          form.stateRegistration.replace(/\D/g, "") ||
+          undefined,
+        stateRegistrationFormatted:
+          lookupPayload?.stateRegistrationFormatted ||
+          form.stateRegistration ||
+          undefined,
+        taxRegime: lookupPayload?.taxRegime || form.taxRegime || undefined,
+      });
+      if (lookupData) {
+        await saveTaxSettings(lookupToTaxSettings(lookupData), company.id);
+      }
+      let certificateError: string | null = null;
+      if (file) {
+        try {
+          await uploadCertificate(company.id, file, certificatePassword);
+        } catch (error) {
+          certificateError = error instanceof Error ? error.message : "Falha no upload.";
+        }
+      }
+      return { company, certificateError, certificateSelected: Boolean(file) };
+    },
+    onSuccess: ({ company, certificateError, certificateSelected }) => {
+      setCompanyId(company.id);
       setFormOpen(false);
+      setCertificatePassword("");
+      setProductionConfirmed(false);
+      setLookupData(null);
       queryClient.invalidateQueries({ queryKey: ["companies"] });
+      if (certificateError) {
+        notify({
+          title: "Empresa criada, mas o certificado não foi enviado.",
+          description: certificateError,
+          tone: "error",
+        });
+      } else {
+        notify({
+          title: "Empresa criada",
+          description: certificateSelected
+            ? "Dados e certificado digital foram processados."
+            : "Dados da empresa foram salvos.",
+        });
+      }
+      router.push(`/companies/${company.id}/edit`);
     },
     onError: (error) => notify({ title: "Empresa não criada", description: error.message, tone: "error" }),
   });
@@ -86,11 +178,65 @@ function CompaniesModule() {
     <div className="space-y-5">
       <div className="flex justify-end"><Button variant="lime" onClick={() => setFormOpen((value) => !value)}>Nova empresa</Button></div>
       {formOpen && (
-        <Card className="grid gap-3 p-5 md:grid-cols-5">
-          <Input placeholder="Razão social" value={form.legalName} onChange={(event) => setForm({ ...form, legalName: event.target.value })} className="md:col-span-2" />
-          <Input placeholder="Nome fantasia" value={form.tradeName} onChange={(event) => setForm({ ...form, tradeName: event.target.value })} />
-          <Input placeholder="CNPJ" value={form.cnpj} onChange={(event) => setForm({ ...form, cnpj: event.target.value })} />
-          <div className="flex gap-2"><Input placeholder="UF" maxLength={2} value={form.uf} onChange={(event) => setForm({ ...form, uf: event.target.value.toUpperCase() })} /><Button variant="lime" onClick={() => create.mutate()} disabled={create.isPending}>Salvar</Button></div>
+        <Card className="p-5">
+          <div>
+            <h2 className="text-sm font-extrabold">1. Dados da empresa</h2>
+            <div className="mt-4 rounded-2xl border border-line p-4">
+              <CnpjLookupForm
+                onDataLoaded={(data) => {
+                  const fields = lookupToCompanyForm(data);
+                  setLookupData(data);
+                  setForm((current) => ({
+                    ...current,
+                    legalName: fields.legalName || current.legalName,
+                    tradeName: fields.tradeName || current.tradeName,
+                    cnpj: fields.cnpj,
+                    city: fields.city || current.city,
+                    uf: fields.uf || current.uf,
+                    stateRegistration:
+                      fields.stateRegistration || current.stateRegistration,
+                    taxRegime: fields.taxRegime,
+                    environment: fields.environment,
+                  }));
+                }}
+              />
+            </div>
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              <Input placeholder="Razão social" value={form.legalName} onChange={(event) => setForm({ ...form, legalName: event.target.value })} />
+              <Input placeholder="Nome fantasia" value={form.tradeName} onChange={(event) => setForm({ ...form, tradeName: event.target.value })} />
+              <Input placeholder="CNPJ" value={form.cnpj} onChange={(event) => setForm({ ...form, cnpj: event.target.value })} />
+              <Input placeholder="Cidade" value={form.city} onChange={(event) => setForm({ ...form, city: event.target.value })} />
+              <Input placeholder="UF" maxLength={2} value={form.uf} onChange={(event) => setForm({ ...form, uf: event.target.value.toUpperCase() })} />
+              <Input placeholder="Inscrição Estadual" value={form.stateRegistration} onChange={(event) => setForm({ ...form, stateRegistration: event.target.value })} />
+              <Input placeholder="Regime tributário" value={form.taxRegime} onChange={(event) => setForm({ ...form, taxRegime: event.target.value })} />
+              <Input placeholder="CNAE principal" value={lookupData?.empresa.cnaePrincipal.codigoFormatado || ""} readOnly />
+              <Input placeholder="Regime de apuração" value={lookupData?.fiscal.regimeApuracao || ""} readOnly />
+              <Input className="md:col-span-2" placeholder="Atividade principal" value={lookupData?.empresa.cnaePrincipal.descricao || ""} readOnly />
+            </div>
+          </div>
+          <div className="mt-6 border-t border-line pt-5">
+            <h2 className="text-sm font-extrabold">2. Ambiente fiscal</h2>
+            <select value={form.environment} onChange={(event) => setForm({ ...form, environment: event.target.value as "homologation" | "production" })} className="mt-4 h-11 w-full rounded-xl border border-line bg-white px-3.5 text-sm outline-none md:max-w-sm"><option value="homologation">Homologação</option><option value="production">Produção</option></select>
+            {form.environment === "production" && (
+              <label className="mt-3 flex items-start gap-2 text-xs">
+                <input type="checkbox" checked={productionConfirmed} onChange={(event) => setProductionConfirmed(event.target.checked)} className="mt-0.5" />
+                Confirmo que desejo configurar esta empresa para ambiente de produção.
+              </label>
+            )}
+          </div>
+          <div className="mt-6 border-t border-line pt-5">
+            <h2 className="flex items-center gap-2 text-sm font-extrabold"><FileKey2 className="h-4 w-4" />3. Certificado Digital A1</h2>
+            <p className="mt-1 text-xs text-subtle">Opcional. A empresa será criada antes do upload.</p>
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              <Input ref={certificateRef} type="file" accept=".pfx,.p12" className="h-12 p-3" />
+              <Input type="password" placeholder="Senha do certificado" value={certificatePassword} onChange={(event) => setCertificatePassword(event.target.value)} />
+            </div>
+          </div>
+          <div className="mt-6 flex justify-end">
+            <Button variant="lime" onClick={() => create.mutate()} disabled={create.isPending}>
+              {create.isPending ? "Salvando..." : "Salvar empresa"}
+            </Button>
+          </div>
         </Card>
       )}
       <div className="grid gap-4 lg:grid-cols-2">
@@ -100,7 +246,7 @@ function CompaniesModule() {
             <h2 className="mt-5 text-base font-extrabold">{company.tradeName || company.legalName}</h2>
             <p className="mt-1 text-[10px] font-bold text-subtle">{maskCnpj(company.cnpj)} · {company.uf} · {company.environment}</p>
             <div className="mt-5 grid grid-cols-2 gap-3 rounded-2xl bg-muted p-4 text-[10px]"><div><p className="text-subtle">Documentos</p><p className="mt-1 font-extrabold">{company._count?.fiscalDocuments || 0}</p></div><div><p className="text-subtle">Último NSU</p><p className="mt-1 truncate font-mono font-extrabold">{company.nfeLastNsu}</p></div></div>
-            <div className="mt-4 flex gap-2"><Button asChild variant="outline" size="sm"><Link href={`/companies/${company.id}`}>Ver detalhes</Link></Button><Button variant="ghost" size="sm" onClick={() => toggle.mutate(company)}>{company.status === "active" ? "Desativar" : "Ativar"}</Button></div>
+            <div className="mt-4 flex flex-wrap gap-2"><Button asChild variant="outline" size="sm"><Link href={`/companies/${company.id}/edit`}>Editar</Link></Button><Button variant="ghost" size="sm" onClick={() => toggle.mutate(company)}>{company.status === "active" ? "Desativar" : "Ativar"}</Button><RemoveCompanyDialog company={company} /></div>
           </Card>
         ))}
       </div>
@@ -112,7 +258,7 @@ function ManifestationsModule() {
   const companyId = getCompanyId();
   const query = useQuery({
     queryKey: ["manifestation-documents", companyId],
-    queryFn: () => searchDocuments({ page: 1, pageSize: 25, filters: { query: "", documentType: "", hasLinkedCte: "", status: "", xmlType: "", manifestation: "PENDING", startDate: "", endDate: "", minAmount: "", maxAmount: "", uf: "", onlyNewSuppliers: false } }),
+    queryFn: () => searchDocuments({ page: 1, pageSize: 25, filters: { query: "", documentType: "", operationDirection: "", source: "", hasLinkedCte: "", status: "", xmlType: "", manifestation: "PENDING", startDate: "", endDate: "", minAmount: "", maxAmount: "", uf: "", onlyNewSuppliers: false } }),
     enabled: Boolean(companyId),
   });
   return (
@@ -120,7 +266,7 @@ function ManifestationsModule() {
       <div className="border-b border-line px-5 py-4"><p className="text-xs font-extrabold">{query.data?.pagination.total || 0} documentos pendentes</p></div>
       {(query.data?.data || []).map((document) => (
         <div key={document.id} className="flex flex-col gap-3 border-t border-line px-5 py-4 first:border-0 md:flex-row md:items-center">
-          <div className="min-w-0 flex-1"><Link href={`/documents/${document.id}`} className="text-xs font-extrabold hover:underline">NF-e {document.invoiceNumber} · {document.issuerName}</Link><p className="mt-1 text-[10px] text-subtle">{formatDate(document.emissionDate)} · {formatCurrency(document.totalAmount)}</p></div>
+          <div className="min-w-0 flex-1"><Link href={`/documents/${document.id}`} className="text-xs font-extrabold hover:underline">NF-e {document.invoiceNumber || "—"} · {document.issuerName || "—"}</Link><p className="mt-1 text-[10px] text-subtle">{document.emissionDate ? formatDate(document.emissionDate) : "—"} · {formatCurrency(document.totalAmount)}</p></div>
           <ManifestationModal documentIds={[document.id]} />
         </div>
       ))}
@@ -152,30 +298,19 @@ function AlertsModule() {
 }
 
 function ReportsModule() {
-  const [status, setStatus] = useState("");
-  const query = useQuery({
-    queryKey: ["report-documents", status],
-    queryFn: () => searchDocuments({ page: 1, pageSize: 100, filters: { query: "", documentType: "", hasLinkedCte: "", status, xmlType: "", manifestation: "", startDate: "", endDate: "", minAmount: "", maxAmount: "", uf: "", onlyNewSuppliers: false } }),
-  });
-  function exportReport(extension: "csv" | "xlsx") {
-    const rows = query.data?.data || [];
-    const content = [["numero", "emitente", "emissao", "valor", "status"], ...rows.map((item) => [item.invoiceNumber, item.issuerName, item.emissionDate, item.totalAmount, item.status])].map((row) => row.join(";")).join("\n");
-    const url = URL.createObjectURL(new Blob([`\uFEFF${content}`], { type: "text/csv" }));
-    const link = window.document.createElement("a"); link.href = url; link.download = `relatorio-fiscal.${extension === "xlsx" ? "csv" : "csv"}`; link.click(); URL.revokeObjectURL(url);
-    notify({ title: extension === "xlsx" ? "XLSX mockado gerado" : "CSV gerado", description: `${rows.length} documentos exportados.` });
-  }
-  const total = (query.data?.data || []).reduce((sum, item) => sum + item.totalAmount, 0);
   return (
-    <div className="space-y-5">
-      <div className="grid gap-4 md:grid-cols-3"><Stat label="Documentos no relatório" value={String(query.data?.pagination.total || 0)} /><Stat label="Valor da amostra" value={formatCurrency(total)} /><Stat label="Filtro" value={status || "Todos"} /></div>
+    <div className="grid gap-4 md:grid-cols-2">
       <Card className="p-6">
-        <h2 className="text-base font-extrabold">Relatório consolidado fiscal</h2>
-        <p className="mt-2 text-xs text-subtle">Exportação enxuta, sem XML bruto ou credenciais sensíveis.</p>
-        <select value={status} onChange={(event) => setStatus(event.target.value)} className="mt-5 h-11 rounded-xl border border-line bg-white px-3 text-sm">
-          <option value="">Todos os status</option><option value="AUTHORIZED">Autorizadas</option><option value="CANCELLED">Canceladas</option><option value="EVENT">Eventos</option>
-        </select>
-        {!query.isLoading && !query.data?.data.length ? <p className="mt-5 rounded-xl bg-muted p-4 text-xs text-subtle">Nenhum dado para o filtro selecionado.</p> : null}
-        <div className="mt-6 flex flex-wrap gap-2"><Button variant="lime" onClick={() => query.refetch()}>Gerar relatório</Button><Button variant="outline" onClick={() => exportReport("csv")}><Download className="h-4 w-4" />Exportar CSV</Button><Button variant="outline" onClick={() => exportReport("xlsx")}>Exportar XLSX mockado</Button></div>
+        <FileBarChart className="h-6 w-6 text-violet-600" />
+        <h2 className="mt-5 text-base font-extrabold">Relatórios contábeis</h2>
+        <p className="mt-2 text-xs text-subtle">Entradas, saídas, CT-e, impostos e pendências com exportação CSV/XLSX real.</p>
+        <Button asChild className="mt-6" variant="lime"><Link href="/reports/accounting">Abrir relatórios</Link></Button>
+      </Card>
+      <Card className="p-6">
+        <FileCheck2 className="h-6 w-6 text-emerald-600" />
+        <h2 className="mt-5 text-base font-extrabold">Fechamento fiscal mensal</h2>
+        <p className="mt-2 text-xs text-subtle">Cálculo assistido com aprovação, reabertura e documentos MOCK/SEED ignorados.</p>
+        <Button asChild className="mt-6" variant="outline"><Link href="/reports/monthly-closing">Abrir fechamento</Link></Button>
       </Card>
     </div>
   );
@@ -232,8 +367,4 @@ function HelpModule() {
     ["cStat 656", "Consumo indevido. O sistema aplica bloqueio antes de nova tentativa."],
   ];
   return <div className="grid gap-4 lg:grid-cols-2">{items.map(([title, text]) => <Card key={title} className="p-5"><h2 className="text-sm font-extrabold">{title}</h2><p className="mt-2 text-xs leading-6 text-subtle">{text}</p></Card>)}<Card className="p-5 lg:col-span-2"><h2 className="text-sm font-extrabold">Precisa de suporte?</h2><Button className="mt-4" variant="lime" onClick={() => notify({ title: "Chamado mockado aberto", description: "A equipe NS Sistemas recebeu a solicitação." })}>Abrir chamado</Button></Card></div>;
-}
-
-function Stat({ label, value }: { label: string; value: string }) {
-  return <Card className="p-5"><p className="text-[10px] font-bold text-subtle">{label}</p><p className="mt-4 text-2xl font-extrabold">{value}</p></Card>;
 }

@@ -2,6 +2,7 @@ import forge from "node-forge";
 
 import { prisma } from "../config/prisma.js";
 import { AppError } from "../utils/app-error.js";
+import { isValidCnpj, normalizeCnpj } from "../utils/cnpj.js";
 import { daysRemaining } from "../utils/date.js";
 import {
   decryptBuffer,
@@ -53,18 +54,80 @@ function formatDistinguishedName(attributes) {
     .join(", ");
 }
 
-function extractCnpj(attributes, extensions = []) {
-  const values = attributes.map((attribute) => String(attribute.value));
-  for (const extension of extensions) {
-    if (extension.value) {
-      values.push(Buffer.from(extension.value, "binary").toString("latin1"));
-    }
+function cnpjCandidates(value, allowTrailingDigits = false) {
+  const text = String(value || "");
+  const matches = [
+    ...(text.match(/\d{2}[.\s]?\d{3}[.\s]?\d{3}[/-]?\d{4}-?\d{2}/g) || []),
+  ].map(normalizeCnpj);
+  if (allowTrailingDigits) {
+    const digits = normalizeCnpj(text);
+    if (digits.length >= 14) matches.push(digits.slice(-14));
   }
-  for (const value of values) {
-    const matches = value.match(/\d{14}/g);
-    if (matches?.length) return matches.at(-1);
+  return matches.filter((candidate) => candidate.length === 14 && isValidCnpj(candidate));
+}
+
+function primitiveText(node) {
+  if (!node) return "";
+  if (Array.isArray(node.value)) return node.value.map(primitiveText).join(" ");
+  return typeof node.value === "string" ? node.value : "";
+}
+
+function extractIcpBrasilCnpj(node) {
+  if (!node || !Array.isArray(node.value)) return null;
+  const hasCnpjOid = node.value.some(
+    (child) =>
+      child.type === forge.asn1.Type.OID &&
+      forge.asn1.derToOid(child.value) === "2.16.76.1.3.3",
+  );
+  if (hasCnpjOid) {
+    const candidates = cnpjCandidates(primitiveText(node), true);
+    if (candidates.length) return candidates[0];
+  }
+  for (const child of node.value) {
+    const candidate = extractIcpBrasilCnpj(child);
+    if (candidate) return candidate;
   }
   return null;
+}
+
+export function extractHolderCnpjFromCertificate(certificate) {
+  const attributes = certificate.subject?.attributes || [];
+  for (const attribute of attributes) {
+    const name = String(attribute.name || "").toLowerCase();
+    const shortName = String(attribute.shortName || "").toLowerCase();
+    const type = String(attribute.type || "");
+    if (name.includes("cnpj") || shortName.includes("cnpj") || type === "2.16.76.1.3.3") {
+      const candidates = cnpjCandidates(attribute.value, true);
+      if (candidates.length) return candidates[0];
+    }
+  }
+
+  const commonName = attributes.find((attribute) => {
+    const name = String(attribute.name || "").toLowerCase();
+    const shortName = String(attribute.shortName || "").toLowerCase();
+    return shortName === "cn" || name === "commonname";
+  });
+  const commonNameCandidates = cnpjCandidates(commonName?.value);
+  if (commonNameCandidates.length) return commonNameCandidates[0];
+
+  const subjectAltName = (certificate.extensions || []).find(
+    (extension) =>
+      extension.name === "subjectAltName" || extension.id === "2.5.29.17",
+  );
+  if (subjectAltName?.value) {
+    try {
+      return extractIcpBrasilCnpj(forge.asn1.fromDer(subjectAltName.value));
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+function maskCnpj(value) {
+  const cnpj = normalizeCnpj(value);
+  if (cnpj.length !== 14) return "CNPJ inválido";
+  return cnpj.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, "$1.$2.$3/$4-$5");
 }
 
 export function inspectPkcs12(file, password) {
@@ -93,11 +156,18 @@ export function inspectPkcs12(file, password) {
       issuer: formatDistinguishedName(certificate.issuer.attributes),
       validFrom: certificate.validity.notBefore,
       validUntil: certificate.validity.notAfter,
-      holderCnpj: extractCnpj(certificate.subject.attributes, certificate.extensions),
+      holderCnpj: extractHolderCnpjFromCertificate(certificate),
     };
-  } catch {
+  } catch (error) {
+    if (/password|mac could not be verified/i.test(String(error?.message || ""))) {
+      throw new AppError(
+        "Senha do certificado inválida.",
+        "CERTIFICATE_INVALID_PASSWORD",
+        422,
+      );
+    }
     throw new AppError(
-      "Arquivo A1 ou senha inválidos.",
+      "O arquivo do certificado digital é inválido.",
       "CERTIFICATE_INVALID",
       422,
     );
@@ -106,11 +176,24 @@ export function inspectPkcs12(file, password) {
 
 export async function storeValidatedCertificate({ company, file, password }) {
   const metadata = inspectPkcs12(file, password);
-  if (!metadata.holderCnpj || metadata.holderCnpj !== company.cnpj) {
+  const companyCnpj = normalizeCnpj(company.cnpj);
+  const certificateCnpj = normalizeCnpj(metadata.holderCnpj);
+  if (!certificateCnpj) {
+    throw new AppError(
+      "Não foi possível identificar o CNPJ do titular no certificado. Verifique se o arquivo é um e-CNPJ A1 válido.",
+      "CERTIFICATE_CNPJ_NOT_FOUND",
+      422,
+    );
+  }
+  if (certificateCnpj !== companyCnpj) {
     throw new AppError(
       "O CNPJ do certificado não corresponde ao CNPJ da empresa.",
       "CERTIFICATE_CNPJ_MISMATCH",
       422,
+      {
+        companyCnpjMasked: maskCnpj(companyCnpj),
+        certificateCnpjMasked: maskCnpj(certificateCnpj),
+      },
     );
   }
   if (metadata.validUntil.getTime() < Date.now()) {

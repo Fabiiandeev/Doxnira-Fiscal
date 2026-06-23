@@ -28,6 +28,21 @@ export const documentListSelect = {
   protocol: true,
   schemaName: true,
   documentType: true,
+  operationDirection: true,
+  companyRole: true,
+  source: true,
+  productsAmount: true,
+  freightAmount: true,
+  discountAmount: true,
+  icmsAmount: true,
+  ipiAmount: true,
+  pisAmount: true,
+  cofinsAmount: true,
+  icmsBase: true,
+  icmsStAmount: true,
+  fcpAmount: true,
+  otherAmount: true,
+  taxAmount: true,
   createdAt: true,
 };
 
@@ -35,6 +50,18 @@ function serializeDocument(document) {
   return {
     ...document,
     totalAmount: document.totalAmount == null ? 0 : Number(document.totalAmount),
+    productsAmount: Number(document.productsAmount || 0),
+    freightAmount: Number(document.freightAmount || 0),
+    discountAmount: Number(document.discountAmount || 0),
+    icmsAmount: Number(document.icmsAmount || 0),
+    ipiAmount: Number(document.ipiAmount || 0),
+    pisAmount: Number(document.pisAmount || 0),
+    cofinsAmount: Number(document.cofinsAmount || 0),
+    icmsBase: Number(document.icmsBase || 0),
+    icmsStAmount: Number(document.icmsStAmount || 0),
+    fcpAmount: Number(document.fcpAmount || 0),
+    otherAmount: Number(document.otherAmount || 0),
+    taxAmount: Number(document.taxAmount || 0),
     xmlType: document.isSummary ? "SUMMARY" : "FULL",
   };
 }
@@ -55,6 +82,8 @@ function buildWhere(companyId, query) {
   }
   if (query.status) where.status = query.status;
   if (query.documentType) where.documentType = query.documentType;
+  if (query.operationDirection) where.operationDirection = query.operationDirection;
+  if (query.source) where.source = query.source;
   if (query.hasLinkedCte === "true") where.transportLinks = { some: {} };
   if (query.hasLinkedCte === "false") where.transportLinks = { none: {} };
   if (query.xmlType) where.isSummary = query.xmlType === "SUMMARY";
@@ -105,6 +134,7 @@ export async function findDocument(companyId, documentId, includeXml = false) {
       ...documentListSelect,
       products: true,
       taxes: true,
+      items: { orderBy: { itemNumber: "asc" } },
       ...(includeXml ? { rawXml: true, xmlHashSha256: true, xmlStorageKey: true } : {}),
     },
   });

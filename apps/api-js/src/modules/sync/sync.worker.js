@@ -25,6 +25,8 @@ export function createSyncWorker() {
             service: "NFeDistribuicaoDFe",
             requestType: "distNSU",
             requestNsu: result.lastNsu,
+            mode: result.mode || "real",
+            environment: result.environment || null,
             status: "QUEUED",
             startedAt: new Date(),
           },
@@ -47,7 +49,7 @@ export function createSyncWorker() {
     },
   );
   worker.on("completed", (job, result) => {
-    logger.info({ jobId: job.id, result }, "Mock fiscal synchronization completed");
+    logger.info({ jobId: job.id, result }, "Fiscal synchronization completed");
   });
   worker.on("failed", (job, error) => {
     logger.error({ jobId: job?.id, err: error }, "Fiscal synchronization failed");
@@ -56,10 +58,12 @@ export function createSyncWorker() {
         where: { id: job.data.syncLogId },
         data: {
           status: "ERROR",
-          errorMessage: "Falha controlada no processamento da sincronização.",
+          errorMessage: error?.message || "Falha controlada no processamento da sincronização.",
           finishedAt: new Date(),
         },
-      }).catch(() => undefined);
+      }).catch((err) => {
+        logger.error({ syncLogId: job.data.syncLogId, err }, "Erro ao atualizar sync log");
+      });
     }
   });
   worker.on("error", (error) => {

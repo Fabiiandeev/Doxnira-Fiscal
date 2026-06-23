@@ -1,8 +1,12 @@
 import { apiFetch } from "@/lib/api";
-import type { SyncLog } from "@/lib/types";
+import type { FiscalRepairAction, SyncLog } from "@/lib/types";
 
 export interface SyncReadiness {
   companyId: string;
+  company: {
+    environment: "production" | "homologation";
+    uf: string | null;
+  };
   certificate: {
     exists: boolean;
     valid: boolean;
@@ -22,6 +26,7 @@ export interface SyncReadiness {
     message: string;
     nextAllowedSyncAt: string | null;
   };
+  actions: FiscalRepairAction[];
 }
 
 export async function getSyncReadiness(companyId: string) {
@@ -43,6 +48,8 @@ export async function getSyncStatus(companyId: string) {
       nfeMaxNsu: string | null;
       nextAllowedSyncAt: string | null;
       lastSyncAt: string | null;
+      environment: "production" | "homologation";
+      uf: string | null;
     };
   }>(`/companies/${companyId}/sync/status`);
 }

@@ -7,6 +7,7 @@ import { rateLimit } from "../../middlewares/rate-limit.middleware.js";
 import { getCurrentCertificate, serializeCertificate } from "../../services/certificate-vault.service.js";
 import { assertNsuWindow } from "../../services/nsu-control.service.js";
 import { AppError } from "../../utils/app-error.js";
+import { normalizeCnpj } from "../../utils/cnpj.js";
 import { daysRemaining } from "../../utils/date.js";
 import { getPagination, paginationMeta } from "../../utils/pagination.js";
 import { asyncHandler, sendSuccess } from "../../utils/response.js";
@@ -16,50 +17,65 @@ export async function getReadiness(company) {
   const certificate = await getCurrentCertificate(company.id);
   const serialized = serializeCertificate(certificate);
   const expired = serialized?.expired || false;
-  const cnpjCompatible = certificate?.holderCnpj === company.cnpj;
+  const cnpjCompatible =
+    Boolean(certificate?.holderCnpj) &&
+    normalizeCnpj(certificate.holderCnpj) === normalizeCnpj(company.cnpj);
   const certificateValid = Boolean(serialized?.valid && cnpjCompatible);
-  let status = "READY_TO_SYNC_MOCK_MODE";
-  let message = "Certificado válido. Sincronização simulada disponível.";
+  const actions = [];
+
   if (!certificate) {
+    actions.push({ code: "CERTIFICATE_REQUIRED", target: "certificate" });
+  } else if (expired) {
+    actions.push({ code: "CERTIFICATE_EXPIRED", target: "certificate" });
+  } else if (!cnpjCompatible) {
+    actions.push({ code: "CERTIFICATE_CNPJ_MISMATCH", target: "certificate" });
+  } else if (!serialized.valid) {
+    actions.push({ code: "CERTIFICATE_INVALID", target: "certificate" });
+  }
+
+  let status = "REAL_INTEGRATION_DISABLED";
+  let message = "Sincronização real com a SEFAZ está desativada (SEFAZ_INTEGRATION_ENABLED=false).";
+  if (!env.SEFAZ_INTEGRATION_ENABLED) {
+    actions.push({ code: "REAL_INTEGRATION_DISABLED", target: "company" });
+  } else if (company.environment === "production" && !env.ALLOW_PRODUCTION_SEFAZ) {
+    status = "SYNC_BLOCKED";
+    message =
+      "Empresa configurada para produção, mas ALLOW_PRODUCTION_SEFAZ está desativado.";
+    actions.push({ code: "PRODUCTION_SEFAZ_BLOCKED", target: "company" });
+  } else if (!certificate) {
     status = "NO_CERTIFICATE";
     message = "Cadastre um certificado digital A1 para iniciar a sincronização.";
   } else if (expired) {
     status = "CERTIFICATE_EXPIRED";
     message = "O certificado digital está vencido.";
   } else if (!cnpjCompatible) {
-    status = "CERTIFICATE_INVALID";
-    message = "O CNPJ do certificado não corresponde à empresa.";
+    status = "CERTIFICATE_CNPJ_MISMATCH";
+    message = "O CNPJ do certificado não corresponde ao CNPJ da empresa.";
   } else if (!serialized.valid) {
     status = "CERTIFICATE_INVALID";
     message = "O certificado ainda não foi validado.";
   } else if (company.status !== "active") {
     status = "SYNC_BLOCKED";
     message = "Ative a empresa antes de sincronizar.";
+    actions.push({ code: "COMPANY_INACTIVE", target: "company" });
   } else if (
     company.nfeNextAllowedSyncAt &&
     new Date(company.nfeNextAllowedSyncAt).getTime() > Date.now()
   ) {
     status = "SYNC_BLOCKED";
     message = "Aguarde a janela mínima para uma nova consulta por NSU.";
-  } else if (env.SEFAZ_INTEGRATION_ENABLED) {
-    if (
-      env.SEFAZ_ENVIRONMENT === "production" &&
-      !env.ALLOW_PRODUCTION_SEFAZ
-    ) {
-      status = "SYNC_BLOCKED";
-      message = "Produção SEFAZ bloqueada por configuração.";
-    } else {
-      status = "READY_TO_SYNC";
-      message = "Empresa pronta para sincronização real controlada.";
-    }
+    actions.push({ code: "SYNC_RATE_LIMITED", target: "sync" });
+  } else {
+    status = "READY_TO_SYNC";
+    message = "Empresa pronta para sincronização real controlada.";
   }
 
   const ready =
+    env.SEFAZ_INTEGRATION_ENABLED &&
     certificateValid &&
     company.status === "active" &&
     !(
-      env.SEFAZ_INTEGRATION_ENABLED &&
-      env.SEFAZ_ENVIRONMENT === "production" &&
+      company.environment === "production" &&
       !env.ALLOW_PRODUCTION_SEFAZ
     ) &&
     (!company.nfeNextAllowedSyncAt ||
@@ -67,6 +83,10 @@ export async function getReadiness(company) {
 
   return {
     companyId: company.id,
+    company: {
+      environment: company.environment,
+      uf: company.uf,
+    },
     certificate: {
       exists: Boolean(certificate),
       valid: certificateValid,
@@ -79,44 +99,46 @@ export async function getReadiness(company) {
           ? "CERTIFICATE_EXPIRED"
           : certificateValid
             ? "CERTIFICATE_VALID"
+            : !cnpjCompatible
+              ? "CERTIFICATE_CNPJ_MISMATCH"
             : serialized?.validatedAt
               ? "CERTIFICATE_INVALID"
               : "CERTIFICATE_UPLOADED",
     },
     sefaz: {
       integrationEnabled: env.SEFAZ_INTEGRATION_ENABLED,
-      environment: env.SEFAZ_ENVIRONMENT,
-      mode: env.SEFAZ_INTEGRATION_ENABLED ? "real" : "mock",
+      environment: company.environment,
+      mode: "real",
       productionAllowed: env.ALLOW_PRODUCTION_SEFAZ,
     },
     manifestation: {
       enabled: env.SEFAZ_MANIFESTATION_ENABLED,
-      mode: env.SEFAZ_MANIFESTATION_ENABLED ? "real" : "mock",
+      mode: env.SEFAZ_MANIFESTATION_ENABLED ? "real" : "real",
       ready:
         env.SEFAZ_MANIFESTATION_ENABLED &&
         certificateValid &&
         !(
-          env.SEFAZ_ENVIRONMENT === "production" &&
+          company.environment === "production" &&
           !env.ALLOW_PRODUCTION_SEFAZ
         ),
       message: env.SEFAZ_MANIFESTATION_ENABLED
         ? "Manifestação real habilitada para ambiente controlado."
-        : "Manifestação mockada ativa.",
+        : "Manifestação real desativada por configuração.",
     },
     cte: {
       enabled: env.CTE_INTEGRATION_ENABLED,
-      mode: env.CTE_INTEGRATION_ENABLED ? "real" : "mock",
+      mode: env.CTE_INTEGRATION_ENABLED ? "real" : "real",
       ready:
         env.CTE_INTEGRATION_ENABLED &&
         certificateValid &&
         Boolean(
-          env.SEFAZ_ENVIRONMENT === "production"
+          company.environment === "production"
             ? env.CTE_DIST_DFE_PROD_URL
             : env.CTE_DIST_DFE_HOM_URL,
         ),
       message: env.CTE_INTEGRATION_ENABLED
         ? "Integração CT-e real condicionada ao endpoint configurado."
-        : "Integração CT-e real desativada. Vínculo disponível via XML importado ou mock.",
+        : "Integração CT-e real desativada. Vínculo disponível via XML importado.",
     },
     sync: {
       ready,
@@ -124,6 +146,7 @@ export async function getReadiness(company) {
       message,
       nextAllowedSyncAt: company.nfeNextAllowedSyncAt,
     },
+    actions,
   };
 }
 
@@ -138,14 +161,8 @@ syncRouter.post(
   rateLimit({ key: "sync", max: 10, windowMs: 60 * 60_000 }),
   asyncHandler(async (request, response) => {
     const readiness = await getReadiness(request.company);
-    if (!readiness.certificate.exists) {
-      throw new AppError(readiness.sync.message, "CERTIFICATE_REQUIRED", 409);
-    }
-    if (!readiness.certificate.valid) {
-      throw new AppError(readiness.sync.message, readiness.sync.status, 409);
-    }
-    if (request.company.status !== "active") {
-      throw new AppError(readiness.sync.message, "COMPANY_INACTIVE", 409);
+    if (!readiness.sync.ready) {
+      throw new AppError(readiness.sync.message, readiness.sync.status, 409, readiness.actions);
     }
     assertNsuWindow(request.company);
 
@@ -168,6 +185,8 @@ syncRouter.post(
         service: "NFeDistribuicaoDFe",
         requestType: "distNSU",
         requestNsu: request.company.nfeLastNsu,
+        mode: readiness.sefaz.mode,
+        environment: request.company.environment,
         status: "QUEUED",
         startedAt: new Date(),
       },
@@ -237,6 +256,10 @@ syncRouter.get(
         cstat: true,
         xmotivo: true,
         documentsCount: true,
+        documentsReceived: true,
+        documentsSaved: true,
+        mode: true,
+        environment: true,
         requestNsu: true,
         responseUltNsu: true,
         responseMaxNsu: true,
@@ -250,18 +273,17 @@ syncRouter.get(
       latest: latest
         ? {
             ...latest,
-            syncState:
-              latest.status === "QUEUED"
-                ? "SYNC_QUEUED"
-                : latest.status === "RUNNING"
-                  ? "SYNC_PROCESSING"
-                  : latest.status === "SUCCESS"
-                    ? "SYNC_SUCCESS"
-                    : latest.status === "WAITING"
-                      ? "SYNC_WAITING"
-                      : latest.status === "WARNING"
-                        ? "SYNC_BLOCKED"
-                        : "SYNC_ERROR",
+            syncState: (() => {
+              if (latest.status === "QUEUED") return "SYNC_QUEUED";
+              if (latest.status === "RUNNING") return "SYNC_PROCESSING";
+              if (latest.status === "SUCCESS") return "SYNC_SUCCESS";
+              // prefer cStat-based hints when available
+              if (latest.cstat === 137) return "SYNC_NO_DOCUMENTS";
+              if (latest.cstat === 656) return "SYNC_BLOCKED_TEMPORARY";
+              if (latest.status === "NO_DOCUMENTS") return "SYNC_NO_DOCUMENTS";
+              if (latest.status === "WARNING") return "SYNC_WARNING";
+              return "SYNC_ERROR";
+            })(),
           }
         : null,
       company: {
@@ -269,6 +291,8 @@ syncRouter.get(
         nfeMaxNsu: request.company.nfeMaxNsu,
         nextAllowedSyncAt: request.company.nfeNextAllowedSyncAt,
         lastSyncAt: request.company.lastSyncAt,
+        environment: request.company.environment,
+        uf: request.company.uf,
       },
     });
   }),
@@ -292,6 +316,10 @@ syncRouter.get(
           cstat: true,
           xmotivo: true,
           documentsCount: true,
+          documentsReceived: true,
+          documentsSaved: true,
+          mode: true,
+          environment: true,
           status: true,
           errorMessage: true,
           startedAt: true,

@@ -1,4 +1,4 @@
-import { extname } from "node:path";
+import { basename, extname } from "node:path";
 
 import { Router } from "express";
 import multer from "multer";
@@ -19,6 +19,26 @@ const upload = multer({
   limits: { fileSize: env.UPLOAD_MAX_SIZE_MB * 1024 * 1024, files: 1 },
 });
 
+function handleCertificateUpload(request, response, next) {
+  upload.single("certificate")(request, response, (error) => {
+    if (!error) return next();
+    if (error instanceof multer.MulterError) {
+      const message =
+        error.code === "LIMIT_FILE_SIZE"
+          ? `O certificado excede o limite de ${env.UPLOAD_MAX_SIZE_MB} MB.`
+          : "Não foi possível processar o arquivo enviado.";
+      return next(new AppError(message, "VALIDATION_ERROR", 422));
+    }
+    return next(error);
+  });
+}
+
+function sanitizeFilename(filename) {
+  return basename(filename, extname(filename))
+    .replace(/[^a-zA-Z0-9._-]/g, "_")
+    .slice(0, 100) || "certificate";
+}
+
 export const certificatesRouter = Router({ mergeParams: true });
 
 certificatesRouter.get(
@@ -31,23 +51,53 @@ certificatesRouter.get(
 
 certificatesRouter.post(
   "/",
-  upload.single("certificate"),
+  handleCertificateUpload,
   asyncHandler(async (request, response) => {
     if (!request.file) {
-      throw new AppError("Selecione um certificado A1.", "CERTIFICATE_FILE_REQUIRED", 422);
+      throw new AppError(
+        "Envie um certificado digital A1 .pfx ou .p12.",
+        "CERTIFICATE_FILE_REQUIRED",
+        422,
+      );
     }
     const extension = extname(request.file.originalname).toLowerCase();
     if (![".pfx", ".p12"].includes(extension)) {
-      throw new AppError("Use um arquivo PFX ou P12.", "INVALID_CERTIFICATE_TYPE", 422);
+      throw new AppError(
+        "Envie um certificado digital A1 .pfx ou .p12.",
+        "INVALID_CERTIFICATE_TYPE",
+        422,
+      );
     }
-    if (!request.body.password || String(request.body.password).length < 3) {
-      throw new AppError("Informe a senha do certificado.", "CERTIFICATE_PASSWORD_REQUIRED", 422);
+    if (typeof request.body.password !== "string" || request.body.password.length === 0) {
+      throw new AppError(
+        "Informe a senha do certificado digital.",
+        "CERTIFICATE_PASSWORD_REQUIRED",
+        422,
+      );
     }
-    const certificate = await storeValidatedCertificate({
-      company: request.company,
-      file: request.file.buffer,
-      password: request.body.password,
-    });
+    const filename = sanitizeFilename(request.file.originalname);
+    let certificate;
+    try {
+      certificate = await storeValidatedCertificate({
+        company: request.company,
+        file: request.file.buffer,
+        password: request.body.password,
+      });
+    } catch (error) {
+      request.log.warn(
+        {
+          companyId: request.company.id,
+          filename,
+          status: "rejected",
+          error:
+            error instanceof AppError
+              ? { code: error.code, message: error.message }
+              : { code: "INTERNAL_ERROR", message: "Falha interna no upload." },
+        },
+        "Certificate upload rejected",
+      );
+      throw error;
+    }
     await writeAudit({
       request,
       action: "certificate.uploaded",
@@ -56,6 +106,10 @@ certificatesRouter.post(
       entityId: certificate.id,
       metadata: { issuer: certificate.issuer, validUntil: certificate.validUntil },
     });
+    request.log.info(
+      { companyId: request.company.id, filename, status: certificate.status },
+      "Certificate upload completed",
+    );
     sendSuccess(response, { certificate: serializeCertificate(certificate) }, 201);
   }),
 );

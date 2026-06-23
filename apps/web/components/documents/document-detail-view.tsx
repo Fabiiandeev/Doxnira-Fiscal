@@ -25,39 +25,13 @@ import {
   XmlTypeBadge,
 } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { notify } from "@/components/toast-viewport";
 import { getDocument, getDocumentXml } from "@/lib/services/fiscal-service";
 import { getLinkedCte } from "@/lib/services/cte-service";
 import { formatCurrency, formatDate, maskCnpj } from "@/lib/utils";
-
-const products = [
-  {
-    code: "CMP-8841",
-    description: "Módulo controlador industrial X4",
-    ncm: "85371090",
-    quantity: 12,
-    unit: "UN",
-    total: 28680,
-  },
-  {
-    code: "CAB-1032",
-    description: "Conjunto de cabos blindados 2m",
-    ncm: "85444200",
-    quantity: 48,
-    unit: "UN",
-    total: 9360,
-  },
-  {
-    code: "SUP-4420",
-    description: "Suporte técnico de instalação",
-    ncm: "00000000",
-    quantity: 1,
-    unit: "SV",
-    total: 4200,
-  },
-];
 
 const XmlViewer = dynamic(
   () => import("@/components/xml-viewer").then((module) => module.XmlViewer),
@@ -81,6 +55,22 @@ export function DocumentDetailView({ id }: { id: string }) {
 
   const accessKey = document.accessKey;
   const documentId = document.id;
+  const typeLabel = document.documentType === "CTE" ? "CT-e" : "NF-e";
+  const operationLabel = {
+    INBOUND: "NF-e Entrada",
+    OUTBOUND: "NF-e Saída",
+    TRANSPORT_INBOUND: "CT-e Entrada",
+    TRANSPORT_OUTBOUND: "CT-e Saída",
+    UNKNOWN: "Não classificada",
+  }[document.operationDirection];
+  const products = (document.products || []).map((item, index) => ({
+    code: String(item.productCode || item.code || index + 1),
+    description: String(item.description || "Item fiscal"),
+    ncm: String(item.ncm || "—"),
+    quantity: Number(item.quantity || 0),
+    unit: String(item.unit || ""),
+    total: Number(item.totalValue || item.total || 0),
+  }));
 
   async function copyAccessKey() {
     await navigator.clipboard.writeText(accessKey);
@@ -113,9 +103,9 @@ export function DocumentDetailView({ id }: { id: string }) {
         Voltar para documentos
       </Link>
       <PageHeader
-        eyebrow={`NF-e · Série ${document.series}`}
-        title={`Nota fiscal ${document.invoiceNumber}`}
-        description={`Emitida por ${document.issuerName} em ${formatDate(document.emissionDate, true)}.`}
+        eyebrow={`${typeLabel} · Série ${document.series || "—"} · ${operationLabel}`}
+        title={`${typeLabel} ${document.invoiceNumber || "sem número"}`}
+        description={`Emitido por ${document.issuerName || "não informado"}${document.emissionDate ? ` em ${formatDate(document.emissionDate, true)}` : ""}.`}
         icon={FileText}
         action={
           <div className="flex flex-wrap gap-2">
@@ -123,10 +113,22 @@ export function DocumentDetailView({ id }: { id: string }) {
               <Download className="h-4 w-4" />
               Baixar XML
             </Button>
-            <ManifestationModal documentIds={[document.id]} />
+            {document.documentType === "NFE" && <ManifestationModal documentIds={[document.id]} />}
           </div>
         }
       />
+      <div className="mb-5">
+        <Badge className={(document.source === "MOCK" || document.source === "SEED") ? "bg-amber-50 text-amber-700" : "bg-emerald-50 text-emerald-700"}>
+          {document.source === "REAL_SEFAZ"
+            ? "Documento real SEFAZ"
+            : document.source === "MANUAL_IMPORT"
+              ? "Importação manual"
+              : document.source === "ERP_IMPORT"
+                ? "Importação ERP"
+                : "Documento de teste"}
+        </Badge>
+        <Badge className="ml-2 bg-violet-50 text-violet-700">{operationLabel}</Badge>
+      </div>
 
       <Card className="mb-5 overflow-hidden">
         <div className="grid gap-px bg-line sm:grid-cols-2 xl:grid-cols-4">
@@ -218,40 +220,36 @@ export function DocumentDetailView({ id }: { id: string }) {
               <DetailSection title="Identificação do documento" icon={FileText}>
                 <DetailRow label="Número" value={document.invoiceNumber} />
                 <DetailRow label="Série" value={document.series} />
-                <DetailRow label="Modelo" value="55 - NF-e" />
-                <DetailRow label="Natureza da operação" value="Venda de mercadoria adquirida" />
+                <DetailRow label="Modelo" value={`${document.model || "—"} - ${typeLabel}`} />
+                <DetailRow label="Operação" value={operationLabel} />
                 <DetailRow label="Protocolo" value={document.protocol} />
                 <DetailRow label="NSU" value={document.nsu} />
               </DetailSection>
               <DetailSection title="Processamento fiscal" icon={ShieldCheck}>
                 <DetailRow label="Schema" value={document.xmlType === "FULL" ? "procNFe_v4.00" : "resNFe_v1.01"} />
                 <DetailRow label="CFOP principal" value={document.cfop} />
-                <DetailRow label="Ambiente" value="Produção" />
-                <DetailRow label="Hash SHA-256" value="8ab2••••••••••••••••••••e913" />
-                <DetailRow label="Indexado em" value="18 jun 2026, 12:04" />
-                <DetailRow label="Revisão interna" value="Pendente" />
+                <DetailRow label="Fonte" value={document.source} />
+                <DetailRow label="XML" value={document.xmlType === "FULL" ? "Completo" : "Resumo"} />
+                <DetailRow label="Cancelado" value={document.isCancelled ? "Sim" : "Não"} />
+                <DetailRow label="Revisão interna" value={document.operationDirection === "UNKNOWN" ? "Necessária" : "Classificado"} />
               </DetailSection>
             </div>
           </TabsContent>
 
           <TabsContent value="issuer">
             <DetailSection title="Dados do emitente" icon={Building2}>
-              <DetailRow label="Razão social" value={document.issuerName} />
-              <DetailRow label="CNPJ" value={maskCnpj(document.issuerCnpj)} />
-              <DetailRow label="UF" value={document.uf} />
-              <DetailRow label="Inscrição estadual" value="143.882.019.114" />
-              <DetailRow label="Município" value="São Paulo" />
+              <DetailRow label="Razão social" value={document.issuerName || "—"} />
+              <DetailRow label="CNPJ" value={maskCnpj(document.issuerCnpj || "")} />
+              <DetailRow label="UF" value={document.uf || "—"} />
               <DetailRow label="Fornecedor novo" value={document.isNewSupplier ? "Sim" : "Não"} />
             </DetailSection>
           </TabsContent>
 
           <TabsContent value="recipient">
             <DetailSection title="Dados do destinatário" icon={Building2}>
-              <DetailRow label="Razão social" value={document.recipientName} />
-              <DetailRow label="CNPJ" value={maskCnpj(document.recipientCnpj)} />
-              <DetailRow label="Inscrição estadual" value="107.882.390.117" />
-              <DetailRow label="UF" value="SP" />
-              <DetailRow label="Ambiente fiscal" value="Produção" />
+              <DetailRow label="Razão social" value={document.recipientName || "—"} />
+              <DetailRow label="CNPJ" value={maskCnpj(document.recipientCnpj || "")} />
+              <DetailRow label="Papel da empresa" value={document.companyRole} />
             </DetailSection>
           </TabsContent>
 
@@ -289,10 +287,12 @@ export function DocumentDetailView({ id }: { id: string }) {
           <TabsContent value="taxes">
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
               {[
-                ["Base ICMS", "R$ 39.840,00"],
-                ["Valor ICMS", "R$ 7.171,20"],
-                ["Valor IPI", "R$ 1.206,40"],
-                ["Total tributos", "R$ 10.884,90"],
+                ["Base ICMS", formatCurrency(document.icmsBase)],
+                ["Valor ICMS", formatCurrency(document.icmsAmount)],
+                ["Valor IPI", formatCurrency(document.ipiAmount)],
+                ["PIS", formatCurrency(document.pisAmount)],
+                ["COFINS", formatCurrency(document.cofinsAmount)],
+                ["Total tributos", formatCurrency(document.taxAmount)],
               ].map(([label, value]) => (
                 <div key={label} className="rounded-2xl bg-muted p-5">
                   <p className="text-[10px] font-bold text-subtle">{label}</p>
@@ -306,7 +306,7 @@ export function DocumentDetailView({ id }: { id: string }) {
             <div className="rounded-2xl bg-muted p-5">
               <p className="text-xs font-extrabold">Autorização de uso</p>
               <p className="mt-1 text-[10px] text-subtle">
-                Protocolo {document.protocol} · 18 jun 2026, 08:19
+                Protocolo {document.protocol || "não informado"}
               </p>
             </div>
           </TabsContent>

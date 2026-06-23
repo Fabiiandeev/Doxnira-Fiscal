@@ -6,7 +6,12 @@ export interface Company {
   tradeName: string | null;
   cnpj: string;
   stateRegistration?: string | null;
+  stateRegistrationStatus?: string | null;
+  stateRegistrationSource?: string | null;
+  stateRegistrationFormatted?: string | null;
+  icmsContributorStatus?: string | null;
   uf: string | null;
+  city?: string | null;
   taxRegime?: string | null;
   environment: "production" | "homologation";
   status: string;
@@ -32,12 +37,23 @@ export async function updateCompany(companyId: string, data: Partial<Company>) {
   });
 }
 
+export async function deleteCompany(companyId: string) {
+  return apiFetch<{ message: string }>(`/companies/${companyId}`, {
+    method: "DELETE",
+  });
+}
+
 export async function createCompany(data: {
   legalName: string;
   tradeName?: string;
   cnpj: string;
   uf?: string;
+  city?: string;
   stateRegistration?: string;
+  stateRegistrationStatus?: string;
+  stateRegistrationSource?: string;
+  stateRegistrationFormatted?: string;
+  icmsContributorStatus?: string;
   taxRegime?: string;
   environment?: "production" | "homologation";
 }) {

@@ -15,6 +15,10 @@ const envSchema = z.object({
   REDIS_URL: z.string().url().default("redis://localhost:6379"),
   CERT_ENCRYPTION_KEY: z.string().min(32),
   UPLOAD_MAX_SIZE_MB: z.coerce.number().positive().max(50).default(10),
+  NSU_WAIT_137_MS: z.coerce.number().int().positive().default(3_600_000),
+  NSU_WAIT_656_MS: z.coerce.number().int().positive().default(3_600_000),
+  NSU_BATCH_DELAY_MS: z.coerce.number().int().nonnegative().default(3_000),
+  NSU_MAX_BATCHES_PER_RUN: z.coerce.number().int().positive().max(100).default(20),
   SEFAZ_INTEGRATION_ENABLED: z
     .enum(["true", "false"])
     .default("false")

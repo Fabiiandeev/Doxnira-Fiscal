@@ -27,6 +27,8 @@ import type { DocumentFilters } from "@/lib/types";
 const initialFilters: DocumentFilters = {
   query: "",
   documentType: "",
+  operationDirection: "",
+  source: "",
   hasLinkedCte: "",
   status: "",
   xmlType: "",
@@ -135,6 +137,31 @@ export function DocumentsView() {
             <Button variant="lime" onClick={() => router.push("/sync")}>
               <RefreshCw className="h-4 w-4" />
               Sincronizar
+            </Button>
+            <Button variant="outline" asChild>
+              <label className="cursor-pointer">
+                <Plus className="h-4 w-4" />
+                Importar XML
+                <input
+                  type="file"
+                  accept=".xml,text/xml,application/xml"
+                  className="hidden"
+                  onChange={async (event) => {
+                    const file = event.target.files?.[0];
+                    if (!file) return;
+                    try {
+                      const { importFiscalXml } = await import("@/lib/services/fiscal-service");
+                      await importFiscalXml(file);
+                      notify({ title: "XML importado", description: "Documento classificado e salvo." });
+                      query.refetch();
+                    } catch (error) {
+                      notify({ title: "XML não importado", description: (error as Error).message, tone: "error" });
+                    } finally {
+                      event.target.value = "";
+                    }
+                  }}
+                />
+              </label>
             </Button>
           </div>
         }

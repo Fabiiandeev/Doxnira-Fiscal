@@ -7,6 +7,7 @@ export const requireCompanyAccess = asyncHandler(async (request, _response, next
     where: {
       id: request.params.companyId,
       ownerId: request.user.id,
+      status: { not: "deleted" },
     },
     select: {
       id: true,
@@ -14,6 +15,14 @@ export const requireCompanyAccess = asyncHandler(async (request, _response, next
       legalName: true,
       tradeName: true,
       cnpj: true,
+      stateRegistration: true,
+      stateRegistrationStatus: true,
+      stateRegistrationSource: true,
+      stateRegistrationFormatted: true,
+      icmsContributorStatus: true,
+      uf: true,
+      city: true,
+      taxRegime: true,
       status: true,
       environment: true,
       nfeLastNsu: true,

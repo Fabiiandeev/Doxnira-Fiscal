@@ -1,19 +1,84 @@
 import { Router } from "express";
+import multer from "multer";
 
 import { prisma } from "../../config/prisma.js";
 import { rateLimit } from "../../middlewares/rate-limit.middleware.js";
 import { sanitizeXml } from "../../utils/sanitize-xml.js";
+import { AppError } from "../../utils/app-error.js";
+import { importFiscalXml } from "../../services/fiscal-import.service.js";
 import { asyncHandler, sendSuccess } from "../../utils/response.js";
 import { writeAudit } from "../audit/audit.service.js";
 import { findDocument, searchDocuments } from "./documents.service.js";
 
 export const documentsRouter = Router({ mergeParams: true });
+const xmlUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024, files: 1 },
+});
 
 documentsRouter.get(
   "/search",
   rateLimit({ key: "document-search", max: 120 }),
   asyncHandler(async (request, response) => {
     sendSuccess(response, await searchDocuments(request.company.id, request.query));
+  }),
+);
+
+documentsRouter.post(
+  "/import-xml",
+  rateLimit({ key: "fiscal-xml-import", max: 30 }),
+  xmlUpload.single("xml"),
+  asyncHandler(async (request, response) => {
+    const xml = request.file?.buffer?.toString("utf8") || request.body?.xml;
+    if (!xml) {
+      throw new AppError(
+        "Envie um arquivo XML de NF-e ou CT-e.",
+        "FISCAL_XML_REQUIRED",
+        422,
+      );
+    }
+    const result = await importFiscalXml(request.company.id, xml);
+    await writeAudit({
+      request,
+      action: "fiscal_document.imported",
+      companyId: request.company.id,
+      entityType: "FiscalDocument",
+      entityId: result.document.id,
+      metadata: {
+        documentType: result.document.documentType,
+        source: result.document.source,
+      },
+    });
+    sendSuccess(response, result, 201);
+  }),
+);
+
+documentsRouter.post(
+  "/import-erp",
+  rateLimit({ key: "erp-import", max: 60 }),
+  xmlUpload.single("xml"),
+  asyncHandler(async (request, response) => {
+    const xml = request.file?.buffer?.toString("utf8") || request.body?.xml;
+    if (!xml) {
+      throw new AppError(
+        "Envie um arquivo XML de NF-e ou CT-e.",
+        "FISCAL_XML_REQUIRED",
+        422,
+      );
+    }
+    const result = await importFiscalXml(request.company.id, xml, "ERP_IMPORT");
+    await writeAudit({
+      request,
+      action: "fiscal_document.imported",
+      companyId: request.company.id,
+      entityType: "FiscalDocument",
+      entityId: result.document.id,
+      metadata: {
+        documentType: result.document.documentType,
+        source: result.document.source,
+      },
+    });
+    sendSuccess(response, result, 201);
   }),
 );
 

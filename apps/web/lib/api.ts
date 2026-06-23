@@ -9,14 +9,31 @@ export const storageKeys = {
 export class ApiError extends Error {
   code: string;
   status: number;
-  details: unknown[];
+  details: unknown;
+  cause?: string | null;
+  field?: string | null;
+  suggestion?: string | null;
+  autoFix?: { available: boolean; action: string | null; label: string | null } | null;
 
-  constructor(message: string, code = "API_ERROR", status = 500, details: unknown[] = []) {
+  constructor(
+    message: string,
+    code = "API_ERROR",
+    status = 500,
+    details: unknown = [],
+    cause: string | null = null,
+    field: string | null = null,
+    suggestion: string | null = null,
+    autoFix: { available: boolean; action: string | null; label: string | null } | null = null,
+  ) {
     super(message);
     this.name = "ApiError";
     this.code = code;
     this.status = status;
     this.details = details;
+    this.cause = cause;
+    this.field = field;
+    this.suggestion = suggestion;
+    this.autoFix = autoFix;
   }
 }
 
@@ -55,10 +72,14 @@ export async function apiFetch<T>(
 ): Promise<T> {
   const headers = new Headers(init.headers);
   const token = getToken();
+  const isFormData = init.body instanceof FormData;
+
   if (token && !headers.has("authorization")) {
     headers.set("authorization", `Bearer ${token}`);
   }
-  if (init.body && !(init.body instanceof FormData) && !headers.has("content-type")) {
+  if (isFormData) {
+    headers.delete("content-type");
+  } else if (init.body && !headers.has("content-type")) {
     headers.set("content-type", "application/json");
   }
 
@@ -80,6 +101,10 @@ export async function apiFetch<T>(
       payload.code,
       response.status,
       payload.details,
+      payload.cause || null,
+      payload.field || null,
+      payload.suggestion || null,
+      payload.autoFix || null,
     );
   }
   return payload as T;

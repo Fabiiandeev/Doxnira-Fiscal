@@ -46,7 +46,13 @@ model Company {
   tradeName            String?     @map("trade_name") @db.VarChar(255)
   cnpj                 String      @unique @db.VarChar(14)
   stateRegistration    String?     @map("state_registration") @db.VarChar(40)
+  stateRegistrationStatus String? @map("state_registration_status") @db.VarChar(30) @default("PENDENTE_VALIDACAO_SEFAZ")
+  stateRegistrationSource String? @map("state_registration_source") @db.VarChar(50)
+  stateRegistrationValidatedAt DateTime? @map("state_registration_validated_at")
+  stateRegistrationFormatted String? @map("state_registration_formatted") @db.VarChar(40)
+  icmsContributorStatus String? @map("icms_contributor_status") @db.VarChar(30) @default("PENDENTE_VALIDACAO_SEFAZ")
   uf                   String?     @db.Char(2)
+  city                 String?     @db.VarChar(120)
   taxRegime            String?     @map("tax_regime") @db.VarChar(60)
   environment          Environment @default(production)
   status               String      @default("active") @db.VarChar(30)
@@ -72,6 +78,10 @@ model Company {
   xmlDownloadLogs  XmlDownloadLog[]
   transportDocuments TransportDocument[]
   fiscalDocumentLinks FiscalDocumentLink[]
+  taxSettings       CompanyTaxSetting?
+  documentItems     FiscalDocumentItem[]
+  monthlyClosings   MonthlyTaxClosing[]
+  taxRules          TaxRule[]
 
   @@index([ownerId])
   @@map("companies")
@@ -103,6 +113,8 @@ model FiscalDocument {
   id                String    @id @default(uuid()) @db.Uuid
   companyId         String    @map("company_id") @db.Uuid
   documentType      String    @map("document_type") @db.VarChar(30)
+  operationDirection String   @default("UNKNOWN") @map("operation_direction") @db.VarChar(30)
+  companyRole       String    @default("OTHER") @map("company_role") @db.VarChar(30)
   invoiceNumber     String?   @map("invoice_number") @db.VarChar(30)
   series            String?   @db.VarChar(10)
   model             String?   @db.VarChar(10)
@@ -121,8 +133,22 @@ model FiscalDocument {
   emissionDate      DateTime? @map("emission_date")
   authorizationDate DateTime? @map("authorization_date")
   totalAmount       Decimal?  @map("total_amount") @db.Decimal(15, 2)
+  productsAmount    Decimal?  @default(0) @map("products_amount") @db.Decimal(15, 2)
+  freightAmount     Decimal?  @default(0) @map("freight_amount") @db.Decimal(15, 2)
+  discountAmount    Decimal?  @default(0) @map("discount_amount") @db.Decimal(15, 2)
+  icmsAmount        Decimal?  @default(0) @map("icms_amount") @db.Decimal(15, 2)
+  ipiAmount         Decimal?  @default(0) @map("ipi_amount") @db.Decimal(15, 2)
+  pisAmount         Decimal?  @default(0) @map("pis_amount") @db.Decimal(15, 2)
+  cofinsAmount      Decimal?  @default(0) @map("cofins_amount") @db.Decimal(15, 2)
+  icmsBase          Decimal?  @default(0) @map("icms_base") @db.Decimal(15, 2)
+  icmsStAmount      Decimal?  @default(0) @map("icms_st_amount") @db.Decimal(15, 2)
+  fcpAmount         Decimal?  @default(0) @map("fcp_amount") @db.Decimal(15, 2)
+  otherAmount       Decimal?  @default(0) @map("other_amount") @db.Decimal(15, 2)
+  taxAmount         Decimal?  @default(0) @map("tax_amount") @db.Decimal(15, 2)
   xmlStorageKey     String    @map("xml_storage_key")
   xmlHashSha256     String    @map("xml_hash_sha256") @db.VarChar(64)
+  rawXmlHash        String?   @map("raw_xml_hash") @db.VarChar(64)
+  source            String    @default("MANUAL_IMPORT") @db.VarChar(30)
   rawXml            String?   @map("raw_xml")
   products          Json?
   taxes             Json?
@@ -140,6 +166,8 @@ model FiscalDocument {
   alerts          Alert[]
   downloadLogs    XmlDownloadLog[]
   transportLinks  FiscalDocumentLink[] @relation("LinkedNfe")
+  items           FiscalDocumentItem[]
+  closingItems    MonthlyTaxClosingItem[]
 
   @@unique([companyId, nsu])
   @@unique([companyId, accessKey, schemaName])
@@ -149,10 +177,171 @@ model FiscalDocument {
   @@index([recipientCnpj])
   @@index([companyId, nsu])
   @@index([companyId, status])
+  @@index([companyId, source])
+  @@index([companyId, documentType])
+  @@index([companyId, operationDirection])
+  @@index([companyId, cfop])
   @@index([companyId, isSummary])
   @@index([companyId, isCancelled])
   @@index([companyId, createdAt(sort: Desc)])
   @@map("fiscal_documents")
+}
+
+model CompanyTaxSetting {
+  id                 String   @id @default(uuid()) @db.Uuid
+  companyId          String   @unique @map("company_id") @db.Uuid
+  taxRegime          String   @map("tax_regime") @db.VarChar(40)
+  calculationRegime  String   @map("calculation_regime") @db.VarChar(30)
+  uf                 String   @db.Char(2)
+  stateRegistration  String?  @map("state_registration") @db.VarChar(40)
+  mainCnae           String?  @map("main_cnae") @db.VarChar(20)
+  simplesAnnex       String?  @map("simples_annex") @db.VarChar(20)
+  mainActivity       String?  @map("main_activity") @db.VarChar(255)
+  isIcmsTaxpayer     Boolean  @default(false) @map("is_icms_taxpayer")
+  isIpiTaxpayer      Boolean  @default(false) @map("is_ipi_taxpayer")
+  pisCofinsRegime    String   @map("pis_cofins_regime") @db.VarChar(30)
+  accumulatedRevenue Decimal? @map("accumulated_revenue") @db.Decimal(15, 2)
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@map("company_tax_settings")
+}
+
+model FiscalDocumentItem {
+  id            String   @id @default(uuid()) @db.Uuid
+  documentId    String   @map("document_id") @db.Uuid
+  companyId     String   @map("company_id") @db.Uuid
+  itemNumber    Int      @map("item_number")
+  productCode   String?  @map("product_code") @db.VarChar(80)
+  ean           String?  @db.VarChar(30)
+  description   String?  @db.VarChar(255)
+  ncm           String?  @db.VarChar(20)
+  cfop          String?  @db.VarChar(10)
+  cst           String?  @db.VarChar(10)
+  csosn         String?  @db.VarChar(10)
+  quantity      Decimal? @db.Decimal(15, 4)
+  unit          String?  @db.VarChar(10)
+  unitValue     Decimal? @map("unit_value") @db.Decimal(15, 4)
+  totalValue    Decimal? @map("total_value") @db.Decimal(15, 2)
+  discountValue Decimal? @default(0) @map("discount_value") @db.Decimal(15, 2)
+  icmsBase      Decimal? @default(0) @map("icms_base") @db.Decimal(15, 2)
+  icmsRate      Decimal? @default(0) @map("icms_rate") @db.Decimal(8, 4)
+  icmsAmount    Decimal? @default(0) @map("icms_amount") @db.Decimal(15, 2)
+  ipiBase       Decimal? @default(0) @map("ipi_base") @db.Decimal(15, 2)
+  ipiRate       Decimal? @default(0) @map("ipi_rate") @db.Decimal(8, 4)
+  ipiAmount     Decimal? @default(0) @map("ipi_amount") @db.Decimal(15, 2)
+  pisBase       Decimal? @default(0) @map("pis_base") @db.Decimal(15, 2)
+  pisRate       Decimal? @default(0) @map("pis_rate") @db.Decimal(8, 4)
+  pisAmount     Decimal? @default(0) @map("pis_amount") @db.Decimal(15, 2)
+  cofinsBase    Decimal? @default(0) @map("cofins_base") @db.Decimal(15, 2)
+  cofinsRate    Decimal? @default(0) @map("cofins_rate") @db.Decimal(8, 4)
+  cofinsAmount  Decimal? @default(0) @map("cofins_amount") @db.Decimal(15, 2)
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  document FiscalDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  company  Company        @relation(fields: [companyId], references: [id])
+
+  @@unique([documentId, itemNumber])
+  @@index([companyId])
+  @@index([documentId])
+  @@index([cfop])
+  @@index([ncm])
+  @@map("fiscal_document_items")
+}
+
+model MonthlyTaxClosing {
+  id                 String    @id @default(uuid()) @db.Uuid
+  companyId          String    @map("company_id") @db.Uuid
+  periodYear         Int       @map("period_year")
+  periodMonth        Int       @map("period_month")
+  status             String    @default("DRAFT") @db.VarChar(30)
+  inboundTotal       Decimal   @default(0) @map("inbound_total") @db.Decimal(15, 2)
+  outboundTotal      Decimal   @default(0) @map("outbound_total") @db.Decimal(15, 2)
+  freightTotal       Decimal   @default(0) @map("freight_total") @db.Decimal(15, 2)
+  icmsTotal          Decimal   @default(0) @map("icms_total") @db.Decimal(15, 2)
+  ipiTotal           Decimal   @default(0) @map("ipi_total") @db.Decimal(15, 2)
+  pisTotal           Decimal   @default(0) @map("pis_total") @db.Decimal(15, 2)
+  cofinsTotal        Decimal   @default(0) @map("cofins_total") @db.Decimal(15, 2)
+  estimatedTaxTotal  Decimal   @default(0) @map("estimated_tax_total") @db.Decimal(15, 2)
+  includedDocuments  Int       @default(0) @map("included_documents")
+  ignoredDocuments   Int       @default(0) @map("ignored_documents")
+  snapshot           Json?
+  approvedAt         DateTime? @map("approved_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  company  Company                    @relation(fields: [companyId], references: [id])
+  items    MonthlyTaxClosingItem[]
+  warnings MonthlyTaxClosingWarning[]
+
+  @@unique([companyId, periodYear, periodMonth])
+  @@index([companyId, periodYear, periodMonth])
+  @@index([status])
+  @@map("monthly_tax_closings")
+}
+
+model MonthlyTaxClosingItem {
+  id             String   @id @default(uuid()) @db.Uuid
+  closingId      String   @map("closing_id") @db.Uuid
+  documentId     String?  @map("document_id") @db.Uuid
+  category       String   @db.VarChar(30)
+  source         String   @db.VarChar(30)
+  accessKey      String?  @map("access_key") @db.VarChar(44)
+  amount         Decimal  @default(0) @db.Decimal(15, 2)
+  taxAmount      Decimal  @default(0) @map("tax_amount") @db.Decimal(15, 2)
+  snapshot       Json?
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  closing  MonthlyTaxClosing @relation(fields: [closingId], references: [id], onDelete: Cascade)
+  document FiscalDocument?   @relation(fields: [documentId], references: [id])
+
+  @@index([closingId, category])
+  @@index([documentId])
+  @@map("monthly_tax_closing_items")
+}
+
+model MonthlyTaxClosingWarning {
+  id        String   @id @default(uuid()) @db.Uuid
+  closingId String   @map("closing_id") @db.Uuid
+  code      String   @db.VarChar(80)
+  severity  String   @db.VarChar(20)
+  message   String
+  details   Json?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  closing MonthlyTaxClosing @relation(fields: [closingId], references: [id], onDelete: Cascade)
+
+  @@index([closingId, severity])
+  @@map("monthly_tax_closing_warnings")
+}
+
+model TaxRule {
+  id                 String    @id @default(uuid()) @db.Uuid
+  companyId          String    @map("company_id") @db.Uuid
+  taxRegime          String    @map("tax_regime") @db.VarChar(40)
+  uf                 String?   @db.Char(2)
+  cfop               String?   @db.VarChar(10)
+  ncm                String?   @db.VarChar(20)
+  cst                String?   @db.VarChar(10)
+  csosn              String?   @db.VarChar(10)
+  taxType            String    @map("tax_type") @db.VarChar(30)
+  operationDirection String?   @map("operation_direction") @db.VarChar(30)
+  rate               Decimal   @db.Decimal(8, 4)
+  creditAllowed      Boolean   @default(false) @map("credit_allowed")
+  debitAllowed       Boolean   @default(false) @map("debit_allowed")
+  effectiveFrom      DateTime  @map("effective_from")
+  effectiveUntil     DateTime? @map("effective_until")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@index([companyId, taxType])
+  @@index([companyId, cfop, ncm])
+  @@index([effectiveFrom, effectiveUntil])
+  @@map("tax_rules")
 }
 
 model TransportDocument {
@@ -244,6 +433,10 @@ model SyncLog {
   cstat          String?   @db.VarChar(10)
   xmotivo        String?
   documentsCount Int       @default(0) @map("documents_count")
+  documentsReceived Int    @default(0) @map("documents_received")
+  documentsSaved Int       @default(0) @map("documents_saved")
+  mode           String    @default("mock") @db.VarChar(20)
+  environment    String?   @db.VarChar(20)
   status         String    @db.VarChar(30)
   jobId          String?   @map("job_id") @db.VarChar(120)
   errorMessage   String?   @map("error_message")

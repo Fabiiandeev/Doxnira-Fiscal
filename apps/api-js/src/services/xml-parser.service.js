@@ -1,4 +1,5 @@
 import { XMLParser } from "fast-xml-parser";
+import { parseFiscalDocumentXml } from "./fiscal-xml-parser.service.js";
 
 const parser = new XMLParser({
   ignoreAttributes: false,
@@ -57,6 +58,20 @@ export function parseFiscalXml(xml, schema, nsu) {
   const recipient = findFirst(parsed, "dest") || {};
   const total = findFirst(parsed, "ICMSTot") || {};
   const isEvent = /evento/i.test(schema);
+  if (!isEvent) {
+    try {
+      const fiscal = parseFiscalDocumentXml(xml);
+      return {
+        kind: "document",
+        nsu,
+        schema,
+        ...fiscal,
+        invoiceNumber: fiscal.number,
+      };
+    } catch {
+      // Resumos da distribuição não possuem todos os grupos do XML completo.
+    }
+  }
   return {
     kind: isEvent ? "event" : "document",
     nsu,
@@ -72,6 +87,19 @@ export function parseFiscalXml(xml, schema, nsu) {
     protocol: text(findFirst(parsed, "nProt")),
     emissionDate: text(findFirst(parsed, "dhEmi") || findFirst(parsed, "dEmi")),
     totalAmount: Number(text(total.vNF || findFirst(parsed, "vNF")) || 0),
+    productsAmount: 0,
+    freightAmount: 0,
+    discountAmount: 0,
+    icmsAmount: 0,
+    ipiAmount: 0,
+    pisAmount: 0,
+    cofinsAmount: 0,
+    icmsBase: 0,
+    icmsStAmount: 0,
+    fcpAmount: 0,
+    otherAmount: 0,
+    taxAmount: 0,
+    items: [],
     eventType: text(findFirst(parsed, "tpEvento")),
     eventDate: text(findFirst(parsed, "dhEvento")),
     isSummary: /^res/i.test(schema),

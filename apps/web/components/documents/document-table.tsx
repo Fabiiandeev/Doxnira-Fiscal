@@ -24,6 +24,7 @@ import {
 } from "@/components/status-badge";
 import { ManifestationModal } from "@/components/manifestation-modal";
 import { notify } from "@/components/toast-viewport";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { getDocumentXml } from "@/lib/services/fiscal-service";
 import type { FiscalDocument } from "@/lib/types";
@@ -80,11 +81,13 @@ export function DocumentTable({
               href={`/documents/${row.original.id}`}
               className="font-extrabold text-ink hover:underline"
             >
-              NF-e {row.original.invoiceNumber}
+              {documentTypeLabel(row.original)} {row.original.invoiceNumber || "—"}
             </Link>
             <p className="mt-1 text-[9px] font-bold text-subtle">
-              Série {row.original.series} · NSU {row.original.nsu.slice(-8)}
+              Série {row.original.series || "—"} · NSU {row.original.nsu?.slice(-8) || "importação"}
             </p>
+            <OperationBadge direction={row.original.operationDirection} />
+            <SourceBadge source={row.original.source} />
           </div>
         ),
       },
@@ -95,7 +98,7 @@ export function DocumentTable({
           <div className="max-w-[220px]">
             <p className="truncate font-bold">{row.original.issuerName}</p>
             <p className="mt-1 text-[9px] font-semibold text-subtle">
-              {maskCnpj(row.original.issuerCnpj)} · {row.original.uf}
+              {maskCnpj(row.original.issuerCnpj || "")} · {row.original.uf || "—"}
             </p>
           </div>
         ),
@@ -105,7 +108,7 @@ export function DocumentTable({
         header: "Emissão",
         cell: ({ row }) => (
           <span className="whitespace-nowrap text-subtle">
-            {formatDate(row.original.emissionDate)}
+            {row.original.emissionDate ? formatDate(row.original.emissionDate) : "—"}
           </span>
         ),
       },
@@ -249,17 +252,21 @@ export function DocumentTable({
           >
             <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="text-sm font-extrabold">NF-e {document.invoiceNumber}</p>
+                <p className="text-sm font-extrabold">{documentTypeLabel(document)} {document.invoiceNumber || "—"}</p>
                 <p className="mt-1 line-clamp-1 text-[10px] font-bold text-subtle">
                   {document.issuerName}
                 </p>
               </div>
               <FiscalStatusBadge status={document.status} />
             </div>
+            <div className="mt-3">
+              <OperationBadge direction={document.operationDirection} />
+              <SourceBadge source={document.source} />
+            </div>
             <div className="mt-4 flex items-end justify-between">
               <div>
                 <p className="text-[9px] font-bold uppercase tracking-wider text-subtle">
-                  {formatDate(document.emissionDate)}
+                  {document.emissionDate ? formatDate(document.emissionDate) : "—"}
                 </p>
                 <p className="mt-1 text-sm font-extrabold">
                   {formatCurrency(document.totalAmount)}
@@ -310,6 +317,37 @@ export function DocumentTable({
       </div>
     </div>
   );
+}
+
+function SourceBadge({ source }: { source: FiscalDocument["source"] }) {
+  const isTest = source === "MOCK" || source === "SEED";
+  const label = {
+    REAL_SEFAZ: "Documento real SEFAZ",
+    MANUAL_IMPORT: "Importação manual",
+    ERP_IMPORT: "Importação ERP",
+    MOCK: "Documento de teste",
+    SEED: "Documento de teste",
+  }[source];
+  return (
+    <Badge className={`mt-2 ${isTest ? "bg-amber-50 text-amber-700" : "bg-emerald-50 text-emerald-700"}`}>
+      {label}
+    </Badge>
+  );
+}
+
+function OperationBadge({ direction }: { direction: FiscalDocument["operationDirection"] }) {
+  const label = {
+    INBOUND: "NF-e Entrada",
+    OUTBOUND: "NF-e Saída",
+    TRANSPORT_INBOUND: "CT-e Entrada",
+    TRANSPORT_OUTBOUND: "CT-e Saída",
+    UNKNOWN: "Não classificada",
+  }[direction];
+  return <Badge className="mr-1 mt-2 bg-violet-50 text-violet-700">{label}</Badge>;
+}
+
+function documentTypeLabel(document: FiscalDocument) {
+  return document.documentType === "CTE" ? "CT-e" : document.documentType === "NFE" ? "NF-e" : document.documentType;
 }
   async function downloadXml(document: FiscalDocument) {
     try {

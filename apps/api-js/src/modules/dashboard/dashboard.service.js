@@ -1,5 +1,6 @@
 import { prisma } from "../../config/prisma.js";
 import { remember } from "../../utils/cache.js";
+import { CLOSING_SOURCES, closingPeriod } from "../../services/fiscal-summary.service.js";
 
 function decimalToNumber(value) {
   return value == null ? 0 : Number(value);
@@ -129,4 +130,129 @@ export async function getLatestDocuments(companyId) {
       xmlType: item.isSummary ? "SUMMARY" : "FULL",
     })),
   };
+}
+
+function currentPeriod(query = {}) {
+  const now = new Date();
+  const year = Number(query.periodYear || now.getFullYear());
+  const month = Number(query.periodMonth || now.getMonth() + 1);
+  return { year, month, range: closingPeriod(year, month) };
+}
+
+async function fiscalDocuments(companyId, query = {}) {
+  const period = currentPeriod(query);
+  const documents = await prisma.fiscalDocument.findMany({
+    where: {
+      companyId,
+      source: { in: CLOSING_SOURCES },
+      emissionDate: period.range,
+    },
+    select: {
+      documentType: true,
+      operationDirection: true,
+      totalAmount: true,
+      freightAmount: true,
+      icmsAmount: true,
+      ipiAmount: true,
+      pisAmount: true,
+      cofinsAmount: true,
+      taxAmount: true,
+      isCancelled: true,
+      isSummary: true,
+    },
+  });
+  return { period, documents };
+}
+
+export async function getFiscalSummary(companyId, query = {}) {
+  const { period, documents } = await fiscalDocuments(companyId, query);
+  const active = documents.filter((item) => !item.isCancelled);
+  const inbound = active.filter((item) => item.operationDirection === "INBOUND");
+  const outbound = active.filter((item) => item.operationDirection === "OUTBOUND");
+  const cteInbound = active.filter(
+    (item) =>
+      item.documentType === "CTE" &&
+      item.operationDirection === "TRANSPORT_INBOUND",
+  );
+  const cteOutbound = active.filter(
+    (item) =>
+      item.documentType === "CTE" &&
+      item.operationDirection === "TRANSPORT_OUTBOUND",
+  );
+  const total = (items, field = "totalAmount") =>
+    items.reduce((sum, item) => sum + decimalToNumber(item[field]), 0);
+  return {
+    periodYear: period.year,
+    periodMonth: period.month,
+    inbound: { count: inbound.length, total: total(inbound) },
+    outbound: { count: outbound.length, total: total(outbound) },
+    cteInbound: { count: cteInbound.length, total: total(cteInbound, "freightAmount") },
+    cteOutbound: { count: cteOutbound.length, total: total(cteOutbound, "freightAmount") },
+    cancelled: documents.filter((item) => item.isCancelled).length,
+    missingFullXml: documents.filter((item) => item.isSummary).length,
+    estimatedTax: total(active, "taxAmount"),
+  };
+}
+
+export async function getTaxSummary(companyId, query = {}) {
+  const { period, documents } = await fiscalDocuments(companyId, query);
+  const active = documents.filter((item) => !item.isCancelled);
+  const sum = (field) =>
+    active.reduce((total, item) => total + decimalToNumber(item[field]), 0);
+  const data = [
+    { name: "ICMS", value: sum("icmsAmount"), color: "#50d86b" },
+    { name: "IPI", value: sum("ipiAmount"), color: "#3b82f6" },
+    { name: "PIS", value: sum("pisAmount"), color: "#8b5cf6" },
+    { name: "COFINS", value: sum("cofinsAmount"), color: "#f97316" },
+  ];
+  return {
+    periodYear: period.year,
+    periodMonth: period.month,
+    total: data.reduce((sum, item) => sum + item.value, 0),
+    data,
+    definitive: false,
+  };
+}
+
+export async function getFiscalMonthlyFlow(companyId) {
+  const from = new Date();
+  from.setMonth(from.getMonth() - 5, 1);
+  from.setHours(0, 0, 0, 0);
+  const documents = await prisma.fiscalDocument.findMany({
+    where: {
+      companyId,
+      source: { in: CLOSING_SOURCES },
+      emissionDate: { gte: from },
+      isCancelled: false,
+    },
+    select: { emissionDate: true, totalAmount: true, operationDirection: true },
+  });
+  const months = new Map();
+  for (let index = 5; index >= 0; index -= 1) {
+    const date = new Date();
+    date.setMonth(date.getMonth() - index, 1);
+    const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+    months.set(key, {
+      month: new Intl.DateTimeFormat("pt-BR", { month: "short" })
+        .format(date)
+        .replace(".", ""),
+      inbound: 0,
+      outbound: 0,
+    });
+  }
+  for (const document of documents) {
+    if (!document.emissionDate) continue;
+    const key = `${document.emissionDate.getFullYear()}-${String(
+      document.emissionDate.getMonth() + 1,
+    ).padStart(2, "0")}`;
+    const item = months.get(key);
+    if (!item) continue;
+    if (document.operationDirection === "INBOUND") {
+      item.inbound += decimalToNumber(document.totalAmount);
+    }
+    if (document.operationDirection === "OUTBOUND") {
+      item.outbound += decimalToNumber(document.totalAmount);
+    }
+  }
+  return { data: [...months.values()] };
 }

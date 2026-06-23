@@ -42,6 +42,17 @@ export async function getDocumentXml(id: string, download = false) {
   );
 }
 
+export async function importFiscalXml(file: File) {
+  const companyId = getCompanyId();
+  if (!companyId) throw new Error("Selecione uma empresa.");
+  const body = new FormData();
+  body.append("xml", file);
+  return apiFetch<{ document: FiscalDocument; linkedNfeCount: number }>(
+    `/companies/${companyId}/documents/import-xml`,
+    { method: "POST", body },
+  );
+}
+
 export async function manifestDocument(
   id: string,
   eventType: string,

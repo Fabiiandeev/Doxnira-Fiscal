@@ -10,6 +10,8 @@ const modules = [
   "users",
   "settings",
   "help",
+  "guides",
+  "requests",
 ] as const;
 
 export default async function ModulePage({

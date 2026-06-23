@@ -61,6 +61,26 @@ export function AdvancedFiltersDrawer({
               <option value="false">Não</option>
             </select>
           </FilterField>
+          <FilterField label="Operação">
+            <select className={selectClassName} value={filters.operationDirection} onChange={(event) => update("operationDirection", event.target.value)}>
+              <option value="">Todas</option>
+              <option value="INBOUND">NF-e Entrada</option>
+              <option value="OUTBOUND">NF-e Saída</option>
+              <option value="TRANSPORT_INBOUND">CT-e Entrada</option>
+              <option value="TRANSPORT_OUTBOUND">CT-e Saída</option>
+              <option value="UNKNOWN">Não classificada</option>
+            </select>
+          </FilterField>
+          <FilterField label="Fonte">
+            <select className={selectClassName} value={filters.source} onChange={(event) => update("source", event.target.value)}>
+              <option value="">Todas</option>
+              <option value="REAL_SEFAZ">SEFAZ real</option>
+              <option value="MANUAL_IMPORT">Importação manual</option>
+              <option value="ERP_IMPORT">Importação ERP</option>
+              <option value="MOCK">Mock</option>
+              <option value="SEED">Seed</option>
+            </select>
+          </FilterField>
           <FilterField label="Data inicial">
             <Input
               type="date"

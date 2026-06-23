@@ -52,7 +52,7 @@ export function parseCteXml(xml) {
   const recipient = first(parsed, "dest") || {};
   const referencedNfeKeys = [
     ...new Set(
-      findAll(parsed, "chave")
+      [...findAll(parsed, "chave"), ...findAll(parsed, "chNFe")]
         .map(value)
         .filter((key) => /^\d{44}$/.test(key || "")),
     ),

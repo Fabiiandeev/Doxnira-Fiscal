@@ -10,28 +10,52 @@ export type ManifestationStatus =
 export interface FiscalDocument {
   id: string;
   accessKey: string;
-  nsu: string;
-  invoiceNumber: string;
-  series: string;
-  issuerName: string;
-  issuerCnpj: string;
-  recipientName: string;
-  recipientCnpj: string;
-  emissionDate: string;
+  nsu: string | null;
+  invoiceNumber: string | null;
+  series: string | null;
+  model: string | null;
+  documentType: "NFE" | "CTE" | "NFSE" | "OTHER";
+  operationDirection:
+    | "INBOUND"
+    | "OUTBOUND"
+    | "TRANSPORT_INBOUND"
+    | "TRANSPORT_OUTBOUND"
+    | "UNKNOWN";
+  companyRole: "ISSUER" | "RECIPIENT" | "TRANSPORT_TAKER" | "OTHER";
+  issuerName: string | null;
+  issuerCnpj: string | null;
+  recipientName: string | null;
+  recipientCnpj: string | null;
+  emissionDate: string | null;
   totalAmount: number;
+  productsAmount: number;
+  freightAmount: number;
+  discountAmount: number;
+  icmsAmount: number;
+  ipiAmount: number;
+  pisAmount: number;
+  cofinsAmount: number;
+  icmsBase: number;
+  icmsStAmount: number;
+  fcpAmount: number;
+  otherAmount: number;
+  taxAmount: number;
   status: DocumentStatus;
   xmlType: XmlType;
   manifestationStatus: ManifestationStatus;
   isCancelled: boolean;
-  uf: string;
-  cfop: string;
-  protocol: string;
+  uf: string | null;
+  cfop: string | null;
+  protocol: string | null;
   isNewSupplier?: boolean;
+  source: "REAL_SEFAZ" | "MOCK" | "SEED" | "MANUAL_IMPORT" | "ERP_IMPORT";
 }
 
 export interface DocumentFilters {
   query: string;
   documentType: string;
+  operationDirection: string;
+  source: string;
   hasLinkedCte: string;
   status: string;
   xmlType: string;
@@ -42,6 +66,72 @@ export interface DocumentFilters {
   maxAmount: string;
   uf: string;
   onlyNewSuppliers: boolean;
+}
+
+export interface CompanyTaxSettings {
+  id?: string;
+  companyId?: string;
+  taxRegime: "SIMPLES_NACIONAL" | "LUCRO_PRESUMIDO" | "LUCRO_REAL" | "MEI" | "OUTRO" | "PENDENTE_CONFIRMACAO";
+  calculationRegime: "COMPETENCIA" | "CAIXA";
+  uf: string;
+  stateRegistration: string | null;
+  mainCnae: string | null;
+  simplesAnnex: string | null;
+  mainActivity: string | null;
+  isIcmsTaxpayer: boolean;
+  isIpiTaxpayer: boolean;
+  pisCofinsRegime: "CUMULATIVO" | "NAO_CUMULATIVO" | "SIMPLES" | "PENDENTE_CONFIRMACAO";
+  accumulatedRevenue: number | null;
+}
+
+export interface MonthlyClosingItem {
+  id: string;
+  documentId: string | null;
+  category: string;
+  source: FiscalDocument["source"];
+  accessKey: string | null;
+  amount: number;
+  taxAmount: number;
+  snapshot?: Record<string, unknown>;
+}
+
+export interface MonthlyClosingWarning {
+  id: string;
+  code: string;
+  severity: "INFO" | "WARNING" | "ERROR";
+  message: string;
+  details?: Record<string, unknown>;
+  field?: string | null;
+  cause?: string | null;
+  suggestion?: string | null;
+  autoFix?: { available: boolean; action: string | null; label: string | null } | null;
+  documentId?: string | null;
+  accessKey?: string | null;
+}
+
+export interface MonthlyClosing {
+  id: string;
+  periodYear: number;
+  periodMonth: number;
+  status: "DRAFT" | "PROCESSING" | "READY_FOR_REVIEW" | "APPROVED" | "REOPENED" | "ERROR";
+  inboundTotal: number;
+  outboundTotal: number;
+  freightTotal: number;
+  icmsTotal: number;
+  ipiTotal: number;
+  pisTotal: number;
+  cofinsTotal: number;
+  estimatedTaxTotal: number;
+  includedDocuments: number;
+  ignoredDocuments: number;
+  approvedAt: string | null;
+  items: MonthlyClosingItem[];
+  warnings: MonthlyClosingWarning[];
+}
+
+export interface FiscalRepairAction {
+  code: string;
+  target: "certificate" | "company" | "sync";
 }
 
 export interface SyncLog {
@@ -55,6 +145,10 @@ export interface SyncLog {
   responseUltNsu?: string | null;
   responseMaxNsu?: string | null;
   documentsCount: number;
+  documentsReceived: number;
+  documentsSaved: number;
+  mode: "real" | "mock";
+  environment?: "production" | "homologation" | null;
   errorMessage?: string | null;
   duration?: string;
 }

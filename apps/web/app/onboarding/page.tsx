@@ -4,12 +4,20 @@ import { BadgeCheck, Building2, FileKey2, RefreshCw, SlidersHorizontal } from "l
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
+import { CnpjLookupForm } from "@/components/companies/cnpj-lookup-form";
 import { BrandMark } from "@/components/brand-mark";
 import { notify } from "@/components/toast-viewport";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { setCompanyId } from "@/lib/api";
 import { createCompany } from "@/lib/services/company-service";
+import {
+  lookupToCompanyForm,
+  lookupToCompanyPayload,
+  lookupToTaxSettings,
+  type CnpjLookupResponse,
+} from "@/lib/services/cnpj-service";
+import { saveTaxSettings } from "@/lib/services/tax-service";
 
 const steps = [
   { label: "Empresa", icon: Building2, active: true },
@@ -22,22 +30,64 @@ export default function OnboardingPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [lookupData, setLookupData] = useState<CnpjLookupResponse | null>(null);
+  const [form, setForm] = useState({
+    legalName: "",
+    tradeName: "",
+    cnpj: "",
+    uf: "",
+    city: "",
+    stateRegistration: "",
+    taxRegime: "",
+    environment: "homologation" as "production" | "homologation",
+  });
+
+  function handleCnpjDataLoaded(data: CnpjLookupResponse) {
+    const fields = lookupToCompanyForm(data);
+    setLookupData(data);
+    setForm((prev) => ({
+      ...prev,
+      legalName: fields.legalName || prev.legalName,
+      tradeName: fields.tradeName || prev.tradeName,
+      cnpj: fields.cnpj,
+      uf: fields.uf || prev.uf,
+      city: fields.city || prev.city,
+      stateRegistration:
+        fields.stateRegistration || prev.stateRegistration,
+      taxRegime: fields.taxRegime,
+      environment: fields.environment,
+    }));
+  }
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
     setLoading(true);
     setError("");
     try {
+      const lookupPayload = lookupData
+        ? lookupToCompanyPayload(lookupData)
+        : null;
       const company = await createCompany({
-        legalName: String(form.get("legalName")),
-        tradeName: String(form.get("tradeName")),
-        cnpj: String(form.get("cnpj")),
-        uf: String(form.get("uf")),
-        stateRegistration: String(form.get("stateRegistration")),
-        taxRegime: String(form.get("taxRegime")),
-        environment: String(form.get("environment")) as "production" | "homologation",
+        legalName: form.legalName,
+        tradeName: form.tradeName,
+        cnpj: form.cnpj.replace(/\D/g, ""),
+        uf: form.uf,
+        city: form.city,
+        ...(lookupPayload ?? {}),
+        stateRegistration:
+          lookupPayload?.stateRegistration ||
+          form.stateRegistration.replace(/\D/g, "") ||
+          undefined,
+        stateRegistrationFormatted:
+          lookupPayload?.stateRegistrationFormatted ||
+          form.stateRegistration ||
+          undefined,
+        taxRegime: lookupPayload?.taxRegime || form.taxRegime || undefined,
+        environment: form.environment,
       });
+      if (lookupData) {
+        await saveTaxSettings(lookupToTaxSettings(lookupData), company.id);
+      }
       setCompanyId(company.id);
       notify({ title: "Empresa cadastrada", description: "Configuração inicial concluída." });
       router.push("/dashboard");
@@ -95,21 +145,101 @@ export default function OnboardingPage() {
             <p className="mt-2 text-sm text-subtle">
               Informe o CNPJ que será vinculado à central fiscal.
             </p>
-            <div className="mt-8 grid gap-4 sm:grid-cols-2">
-              <Input name="legalName" className="sm:col-span-2" placeholder="Razão social" required />
-              <Input name="tradeName" placeholder="Nome fantasia" />
-              <Input name="cnpj" placeholder="CNPJ" required />
-              <Input name="stateRegistration" placeholder="Inscrição estadual" />
-              <Input name="uf" placeholder="UF" maxLength={2} required />
-              <Input name="taxRegime" placeholder="Regime tributário" />
-              <select name="environment" className="h-11 rounded-xl border border-line bg-white px-3.5 text-sm outline-none">
-                <option value="production">Produção</option>
-                <option value="homologation">Homologação</option>
-              </select>
+
+            <div className="mt-8 border-t border-line pt-8">
+              <p className="mb-4 text-[11px] font-extrabold uppercase text-subtle">Busca automática de dados</p>
+              <CnpjLookupForm onDataLoaded={handleCnpjDataLoaded} />
             </div>
+
+            <div className="mt-8 border-t border-line pt-8 space-y-4">
+              <p className="text-[11px] font-extrabold uppercase text-subtle">Dados da empresa</p>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Input
+                  value={form.legalName}
+                  onChange={(e) => setForm({ ...form, legalName: e.target.value })}
+                  placeholder="Razão social"
+                  required
+                  className="sm:col-span-2"
+                />
+                <Input
+                  value={form.tradeName}
+                  onChange={(e) => setForm({ ...form, tradeName: e.target.value })}
+                  placeholder="Nome fantasia"
+                />
+                <Input
+                  value={form.cnpj}
+                  onChange={(e) => setForm({ ...form, cnpj: e.target.value })}
+                  placeholder="CNPJ"
+                  required
+                />
+                <Input
+                  value={form.stateRegistration}
+                  onChange={(e) => setForm({ ...form, stateRegistration: e.target.value })}
+                  placeholder="Inscrição estadual"
+                />
+                <Input
+                  value={form.city}
+                  onChange={(e) => setForm({ ...form, city: e.target.value })}
+                  placeholder="Cidade"
+                />
+                <Input
+                  value={form.uf}
+                  onChange={(e) => setForm({ ...form, uf: e.target.value.toUpperCase() })}
+                  placeholder="UF"
+                  maxLength={2}
+                  required
+                />
+                <Input
+                  value={form.taxRegime}
+                  onChange={(e) => setForm({ ...form, taxRegime: e.target.value })}
+                  placeholder="Regime tributário"
+                />
+                <select
+                  name="environment"
+                  value={form.environment}
+                  onChange={(e) => setForm({ ...form, environment: e.target.value as "production" | "homologation" })}
+                  className="h-11 rounded-xl border border-line bg-white px-3.5 text-sm outline-none"
+                >
+                  <option value="homologation">Homologação</option>
+                  <option value="production">Produção</option>
+                </select>
+                <Input
+                  value={lookupData?.empresa.cnaePrincipal.codigoFormatado || ""}
+                  placeholder="CNAE principal"
+                  readOnly
+                />
+                <Input
+                  value={lookupData?.fiscal.regimeApuracao || ""}
+                  placeholder="Regime de apuração"
+                  readOnly
+                />
+                <Input
+                  value={lookupData?.empresa.cnaePrincipal.descricao || ""}
+                  placeholder="Atividade principal"
+                  readOnly
+                  className="sm:col-span-2"
+                />
+                <Input
+                  value={lookupData?.fiscal.pisCofins || ""}
+                  placeholder="PIS/COFINS"
+                  readOnly
+                />
+                <Input
+                  value={lookupData?.fiscal.contribuinteICMS || ""}
+                  placeholder="Contribuinte ICMS"
+                  readOnly
+                />
+                <Input
+                  value={lookupData?.fiscal.contribuinteIPI || ""}
+                  placeholder="Contribuinte IPI"
+                  readOnly
+                />
+              </div>
+            </div>
+
             {error && <p className="mt-4 rounded-xl bg-red-50 p-3 text-xs font-bold text-red-700">{error}</p>}
             <div className="mt-8 flex justify-end">
-              <Button type="submit" variant="lime" size="lg" disabled={loading}>
+              <Button type="submit" variant="lime" size="lg" disabled={loading || !form.legalName || !form.cnpj || !form.uf}>
                 {loading ? "Salvando..." : "Salvar e visualizar dashboard"}
               </Button>
             </div>
