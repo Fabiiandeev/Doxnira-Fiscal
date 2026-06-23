@@ -609,53 +609,65 @@ model XmlDownloadLog {
 
 model Client {
   // ID única - gerada automaticamente como UUID
-  id                String    @id @default(uuid()) @db.Uuid
+  id                  String    @id @default(uuid()) @db.Uuid
 
   // Referência ao usuário que criou o cliente
-  ownerId           String    @map("owner_id") @db.Uuid
+  ownerId             String    @map("owner_id") @db.Uuid
 
   // Tipo de pessoa: "PJ" (Pessoa Jurídica) ou "PF" (Pessoa Física)
-  tipoPessoa        String    @map("tipo_pessoa") @db.VarChar(2)
+  tipoPessoa          String    @map("tipo_pessoa") @db.VarChar(2)
 
   // Nomes (depende do tipo de pessoa)
-  nome              String?   @db.VarChar(255)           // Para PF
-  razaoSocial       String?   @map("razao_social") @db.VarChar(255)    // Para PJ
-  nomeFantasia      String?   @map("nome_fantasia") @db.VarChar(255)   // Para PJ
+  nome                String?   @db.VarChar(255)           // Para PF
+  razaoSocial         String?   @map("razao_social") @db.VarChar(255)    // Para PJ
+  nomeFantasia        String?   @map("nome_fantasia") @db.VarChar(255)   // Para PJ
 
   // Documentos únicos (podem ser null quando não aplicável)
-  cpf               String?   @unique @db.VarChar(11)
-  cnpj              String?   @unique @db.VarChar(14)
+  cpf                 String?   @unique @db.VarChar(11)
+  cnpj                String?   @unique @db.VarChar(14)
 
   // Informações fiscais
-  inscricaoEstadual String?   @map("inscricao_estadual") @db.VarChar(40)
-  regimeTributario  String?   @map("regime_tributario") @db.VarChar(60)
-  cnae              String?   @db.VarChar(20)
-  atividadeEconomica String?  @map("atividade_economica") @db.VarChar(255)
+  inscricaoEstadual   String?   @map("inscricao_estadual") @db.VarChar(40)
+  inscricaoMunicipal  String?   @map("inscricao_municipal") @db.VarChar(40)
+  regimeTributario    String?   @map("regime_tributario") @db.VarChar(60)
+  cnae                String?   @db.VarChar(20)
+  atividadeEconomica   String?  @map("atividade_economica") @db.VarChar(255)
+  naturezaJuridica    String?   @map("natureza_juridica") @db.VarChar(100)
+  situacaoCadastral   String?   @map("situacao_cadastral") @db.VarChar(100)
+
+  // Documentos PF
+  rg                  String?   @db.VarChar(30)
+  dataNascimento      DateTime? @map("data_nascimento")
 
   // Endereço
-  cep               String?   @db.VarChar(8)
-  logradouro        String?   @db.VarChar(255)
-  numero            String?   @db.VarChar(20)
-  complemento       String?   @db.VarChar(255)
-  bairro            String?   @db.VarChar(100)
-  municipio         String?   @db.VarChar(120)
-  uf                String?   @db.Char(2)
+  cep                 String?   @db.VarChar(8)
+  logradouro          String?   @db.VarChar(255)
+  numero              String?   @db.VarChar(20)
+  complemento         String?   @db.VarChar(255)
+  bairro              String?   @db.VarChar(100)
+  municipio           String?   @db.VarChar(120)
+  uf                  String?   @db.Char(2)
+  codigoIbge          String?   @map("codigo_ibge") @db.VarChar(20)
 
   // Contato
-  email             String?   @db.VarChar(255)
-  telefone          String?   @db.VarChar(20)
+  email               String?   @db.VarChar(255)
+  telefone            String?   @db.VarChar(20)
+
+  // Observações e fonte
+  observacoes         String?   @db.Text
+  fonteDados          String?   @map("fonte_dados") @db.VarChar(100)
 
   // Dados de auditoria
-  dadosOriginaisJson Json?    @map("dados_originais_json")
-  alertasJson        Json?    @map("alertas_json")
-  validadoPorIa      Boolean   @default(false) @map("validado_por_ia")
+  dadosOriginaisJson  Json?     @map("dados_originais_json")
+  alertasJson         Json?     @map("alertas_json")
+  validadoPorIa       Boolean   @default(false) @map("validado_por_ia")
 
   // Timestamps
-  createdAt         DateTime  @default(now()) @map("created_at")
-  updatedAt         DateTime  @updatedAt @map("updated_at")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
 
   // Relação com User
-  owner             User      @relation(fields: [ownerId], references: [id])
+  owner               User      @relation(fields: [ownerId], references: [id])
 
   // Índices para melhor performance
   @@index([ownerId])

@@ -28,6 +28,7 @@ import { reportsRouter } from "./modules/reports/reports.routes.js";
 import { syncRouter } from "./modules/sync/sync.routes.js";
 import { taxSettingsRouter } from "./modules/tax-settings/tax-settings.routes.js";
 import { healthRouter } from "./routes/health.routes.js";
+import { clientesRouter, clientesPublicRouter } from "./modules/clients/clients.routes.js";
 
 export const app = express();
 const allowedOrigins = env.CORS_ORIGIN.split(",").map((origin) => origin.trim());
@@ -79,6 +80,10 @@ companyApiRouter.use(
   manifestationsRouter,
 );
 app.use("/api/companies", companyApiRouter);
+
+// Clientes public and company-scoped routes
+app.use("/api/clientes", clientesPublicRouter);
+companyApiRouter.use("/:companyId/clientes", clientesRouter);
 
 app.use(notFoundMiddleware);
 app.use(errorMiddleware);

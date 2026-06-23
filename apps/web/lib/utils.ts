@@ -25,3 +25,5 @@ export const maskCnpj = (value: string) =>
 export const normalizeCnpj = (value: string) =>
   String(value || "").replace(/\D/g, "");
 
+export const normalizeCpf = (value: string) => String(value || "").replace(/\D/g, "");
+export const maskCpf = (value: string) => String(value || "").replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, "$1.$2.$3-$4");
