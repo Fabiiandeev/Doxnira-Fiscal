@@ -96,11 +96,6 @@ export function SyncView() {
     sync.mutate();
   }
 
-    function repairSync() {
-      // intentionally no-op; kept to preserve API for actions
-      return;
-  }
-
   function refreshAll() {
     readiness.refetch();
     status.refetch();
