@@ -1,5 +1,4 @@
-﻿
-import { fiscalInboxMock } from '@/lib/mocks/fiscal-mocks';
+﻿import { fiscalInboxMock } from '@/lib/mocks/fiscal-mocks';
 import type { FiscalInboxItem } from '@/lib/fiscal-types';
 
 const STORAGE_KEY = 'ns-fiscal-inbox';
@@ -7,7 +6,9 @@ const STORAGE_KEY = 'ns-fiscal-inbox';
 function getStored(): FiscalInboxItem[] {
   if (typeof window === 'undefined') return fiscalInboxMock;
   const stored = localStorage.getItem(STORAGE_KEY);
-  if (stored) return JSON.parse(stored);
+  if (stored) {
+    try { return JSON.parse(stored); } catch { /* fall through */ }
+  }
   localStorage.setItem(STORAGE_KEY, JSON.stringify(fiscalInboxMock));
   return fiscalInboxMock;
 }
@@ -46,7 +47,6 @@ export async function assignToAccountant(itemId: string): Promise<FiscalInboxIte
   const data = getStored();
   const index = data.findIndex(item => item.id === itemId);
   if (index === -1) return null;
-  
   data[index] = { ...data[index], responsible: 'ACCOUNTANT', status: 'WAITING_ACCOUNTANT' };
   setStored(data);
   return data[index];
@@ -57,7 +57,6 @@ export async function requestClient(itemId: string): Promise<FiscalInboxItem | n
   const data = getStored();
   const index = data.findIndex(item => item.id === itemId);
   if (index === -1) return null;
-  
   data[index] = { ...data[index], responsible: 'COMPANY', status: 'WAITING_CLIENT' };
   setStored(data);
   return data[index];
@@ -68,19 +67,17 @@ export async function autoFixInboxItem(itemId: string): Promise<FiscalInboxItem 
   const data = getStored();
   const index = data.findIndex(item => item.id === itemId);
   if (index === -1) return null;
-  
-  data[index] = { ...data[index], status: 'AUTO_FIXED', responsible: 'SYSTEM', resolvedAt: new Date().toISOString() };
+  data[index] = { ...data[index], status: 'AUTO_FIXED', responsible: 'SYSTEM' };
   setStored(data);
   return data[index];
 }
 
-export async function ignoreWithJustification(itemId: string, justification: string): Promise<FiscalInboxItem | null> {
+export async function ignoreInboxItem(itemId: string): Promise<FiscalInboxItem | null> {
   await new Promise(res => setTimeout(res, 200));
   const data = getStored();
   const index = data.findIndex(item => item.id === itemId);
   if (index === -1) return null;
-  
-  data[index] = { ...data[index], status: 'IGNORED', justification, ignoredAt: new Date().toISOString() };
+  data[index] = { ...data[index], status: 'IGNORED' };
   setStored(data);
   return data[index];
 }
@@ -90,13 +87,12 @@ export async function markResolved(itemId: string): Promise<FiscalInboxItem | nu
   const data = getStored();
   const index = data.findIndex(item => item.id === itemId);
   if (index === -1) return null;
-  
-  data[index] = { ...data[index], status: 'RESOLVED', resolvedAt: new Date().toISOString() };
+  data[index] = { ...data[index], status: 'RESOLVED' };
   setStored(data);
   return data[index];
 }
 
-export async function bulkAction(itemIds: string[], action: 'assign_accountant' | 'request_client' | 'auto_fix' | 'ignore' | 'resolve', justification?: string): Promise<{ success: number; failed: number }> {
+export async function bulkAction(itemIds: string[], action: 'assign_accountant' | 'request_client' | 'auto_fix' | 'ignore' | 'resolve'): Promise<{ success: number; failed: number }> {
   await new Promise(res => setTimeout(res, 500));
   const data = getStored();
   let success = 0;
@@ -113,13 +109,13 @@ export async function bulkAction(itemIds: string[], action: 'assign_accountant' 
           data[index] = { ...data[index], responsible: 'COMPANY', status: 'WAITING_CLIENT' };
           break;
         case 'auto_fix':
-          data[index] = { ...data[index], status: 'AUTO_FIXED', responsible: 'SYSTEM', resolvedAt: new Date().toISOString() };
+          data[index] = { ...data[index], status: 'AUTO_FIXED', responsible: 'SYSTEM' };
           break;
         case 'ignore':
-          data[index] = { ...data[index], status: 'IGNORED', justification, ignoredAt: new Date().toISOString() };
+          data[index] = { ...data[index], status: 'IGNORED' };
           break;
         case 'resolve':
-          data[index] = { ...data[index], status: 'RESOLVED', resolvedAt: new Date().toISOString() };
+          data[index] = { ...data[index], status: 'RESOLVED' };
           break;
       }
       success++;
@@ -131,4 +127,3 @@ export async function bulkAction(itemIds: string[], action: 'assign_accountant' 
   setStored(data);
   return { success, failed };
 }
-

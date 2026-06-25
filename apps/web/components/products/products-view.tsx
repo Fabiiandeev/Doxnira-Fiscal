@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { Box, CheckCircle2, Edit, Package, Plus, Search, Trash2, Zap } from "lucide-react";
+import { useState } from "react";
+import { Edit, Plus, Trash2 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { AlertTriangle, Building2, CheckCircle2, Clock, Send, User, Zap } from "lucide-react";
+import { Building2, Clock } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -10,8 +10,9 @@ import type { AccountantWorkQueueItem } from "@/lib/fiscal-types";
 import { notify } from "@/components/toast-viewport";
 import { formatCurrency, formatDate } from "@/lib/utils";
 
-const columnOrder = ["CRITICAL", "HIGH", "MEDIUM", "RESOLVED"];
-const columnColors = { CRITICAL: "bg-red-50 border-red-200", HIGH: "bg-orange-50 border-orange-200", MEDIUM: "bg-yellow-50 border-yellow-200", RESOLVED: "bg-green-50 border-green-200" };
+const columnOrder = ["CRITICAL", "HIGH", "MEDIUM", "RESOLVED"] as const;
+type ColumnKey = typeof columnOrder[number];
+const columnColors: Record<ColumnKey, string> = { CRITICAL: "bg-red-50 border-red-200", HIGH: "bg-orange-50 border-orange-200", MEDIUM: "bg-yellow-50 border-yellow-200", RESOLVED: "bg-green-50 border-green-200" };
 
 export function AccountantWorkQueueView() {
   const [items, setItems] = useState<AccountantWorkQueueItem[]>([]);
@@ -22,7 +23,7 @@ export function AccountantWorkQueueView() {
     load();
   }, []);
 
-  const handleMove = async (id: string, newColumn: any) => {
+  const handleMove = async (id: string, newColumn: ColumnKey) => {
     await moveWorkQueueItem(id, newColumn);
     notify({ title: "Movido para " + newColumn });
     const data = await getAccountantWorkQueue();
@@ -54,7 +55,7 @@ export function AccountantWorkQueueView() {
               <Badge>{items.filter(i => i.column === column).length}</Badge>
             </div>
             <div className="space-y-2 min-h-[400px]">
-              {items.filter(i => i => i.column === column).map((item) => (
+              {items.filter(i => i.column === column).map((item) => (
                 <WorkQueueCard key={item.id} item={item} onAction={handleAction} onMove={handleMove} />
               ))}
             </div>
@@ -65,7 +66,7 @@ export function AccountantWorkQueueView() {
   );
 }
 
-function WorkQueueCard({ item, onAction, onMove }: { item: AccountantWorkQueueItem; onAction: (item: AccountantWorkQueueItem, action: string) => void; onMove: (id: string, column: string) => void }) {
+function WorkQueueCard({ item, onAction, onMove }: { item: AccountantWorkQueueItem; onAction: (item: AccountantWorkQueueItem, action: string) => void; onMove: (id: string, column: ColumnKey) => void }) {
   return (
     <div className="p-3 rounded-xl bg-white border border-line shadow-sm">
       <div className="flex items-start justify-between mb-2">

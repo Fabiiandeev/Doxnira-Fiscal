@@ -1,18 +1,33 @@
-﻿
-import { fiscalAutopilotMock } from '@/lib/mocks/fiscal-mocks';
+﻿import { fiscalAutopilotMock } from '@/lib/mocks/fiscal-mocks';
 import type { FiscalAutopilotSummary, FiscalAutopilotCategory, FiscalIssue } from '@/lib/fiscal-types';
+
+type AutopilotData = {
+  summary: FiscalAutopilotSummary;
+  categories: FiscalAutopilotCategory[];
+  recentCorrections: Array<{
+    id: string;
+    action: string;
+    entity: string;
+    timestamp: string;
+    type: string;
+    status: string;
+  }>;
+};
 
 const STORAGE_KEY = 'ns-fiscal-autopilot-data';
 
-function getStoredData(): FiscalAutopilotSummary & { categories: FiscalAutopilotCategory[]; recentCorrections: any[] } {
-  if (typeof window === 'undefined') return fiscalAutopilotMock;
+function getStoredData(): AutopilotData {
+  if (typeof window === 'undefined') return fiscalAutopilotMock as unknown as AutopilotData;
   const stored = localStorage.getItem(STORAGE_KEY);
-  if (stored) return JSON.parse(stored);
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(fiscalAutopilotMock));
-  return fiscalAutopilotMock;
+  if (stored) {
+    try { return JSON.parse(stored); } catch { /* fall through */ }
+  }
+  const data = fiscalAutopilotMock as unknown as AutopilotData;
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  return data;
 }
 
-function setStoredData(data: any) {
+function setStoredData(data: AutopilotData) {
   if (typeof window !== 'undefined') {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
     window.dispatchEvent(new CustomEvent('ns-fiscal-autopilot-updated'));
@@ -40,7 +55,7 @@ export async function applyAutoFix(issueIds: string[]): Promise<{ success: numbe
   const data = getStoredData();
   let success = 0;
   let failed = 0;
-  
+
   for (const issueId of issueIds) {
     for (const category of data.categories) {
       const issue = category.items.find(i => i.id === issueId);
@@ -56,7 +71,7 @@ export async function applyAutoFix(issueIds: string[]): Promise<{ success: numbe
           entity: issue.title,
           timestamp: new Date().toISOString(),
           type: 'AUTO_SAFE',
-          status: 'SUCCESS'
+          status: 'SUCCESS',
         });
         success++;
         break;
@@ -65,7 +80,7 @@ export async function applyAutoFix(issueIds: string[]): Promise<{ success: numbe
       }
     }
   }
-  
+
   setStoredData(data);
   return { success, failed };
 }
@@ -74,7 +89,7 @@ export async function applyConfirmation(issueIds: string[]): Promise<{ success: 
   const data = getStoredData();
   let success = 0;
   let failed = 0;
-  
+
   for (const issueId of issueIds) {
     for (const category of data.categories) {
       const issue = category.items.find(i => i.id === issueId);
@@ -90,7 +105,7 @@ export async function applyConfirmation(issueIds: string[]): Promise<{ success: 
           entity: issue.title,
           timestamp: new Date().toISOString(),
           type: 'AUTO_CONFIRM',
-          status: 'SUCCESS'
+          status: 'SUCCESS',
         });
         success++;
         break;
@@ -99,7 +114,7 @@ export async function applyConfirmation(issueIds: string[]): Promise<{ success: 
       }
     }
   }
-  
+
   setStoredData(data);
   return { success, failed };
 }
@@ -108,7 +123,7 @@ export async function sendToAccountant(issueIds: string[]): Promise<{ success: n
   const data = getStoredData();
   let success = 0;
   let failed = 0;
-  
+
   for (const issueId of issueIds) {
     for (const category of data.categories) {
       const issue = category.items.find(i => i.id === issueId);
@@ -123,7 +138,7 @@ export async function sendToAccountant(issueIds: string[]): Promise<{ success: n
           entity: issue.title,
           timestamp: new Date().toISOString(),
           type: 'ACCOUNTANT_REVIEW',
-          status: 'PENDING'
+          status: 'PENDING',
         });
         success++;
         break;
@@ -132,19 +147,18 @@ export async function sendToAccountant(issueIds: string[]): Promise<{ success: n
       }
     }
   }
-  
+
   setStoredData(data);
   return { success, failed };
 }
 
-export async function getRecentCorrections(): Promise<any[]> {
+export async function getRecentCorrections(): Promise<AutopilotData['recentCorrections']> {
   const data = getStoredData();
   return data.recentCorrections;
 }
 
 export async function revalidateAll(): Promise<FiscalAutopilotSummary> {
   const data = getStoredData();
-  // Simulate revalidation - randomly change some statuses
   for (const category of data.categories) {
     for (const issue of category.items) {
       if (issue.status === 'OPEN' && Math.random() > 0.7) {
@@ -153,14 +167,12 @@ export async function revalidateAll(): Promise<FiscalAutopilotSummary> {
       }
     }
   }
-  // Recalculate summary
   const allIssues = data.categories.flatMap(c => c.items);
   data.summary.totalIssues = allIssues.filter(i => i.status === 'OPEN' || i.status === 'IN_PROGRESS' || i.status === 'WAITING_ACCOUNTANT' || i.status === 'WAITING_CLIENT').length;
   data.summary.autoSafeCount = allIssues.filter(i => i.type === 'AUTO_SAFE' && (i.status === 'OPEN' || i.status === 'IN_PROGRESS')).length;
   data.summary.needsConfirmationCount = allIssues.filter(i => i.type === 'AUTO_CONFIRM' && (i.status === 'OPEN' || i.status === 'IN_PROGRESS')).length;
   data.summary.needsAccountantCount = allIssues.filter(i => i.type === 'ACCOUNTANT_REVIEW' && (i.status === 'OPEN' || i.status === 'IN_PROGRESS' || i.status === 'WAITING_ACCOUNTANT')).length;
-  
+
   setStoredData(data);
   return data.summary;
 }
-

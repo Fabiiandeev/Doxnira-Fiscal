@@ -1,20 +1,19 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { AlertTriangle, CircleDollarSign, CreditCard, TrendingDown, TrendingUp } from "lucide-react";
+import { AlertTriangle, CircleDollarSign, TrendingDown, TrendingUp } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { getStuckMoney } from "@/lib/services/fiscal/stuck-money-service";
 import type { StuckMoneyData } from "@/lib/fiscal-types";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { formatCurrency } from "@/lib/utils";
 
 export function StuckMoneyView() {
   const [data, setData] = useState<StuckMoneyData | null>(null);
-  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const load = async () => { setLoading(true); const d = await getStuckMoney(); setData(d); setLoading(false); };
+    const load = async () => { const d = await getStuckMoney(); setData(d); };
     load();
   }, []);
 

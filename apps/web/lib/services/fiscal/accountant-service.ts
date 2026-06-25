@@ -14,6 +14,12 @@ function getRiskData(): AccountantRiskRanking {
   return accountantRiskMock;
 }
 
+function setRiskData(data: AccountantRiskRanking) {
+  if (typeof window !== 'undefined') {
+    localStorage.setItem(RISK_KEY, JSON.stringify(data));
+  }
+}
+
 function getQueueData(): AccountantWorkQueueItem[] {
   if (typeof window === 'undefined') return accountantWorkQueueMock;
   const stored = localStorage.getItem(QUEUE_KEY);
@@ -135,5 +141,19 @@ export async function resendClientRequest(id: string, channels: ClientRequest['c
   };
   setRequestsData(data);
   return data[index];
+}
+
+export async function completeActionPlanItem(companyId: string, planItemId: string): Promise<AccountantRiskRanking | null> {
+  await new Promise(resolve => setTimeout(resolve, 200));
+  const data = getRiskData();
+  const company = data.companies.find(c => c.id === companyId);
+  if (!company) return null;
+
+  const planItem = company.actionPlan.find(p => p.id === planItemId);
+  if (planItem) {
+    planItem.completed = true;
+    setRiskData(data);
+  }
+  return data;
 }
 

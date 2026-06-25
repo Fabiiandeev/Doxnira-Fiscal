@@ -28,6 +28,7 @@ import {
 import { formatDate } from "@/lib/utils";
 
 export function SyncView() {
+
   const router = useRouter();
   const queryClient = useQueryClient();
   const companyId = getCompanyId();
@@ -94,11 +95,6 @@ export function SyncView() {
       return;
     }
     sync.mutate();
-  }
-
-    function repairSync() {
-      // intentionally no-op; kept to preserve API for actions
-      return;
   }
 
   function refreshAll() {

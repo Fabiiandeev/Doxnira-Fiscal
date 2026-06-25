@@ -1,14 +1,13 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Building2, CheckCircle2, CircleDollarSign, Copy, Package, RefreshCw, Send, Target } from "lucide-react";
+import { Copy, Package, Target } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { getSegmentPackages, applySegmentPackage, copyRulesBetweenCompanies, createCustomPackage } from "@/lib/services/fiscal/segment-rules-service";
+import { getSegmentPackages, applySegmentPackage, copyRulesBetweenCompanies } from "@/lib/services/fiscal/segment-rules-service";
 import type { SegmentPackage } from "@/lib/fiscal-types";
 import { notify } from "@/components/toast-viewport";
-import { formatCurrency } from "@/lib/utils";
 
 export function SegmentRulesView() {
   const [packages, setPackages] = useState<SegmentPackage[]>([]);

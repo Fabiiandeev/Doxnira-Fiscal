@@ -1,12 +1,11 @@
 "use client";
 
-import { AlertTriangle, Building2, CheckCircle2, CircleDollarSign, RefreshCw, Search, Shield, Zap } from "lucide-react";
+import { AlertTriangle, CheckCircle2, RefreshCw, Shield } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { notify } from "@/components/toast-viewport";
-import { formatCurrency } from "@/lib/utils";
 
 export function FiscalRulesView() {
   const mockRules = [

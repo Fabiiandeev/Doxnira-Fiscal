@@ -1,13 +1,13 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { Building2, CheckCircle2, CircleDollarSign, Edit, Plus, Search, Trash2, User, Zap } from "lucide-react";
+import { useState } from "react";
+import { Edit, Plus, Trash2 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { notify } from "@/components/toast-viewport";
-import { formatCurrency, formatDate, maskCnpj } from "@/lib/utils";
+import { maskCnpj } from "@/lib/utils";
 
 interface Client { id: string; name: string; cnpj: string; email: string; phone: string; ie: string; address: string; active: boolean; }
 

@@ -1,14 +1,13 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { AlertTriangle, Building2, CheckCircle2, CircleDollarSign, RefreshCw, Send, Target } from "lucide-react";
+import { Building2, Target } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { getNfseNationalStatus, updateNfseItem, prepareCompany, importNfseMock, generateNfseReport } from "@/lib/services/fiscal/nfse-national-service";
 import type { NfseNationalChecklist } from "@/lib/fiscal-types";
 import { notify } from "@/components/toast-viewport";
-import { formatCurrency } from "@/lib/utils";
 
 const statusColors = { COMPLETE: "bg-green-50 text-green-700", IN_PROGRESS: "bg-yellow-50 text-yellow-700", NOT_STARTED: "bg-gray-50 text-gray-700" };
 
@@ -16,15 +15,21 @@ export function NfseNationalView() {
   const [data, setData] = useState<NfseNationalChecklist[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const loadData = async () => {
+    setLoading(true);
+    const d = await getNfseNationalStatus();
+    setData(d);
+    setLoading(false);
+  };
+
   useEffect(() => {
-    const load = async () => { setLoading(true); const d = await getNfseNationalStatus(); setData(d); setLoading(false); };
-    load();
+    loadData();
   }, []);
 
   const handleAction = async (companyId: string, action: string) => {
     if (action === "prepare") { await prepareCompany(companyId); notify({ title: "Empresa preparada" }); }
     if (action === "import_mock") { await importNfseMock(companyId); notify({ title: "NFS-e importadas" }); }
-    if (action === "generate_report") { const report = await generateNfseReport(companyId); notify({ title: "Relatorio gerado" }); }
+    if (action === "generate_report") { await generateNfseReport(companyId); notify({ title: "Relatorio gerado" }); }
     const d = await getNfseNationalStatus();
     setData(d);
   };
@@ -35,7 +40,7 @@ export function NfseNationalView() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div><h1 className="text-2xl font-extrabold">Adequacao NFS-e Nacional</h1><p className="text-sm text-subtle">Checklist de conformidade para o padrao nacional</p></div>
-        <Button variant="lime" onClick={() => loadData()}><Target className="h-4 w-4" /> Atualizar</Button>
+        <Button variant="lime" onClick={loadData}><Target className="h-4 w-4" /> Atualizar</Button>
       </div>
 
       <div className="space-y-4">
@@ -59,7 +64,7 @@ export function NfseNationalView() {
               <Button variant="outline" size="sm" onClick={() => handleAction(company.companyId, "prepare")}>Preparar empresa</Button>
               <Button variant="outline" size="sm" onClick={() => handleAction(company.companyId, "import_mock")}>Importar NFS-e mock</Button>
               <Button variant="lime" size="sm" onClick={() => handleAction(company.companyId, "generate_report")}>Gerar relatorio</Button>
-              <Button variant="outline" size="sm" onClick={() => { updateNfseItem(company.companyId, { nationalCodePending: Math.max(0, company.nationalCodePending - 1) }); notify({ title: "Codigo atualizado" }); const d = await getNfseNationalStatus(); setData(d); }}>Resolver 1 codigo</Button>
+              <Button variant="outline" size="sm" onClick={async () => { await updateNfseItem(company.companyId, { nationalCodePending: Math.max(0, company.nationalCodePending - 1) }); notify({ title: "Codigo atualizado" }); const d = await getNfseNationalStatus(); setData(d); }}>Resolver 1 codigo</Button>
             </div>
           </Card>
         ))}

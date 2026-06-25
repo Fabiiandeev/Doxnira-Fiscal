@@ -50,12 +50,13 @@ export async function prepareCompany(companyId: string): Promise<NfseNationalChe
   return updateNfseItem(companyId, { providerRegistered: true });
 }
 
-export async function importNfseMock(companyId: string): Promise<any> {
+export async function importNfseMock(_companyId: string): Promise<{ success: boolean; imported: number; message: string }> {
+  void _companyId;
   await new Promise(res => setTimeout(res, 500));
   return { success: true, imported: 15, message: 'NFS-e mockadas importadas com sucesso' };
 }
 
-export async function generateNfseReport(companyId?: string): Promise<any> {
+export async function generateNfseReport(companyId?: string): Promise<{ company: string | undefined; checklist: NfseNationalChecklist | undefined; recommendations: string[] }> {
   await new Promise(res => setTimeout(res, 300));
   const data = getStored();
   const target = companyId ? data.find(d => d.companyId === companyId) : data[0];

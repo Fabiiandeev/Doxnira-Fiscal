@@ -15,6 +15,10 @@ const badgeVariants = cva(
         info: "bg-indigo-100 text-indigo-700",
         dark: "bg-ink text-white",
         lime: "bg-lime text-ink",
+        default: "bg-ink text-white",
+        outline: "border border-line bg-white text-ink",
+        destructive: "bg-red-500 text-white",
+        secondary: "bg-muted text-subtle",
       },
     },
     defaultVariants: { variant: "neutral" },
@@ -28,4 +32,3 @@ export function Badge({
 }: React.HTMLAttributes<HTMLSpanElement> & VariantProps<typeof badgeVariants>) {
   return <span className={cn(badgeVariants({ variant }), className)} {...props} />;
 }
-

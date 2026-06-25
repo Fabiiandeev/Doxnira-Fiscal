@@ -1,11 +1,11 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { CalendarDays, CreditCard, Filter, RefreshCw, Send, Shield, User, Zap } from "lucide-react";
+import { CreditCard, RefreshCw, Send, Shield, User, Zap } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { getFiscalCalendar, updateCalendarItem, markAsPaid, attachProof } from "@/lib/services/fiscal/fiscal-calendar-service";
+import { getFiscalCalendar, markAsPaid } from "@/lib/services/fiscal/fiscal-calendar-service";
 import type { FiscalCalendarItem } from "@/lib/fiscal-types";
 import { notify } from "@/components/toast-viewport";
 import { formatCurrency, formatDate } from "@/lib/utils";

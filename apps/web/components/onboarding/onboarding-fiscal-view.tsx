@@ -1,23 +1,35 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Building2, CheckCircle2, CircleDollarSign, FileText, RefreshCw, Send, Target, Zap } from "lucide-react";
+import { Building2, CheckCircle2, FileText, Send, Target, Zap } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { getOnboardingFiscal, completeOnboardingStep, startAIDiagnosis, applySafeCorrections } from "@/lib/services/fiscal/onboarding-fiscal-service";
-import type { OnboardingFiscalData } from "@/lib/fiscal-types";
 import { notify } from "@/components/toast-viewport";
-import { formatCurrency, formatDate } from "@/lib/utils";
+
+import { AlertTriangle } from "lucide-react";
+
+type OnboardingData = {
+  status: {
+    importedXmls: number;
+    createdProducts: number;
+    createdCustomers: number;
+    pendingIssues: number;
+    accountantSuggestions: number;
+  };
+  steps: { id: number; title: string; description: string; completed: boolean }[];
+};
 
 export function OnboardingFiscalView() {
-  const [data, setData] = useState<OnboardingFiscalData | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState<OnboardingData | null>(null);
 
-  useEffect(() => {
-    const load = async () => { setLoading(true); const d = await getOnboardingFiscal(); setData(d); setLoading(false); };
-    load();
-  }, []);
+  const loadData = async () => {
+    const d = await getOnboardingFiscal();
+    setData(d);
+  };
+
+  useEffect(() => { loadData(); }, []);
 
   if (!data) return <div className="h-[600px] animate-pulse rounded-2xl bg-white/60" />;
 
@@ -25,15 +37,15 @@ export function OnboardingFiscalView() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div><h1 className="text-2xl font-extrabold">Onboarding Fiscal</h1><p className="text-sm text-subtle">Setup completo em 10 minutos - Da importacao ao piloto automatico</p></div>
-        <Button variant="lime" onClick={() => loadData()}><Target className="h-4 w-4" /> Reiniciar</Button>
+        <Button variant="lime" onClick={loadData}><Target className="h-4 w-4" /> Reiniciar</Button>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-        <Card className="p-4"><FileText className="h-6 w-6 text-blue-500" /><p className="mt-2 text-sm font-bold">XMLs importados</p><p className="text-2xl font-extrabold">{data.importedXmls}</p></Card>
-        <Card className="p-4"><Zap className="h-6 w-6 text-lime" /><p className="mt-2 text-sm font-bold">Produtos criados</p><p className="text-2xl font-extrabold">{data.createdProducts}</p></Card>
-        <Card className="p-4"><Building2 className="h-6 w-6 text-green-500" /><p className="mt-2 text-sm font-bold">Clientes criados</p><p className="text-2xl font-extrabold">{data.createdClients}</p></Card>
-        <Card className="p-4"><AlertTriangle className="h-6 w-6 text-orange-500" /><p className="mt-2 text-sm font-bold">Pendencias fiscais</p><p className="text-2xl font-extrabold">{data.fiscalPendencies}</p></Card>
-        <Card className="p-4"><Send className="h-6 w-6 text-purple-500" /><p className="mt-2 text-sm font-bold">Sugestoes contador</p><p className="text-2xl font-extrabold">{data.accountantSuggestions}</p></Card>
+        <Card className="p-4"><FileText className="h-6 w-6 text-blue-500" /><p className="mt-2 text-sm font-bold">XMLs importados</p><p className="text-2xl font-extrabold">{data.status.importedXmls}</p></Card>
+        <Card className="p-4"><Zap className="h-6 w-6 text-lime" /><p className="mt-2 text-sm font-bold">Produtos criados</p><p className="text-2xl font-extrabold">{data.status.createdProducts}</p></Card>
+        <Card className="p-4"><Building2 className="h-6 w-6 text-green-500" /><p className="mt-2 text-sm font-bold">Clientes criados</p><p className="text-2xl font-extrabold">{data.status.createdCustomers}</p></Card>
+        <Card className="p-4"><AlertTriangle className="h-6 w-6 text-orange-500" /><p className="mt-2 text-sm font-bold">Pendencias fiscais</p><p className="text-2xl font-extrabold">{data.status.pendingIssues}</p></Card>
+        <Card className="p-4"><Send className="h-6 w-6 text-purple-500" /><p className="mt-2 text-sm font-bold">Sugestoes contador</p><p className="text-2xl font-extrabold">{data.status.accountantSuggestions}</p></Card>
       </div>
 
       <Card className="p-4">
@@ -69,4 +81,3 @@ export function OnboardingFiscalView() {
     </div>
   );
 }
-

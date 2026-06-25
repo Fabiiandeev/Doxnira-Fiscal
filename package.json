@@ -1,6 +1,6 @@
-
-{ 
+{
   "name": "ns-fiscal-cloud",
+  "version": "1.0.0",
   "private": true,
   "packageManager": "pnpm@11.8.0",
   "engines": {
@@ -17,5 +17,6 @@
     "typecheck": "pnpm --filter @ns-fiscal/web typecheck",
     "api:prisma:generate": "pnpm --filter @ns-fiscal/api-js prisma:generate",
     "api:prisma:validate": "pnpm --filter @ns-fiscal/api-js prisma:validate"
-  }
+  },
+  "dependencies": {}
 }

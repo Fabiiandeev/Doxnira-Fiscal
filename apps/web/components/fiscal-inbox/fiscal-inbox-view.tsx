@@ -1,109 +1,95 @@
-"use client";
+﻿"use client";
 
-import { useState } from "react";
-import { AlertTriangle, Archive, CheckCircle2, Filter, Inbox, Send, Truck, User, Zap } from "lucide-react";
-import { Card } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { getFiscalInbox, assignToAccountant, requestClient, autoFixInboxItem, ignoreWithJustification, markResolved, bulkAction } from "@/lib/services/fiscal/fiscal-inbox-service";
-import type { FiscalInboxItem } from "@/lib/fiscal-types";
-import { notify } from "@/components/toast-viewport";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { useMemo, useState } from "react";
+
+type InboxItem = {
+  id: string;
+  priority: "Alta" | "Media" | "Baixa";
+  company: string;
+  problem: string;
+  responsible: "Empresa" | "Contador" | "Sistema" | "FiscalAI" | "Suporte";
+  status: "Aberto" | "Em andamento" | "Resolvido" | "Arquivado";
+  impact: string;
+};
+
+const initialItems: InboxItem[] = [
+  {
+    id: "inbox-1",
+    priority: "Alta",
+    company: "Gama Tech Ltda.",
+    problem: "Certificado vencendo",
+    responsible: "Empresa",
+    status: "Aberto",
+    impact: "R$ 120.000,00/mes",
+  },
+  {
+    id: "inbox-2",
+    priority: "Media",
+    company: "Delta Autopecas Ltda.",
+    problem: "CT-e sem vinculo",
+    responsible: "Contador",
+    status: "Em andamento",
+    impact: "SPED bloqueado",
+  },
+];
+
+const priorityClass: Record<InboxItem["priority"], string> = {
+  Alta: "bg-red-50 text-red-700 border-red-200",
+  Media: "bg-yellow-50 text-yellow-700 border-yellow-200",
+  Baixa: "bg-blue-50 text-blue-700 border-blue-200",
+};
 
 export function FiscalInboxView() {
-  const [items, setItems] = useState<FiscalInboxItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [filters, setFilters] = useState({ priority: "", status: "", responsible: "" });
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [items, setItems] = useState<InboxItem[]>(initialItems);
+  const [query, setQuery] = useState("");
 
-  const loadData = async () => {
-    setLoading(true);
-    const data = await getFiscalInbox(filters);
-    setItems(data);
-    setLoading(false);
-  };
+  const filtered = useMemo(() => {
+    const normalized = query.trim().toLowerCase();
+    if (!normalized) return items;
+    return items.filter((item) => item.company.toLowerCase().includes(normalized) || item.problem.toLowerCase().includes(normalized));
+  }, [items, query]);
 
-  const toggleSelect = (id: string) => setSelectedIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
-  const selectAll = () => setSelectedIds(prev => prev.length === items.length ? [] : items.map(i => i.id));
-
-  const handleBulkAction = async (action: any) => {
-    const result = await bulkAction(selectedIds, action);
-    notify({ title: "Acao em lote", description: `${result.success} processados, ${result.failed} falharam` });
-    setSelectedIds([]);
-    loadData();
-  };
-
-  const priorityColors = { HIGH: "bg-red-50 text-red-700", MEDIUM: "bg-yellow-50 text-yellow-700", LOW: "bg-green-50 text-green-700" };
-  const statusColors = { OPEN: "bg-blue-50 text-blue-700", IN_PROGRESS: "bg-yellow-50 text-yellow-700", WAITING_CLIENT: "bg-purple-50 text-purple-700", WAITING_ACCOUNTANT: "bg-orange-50 text-orange-700", AUTO_FIXED: "bg-green-50 text-green-700", RESOLVED: "bg-emerald-50 text-emerald-700", IGNORED: "bg-gray-50 text-gray-700" };
-  const typeIcons: Record<string, any> = { XML_NEW: Inbox, NOTE_REJECTED: AlertTriangle, CERTIFICATE_EXPIRING: Zap, GUIDE_DUE: Send, CLIENT_INCOMPLETE: User, PRODUCT_NEW: Truck, CTE_UNLINKED: Truck, ACCOUNTANT_REQUEST: CheckCircle2, CLIENT_RESPONSE: Archive };
+  function resolveItem(id: string) {
+    setItems((current) => current.map((item) => (item.id === id ? { ...item, status: "Resolvido" } : item)));
+  }
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div><h1 className="text-2xl font-extrabold">Inbox Fiscal</h1><p className="text-sm text-subtle">Central de pendencias com dono e prazo</p></div>
-        <div className="flex gap-2"><Button variant="outline" size="sm"><Filter className="h-4 w-4" /> Filtros</Button><Button variant="lime" onClick={loadData}><Inbox className="h-4 w-4" /> Atualizar</Button></div>
+    <div className="space-y-6">
+      <div className="rounded-3xl border bg-white p-6 shadow-sm">
+        <h1 className="text-2xl font-bold text-slate-950">Doxnira Inbox Fiscal</h1>
+        <p className="mt-2 text-sm text-slate-600">Central Ãºnica de pendencias fiscais com dono, prazo e impacto.</p>
+        <input
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Buscar pendÃªncia..."
+          className="mt-4 w-full rounded-xl border px-3 py-2 text-sm"
+        />
       </div>
 
-      <Card className="p-4">
-        <div className="flex flex-wrap gap-3 mb-4">
-          <select value={filters.priority} onChange={e => { setFilters(f => ({ ...f, priority: e.target.value })); loadData(); }} className="h-10 rounded-xl border border-line bg-white px-3"><option value="">Todas prioridades</option><option value="HIGH">Alta</option><option value="MEDIUM">Media</option><option value="LOW">Baixa</option></select>
-          <select value={filters.status} onChange={e => { setFilters(f => ({ ...f, status: e.target.value })); loadData(); }} className="h-10 rounded-xl border border-line bg-white px-3"><option value="">Todos status</option><option value="OPEN">Aberta</option><option value="IN_PROGRESS">Em andamento</option><option value="WAITING_CLIENT">Aguardando cliente</option><option value="WAITING_ACCOUNTANT">Aguardando contador</option><option value="RESOLVED">Resolvida</option></select>
-          <select value={filters.responsible} onChange={e => { setFilters(f => ({ ...f, responsible: e.target.value })); loadData(); }} className="h-10 rounded-xl border border-line bg-white px-3"><option value="">Todos responsaveis</option><option value="COMPANY">Empresa</option><option value="ACCOUNTANT">Contador</option><option value="SYSTEM">Sistema</option><option value="FISCAL_AI">FiscalAI</option></select>
-        </div>
-      </Card>
-
-      <Card className="p-4">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-sm font-extrabold">{items.length} itens</h3>
-          <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={selectedIds.length === items.length && items.length > 0} onChange={selectAll} className="h-4 w-4 accent-ink" /> Selecionar todos</label>
-        </div>
-
-        {loading ? <div className="h-64 animate-pulse rounded-xl bg-white/60" /> : (
-          <div className="space-y-2">
-            {items.map((item) => (
-              <InboxRow key={item.id} item={item} selected={selectedIds.includes(item.id)} onSelect={toggleSelect} priorityColors={priorityColors} statusColors={statusColors} typeIcons={typeIcons} onAction={handleAction} />
-            ))}
+      <div className="grid gap-4">
+        {filtered.map((item) => (
+          <div key={item.id} className="rounded-2xl border bg-white p-5 shadow-sm">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <div className="flex flex-wrap gap-2">
+                  <span className={`rounded-full border px-3 py-1 text-xs font-medium ${priorityClass[item.priority]}`}>
+                    {item.priority}
+                  </span>
+                  <span className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-700">{item.status}</span>
+                </div>
+                <h2 className="mt-3 font-semibold text-slate-950">{item.problem}</h2>
+                <p className="mt-1 text-sm text-slate-600">{item.company}</p>
+                <p className="mt-1 text-xs text-slate-500">ResponsÃ¡vel: {item.responsible} Â· Impacto: {item.impact}</p>
+              </div>
+              <button type="button" onClick={() => resolveItem(item.id)} className="rounded-xl bg-lime-300 px-4 py-2 text-sm font-semibold text-slate-950">
+                Marcar resolvido
+              </button>
+            </div>
           </div>
-        )}
-
-        {selectedIds.length > 0 && (
-          <div className="mt-4 flex gap-2 justify-end">
-            <Button variant="outline" size="sm" onClick={() => handleBulkAction("assign_accountant")}>Atribuir contador</Button>
-            <Button variant="outline" size="sm" onClick={() => handleBulkAction("request_client")}>Solicitar cliente</Button>
-            <Button variant="lime" size="sm" onClick={() => handleBulkAction("auto_fix")}>Corrigir auto</Button>
-            <Button variant="outline" size="sm" onClick={() => handleBulkAction("ignore")}>Ignorar</Button>
-            <Button variant="default" size="sm" onClick={() => handleBulkAction("resolve")}>Resolver</Button>
-          </div>
-        )}
-      </Card>
-    </div>
-  );
-}
-
-function InboxRow({ item, selected, onSelect, priorityColors, statusColors, typeIcons, onAction }: any) {
-  const Icon = typeIcons[item.type] || Inbox;
-  return (
-    <div className="flex items-start gap-3 p-3 rounded-xl border border-line bg-white hover:bg-muted/30 transition">
-      <input type="checkbox" checked={selected} onChange={() => onSelect(item.id)} className="mt-1 h-4 w-4 accent-ink" />
-      <Icon className="h-5 w-5 text-lime shrink-0 mt-0.5" />
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="font-bold text-sm">{item.problem}</span>
-          <Badge className={priorityColors[item.priority]}>{item.priority]}</Badge>
-          <Badge className={statusColors[item.status]}>{item.status.replace("_", " ")}</Badge>
-          <Badge variant="outline">{item.responsible}</Badge>
-        </div>
-        <p className="mt-1 text-xs text-subtle">{item.companyName} | Vence: {formatDate(item.dueDate)} | Impacto: {formatCurrency(item.financialImpact)}</p>
-      </div>
-      <div className="flex gap-1">
-        <Button variant="ghost" size="icon" onClick={() => onAction("assign_accountant", item.id)}><User className="h-4 w-4" /></Button>
-        <Button variant="ghost" size="icon" onClick={() => onAction("request_client", item.id)}><Send className="h-4 w-4" /></Button>
-        <Button variant="ghost" size="icon" onClick={() => onAction("auto_fix", item.id)}><Zap className="h-4 w-4" /></Button>
+        ))}
       </div>
     </div>
   );
 }
 
-function handleAction(action: string, itemId: string) {
-  // Implementation would call the service functions
-}
+export default FiscalInboxView;

@@ -2,7 +2,7 @@
 import { rejectionSimulatorMock } from '@/lib/mocks/fiscal-mocks';
 import type { RejectionSimulation } from '@/lib/fiscal-types';
 
-export async function simulateRejection(documentData: any): Promise<RejectionSimulation> {
+export async function simulateRejection(documentData: { clientIE?: string; certificateValid?: boolean; [key: string]: unknown }): Promise<RejectionSimulation> {
   await new Promise(res => setTimeout(res, 500));
   
   // Simulate analysis based on document data

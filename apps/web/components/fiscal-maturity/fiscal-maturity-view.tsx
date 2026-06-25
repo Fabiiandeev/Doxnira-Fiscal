@@ -1,14 +1,13 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { AlertTriangle, Building2, CheckCircle2, CircleDollarSign, RefreshCw, Target, TrendingUp, XCircle } from "lucide-react";
+import { CheckCircle2, TrendingUp } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { getFiscalMaturity, completeRequirement, advanceLevel, getNextLevelPlan } from "@/lib/services/fiscal/fiscal-maturity-service";
+import { getFiscalMaturity, completeRequirement, advanceLevel } from "@/lib/services/fiscal/fiscal-maturity-service";
 import type { FiscalMaturityData } from "@/lib/fiscal-types";
 import { notify } from "@/components/toast-viewport";
-import { formatCurrency } from "@/lib/utils";
 
 const levelNames: Record<string, string> = {
   "LEVEL_1_MESSY": "Nivel 1 - Baguncado",
@@ -21,10 +20,9 @@ const levelNames: Record<string, string> = {
 
 export function FiscalMaturityView() {
   const [data, setData] = useState<FiscalMaturityData | null>(null);
-  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const load = async () => { setLoading(true); const d = await getFiscalMaturity(); setData(d); setLoading(false); };
+    const load = async () => { const d = await getFiscalMaturity(); setData(d); };
     load();
   }, []);
 

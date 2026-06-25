@@ -41,7 +41,7 @@ export type FiscalRuleSource =
   | "SINTEGRA"
   | "TAX_REFORM"
   | "INTERNAL_RULE"
-  | "ACCOUNTANTANTANTANT_RULE";
+  | "ACCOUNTANT_RULE";
 
 export interface FiscalAutopilotSummary {
   totalIssues: number;
@@ -185,6 +185,8 @@ export type FiscalCalendarAction =
   | "VIEW_PENDENCY"
   | "SEND_ALERT";
 
+export type RiskCategory = "VERY_LOW" | "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+
 export interface AccountantRiskRanking {
   companies: AccountantRiskCompany[];
   summary: {
@@ -192,6 +194,7 @@ export interface AccountantRiskRanking {
     high: number;
     medium: number;
     low: number;
+    veryLow: number;
   };
 }
 
@@ -199,10 +202,13 @@ export interface AccountantRiskCompany {
   id: string;
   name: string;
   score: number;
-  riskLevel: RiskLevel;
+  riskLevel: RiskCategory;
   mainIssue: string;
   financialImpact: number;
   action: string;
+  trend: "IMPROVING" | "STABLE" | "WORSENING";
+  actionPlan: ActionPlanItem[];
+  lastEventDate: string;
 }
 
 export interface AccountantWorkQueueItem {
@@ -216,6 +222,15 @@ export interface AccountantWorkQueueItem {
   status: FiscalIssueStatus;
   column: "CRITICAL" | "HIGH" | "MEDIUM" | "RESOLVED";
   actions: AccountantAction[];
+}
+
+export interface ActionPlanItem {
+  id: string;
+  description: string;
+  priority: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
+  responsible: FiscalResponsible;
+  deadline: string;
+  completed: boolean;
 }
 
 export type AccountantAction =

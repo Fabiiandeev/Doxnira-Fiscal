@@ -1,16 +1,32 @@
-"use client";
+﻿"use client";
 
 import { useState } from "react";
-import { AlertTriangle, CheckCircle2, FileText, Send, Shield, XCircle, Zap } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Send, Zap } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { notify } from "@/components/toast-viewport";
-import { formatCurrency } from "@/lib/utils";
+
+type RejectionRiskItem = {
+  id: string;
+  label: string;
+  severity: string;
+  description: string;
+  autoFix: boolean;
+  action: string;
+};
+
+type RejectionRisk = {
+  chance: number;
+  risks: RejectionRiskItem[];
+  canEmit: boolean;
+  criticalBlocking: boolean;
+};
 
 export function EmitirNotaView() {
   const [step, setStep] = useState(1);
-  const [rejectionRisk, setRejectionRisk] = useState<any>(null);
+  const [rejectionRisk, setRejectionRisk] = useState<RejectionRisk | null>(null);
 
   const steps = [
     { id: 1, title: "Dados da nota", desc: "Emitente, destinatario, produtos" },
@@ -86,15 +102,15 @@ export function EmitirNotaView() {
               <Card className="p-4">
                 <div className="flex items-center justify-between mb-3">
                   <div><AlertTriangle className="h-5 w-5 inline mr-2 text-yellow-500" /><span className="font-bold">Chance de rejeicao: {rejectionRisk.chance}%</span></div>
-                  <Badge variant={rejectionRisk.criticalBlocking ? "destructive" : "warning"}>
+                  <Badge variant={rejectionRisk.criticalBlocking ? "danger" : "warning"}>
                     {rejectionRisk.criticalBlocking ? "BLOQUEADO" : "Pode emitir"}
                   </Badge>
                 </div>
                 <div className="space-y-2">
-                  {rejectionRisk.risks.map((r: any) => (
+                  {rejectionRisk.risks.map((r: RejectionRiskItem) => (
                     <div key={r.id} className="flex items-center justify-between p-3 rounded-xl bg-white border border-line">
                       <div className="flex items-center gap-3">
-                        <Badge variant={r.severity === "CRITICAL" ? "destructive" : "warning"}>{r.severity}</Badge>
+                        <Badge variant={r.severity === "CRITICAL" ? "danger" : "warning"}>{r.severity}</Badge>
                         <span className="font-medium">{r.label}</span>
                         <span className="text-sm text-subtle">{r.description}</span>
                       </div>
@@ -127,4 +143,5 @@ export function EmitirNotaView() {
     </div>
   );
 }
+
 

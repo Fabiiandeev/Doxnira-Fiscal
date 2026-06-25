@@ -1,12 +1,12 @@
 "use client";
 
-import { Download, FileText, RefreshCw, Search } from "lucide-react";
+import { Download, FileText, RefreshCw } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { notify } from "@/components/toast-viewport";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { formatDate } from "@/lib/utils";
 
 export function XmlCenterView() {
   const mockXmls = [

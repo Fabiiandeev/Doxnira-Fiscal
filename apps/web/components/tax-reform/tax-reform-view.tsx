@@ -1,71 +1,48 @@
-"use client";
+﻿"use client";
 
-import { useState, useEffect } from "react";
-import { AlertTriangle, Building2, CircleDollarSign, Filter, RefreshCw, Target, TrendingUp } from "lucide-react";
-import { Card } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { getTaxReformImpact, applyTaxReform applyTaxReformRule, generateAdequationPlan } from "@/lib/services/fiscal/tax-reform-service";
-import type { TaxReformImpact } from "@/lib/fiscal-types";
-import { notify } from "@/components/toast-viewport";
-import { formatCurrency, formatDate } from "@/lib/utils";
-
-const statusColors = { PENDING: "bg-blue-50 text-blue-700", APPLIED: "bg-green-50 text-green-700", REVIEW: "bg-yellow-50 text-yellow-700", IGNORED: "bg-gray-50 text-gray-700" };
-const typeIcons = { product: "??", service: "???" };
+const impacts = [
+  { label: "Empresas analisadas", value: "28" },
+  { label: "Produtos impactados", value: "1.284" },
+  { label: "ServiÃ§os impactados", value: "342" },
+  { label: "Regras pendentes", value: "76" },
+  { label: "Empresas com risco alto", value: "6" },
+];
 
 export function TaxReformView() {
-  const [data, setData] = useState<TaxReformImpact | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const load = async () => { setLoading(true); const d = await getTaxReformImpact(); setData(d); setLoading(false); };
-    load();
-  }, []);
-
-  if (!data) return <div className="h-[600px] animate-pulse rounded-2xl bg-white/60" />;
-
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div><h1 className="text-2xl font-extrabold">Radar IBS/CBS</h1><p className="text-sm text-subtle">Analise de impacto da reforma tributaria</p></div>
-        <div className="flex gap-2"><Button variant="lime" onClick={async () => { const plan = await generateAdequationPlan(); notify({ title: "Plano gerado", description: plan.timeline }); }}>Gerar plano adequacao</Button><Button variant="outline" onClick={() => loadData()}><RefreshCw className="h-4 w-4" /> Atualizar</Button></div>
+    <div className="space-y-6">
+      <div className="rounded-3xl border bg-white p-6 shadow-sm">
+        <p className="text-sm font-medium text-lime-700">Radar IBS/CBS</p>
+        <h1 className="mt-2 text-2xl font-bold text-slate-950">PreparaÃ§Ã£o para Reforma TributÃ¡ria</h1>
+        <p className="mt-2 text-sm text-slate-600">SimulaÃ§Ã£o mockada de impacto fiscal para adequaÃ§Ã£o aos novos campos e regras.</p>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-        <Card className="p-4"><Building2 className="h-6 w-6 text-blue-500" /><p className="mt-2 text-sm font-bold">Empresas analisadas</p><p className="text-2xl font-extrabold">{data.companiesAnalyzed}</p></Card>
-        <Card className="p-4"><TrendingUp className="h-6 w-6 text-green-500" /><p className="mt-2 text-sm font-bold">Produtos impactados</p><p className="text-2xl font-extrabold">{data.productsImpacted}</p></Card>
-        <Card className="p-4"><CircleDollarSign className="h-6 w-6 text-purple-500" /><p className="mt-2 text-sm font-bold">Servicos impactados</p><p className="text-2xl font-extrabold">{data.servicesImpacted}</p></Card>
-        <Card className="p-4"><AlertTriangle className="h-6 w-6 text-orange-500" /><p className="mt-2 text-sm font-bold">Regras pendentes</p><p className="text-2xl font-extrabold">{data.pendingRules}</p></Card>
-        <Card className="p-4"><Target className="h-6 w-6 text-red-500" /><p className="mt-2 text-sm font-bold">Alto risco</p><p className="text-2xl font-extrabold">{data.highRiskCompanies}</p></Card>
+      <div className="grid gap-4 md:grid-cols-5">
+        {impacts.map((item) => (
+          <div key={item.label} className="rounded-2xl border bg-white p-5 shadow-sm">
+            <p className="text-xs text-slate-500">{item.label}</p>
+            <p className="mt-2 text-xl font-bold text-slate-950">{item.value}</p>
+          </div>
+        ))}
       </div>
 
-      <Card className="p-4">
-        <h3 className="font-bold mb-3">Itens de impacto</h3>
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead><tr className="bg-muted/50 text-xs font-bold uppercase text-subtle"><th className="px-4 py-3">Tipo</th><th className="px-4 py-3">Nome</th><th className="px-4 py-3">CNAE</th><th className="px-4 py-3">CFOP</th><th className="px-4 py-3">CST atual</th><th className="px-4 py-3">cClassTrib</th><th className="px-4 py-3">IBS%</th><th className="px-4 py-3">CBS%</th><th className="px-4 py-3">Docs</th><th className="px-4 py-3">Empresas</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Acoes</th></tr></thead>
-            <tbody className="divide-y divide-line">
-              {data.items.map((item) => (
-                <tr key={item.id} className="hover:bg-muted/30">
-                  <td className="px-4 py-3">{typeIcons[item.entityType]}</td>
-                  <td className="px-4 py-3 font-medium">{item.name}</td>
-                  <td className="px-4 py-3">{item.cnae}</td>
-                  <td className="px-4 py-3">{item.cfop}</td>
-                  <td className="px-4 py-3">{item.currentCst}</td>
-                  <td className="px-4 py-3 font-bold">{item.futureCClassTrib}</td>
-                  <td className="px-4 py-3">{item.ibsRate}%</td>
-                  <td className="px-4 py-3">{item.cbsRate}%</td>
-                  <td className="px-4 py-3">{item.affectedDocuments}</td>
-                  <td className="px-4 py-3">{item.impactedCompanies}</td>
-                  <td className="px-4 py-3"><Badge className={statusColors[item.status]}>{item.status}</Badge></td>
-                  <td className="px-4 py-3"><div className="flex gap-1"><Button variant="outline" size="sm" onClick={() => { applyTaxReformRule(item.id); notify({ title: "Regra aplicada" }); }}>Aplicar</Button><Button variant="ghost" size="sm">Ver detalhes</Button></div></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </Card>
-      </Card>
+      <div className="rounded-2xl border bg-white p-5 shadow-sm">
+        <h2 className="font-semibold text-slate-950">Plano de adequaÃ§Ã£o</h2>
+        <p className="mt-2 text-sm text-slate-600">Existem produtos sem classificaÃ§Ã£o futura, serviÃ§os sem revisÃ£o e empresas com risco alto.</p>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button type="button" className="rounded-xl bg-lime-300 px-4 py-2 text-sm font-semibold text-slate-950">
+            Gerar plano de adequaÃ§Ã£o
+          </button>
+          <button type="button" className="rounded-xl border px-4 py-2 text-sm font-semibold text-slate-700">
+            Enviar para contador
+          </button>
+          <button type="button" className="rounded-xl border px-4 py-2 text-sm font-semibold text-slate-700">
+            Aplicar regras mockadas
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
 
+export default TaxReformView;

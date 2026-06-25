@@ -1,12 +1,12 @@
 "use client";
 
-import { AlertTriangle, CheckCircle2, RefreshCw, Search, X } from "lucide-react";
+import { RefreshCw, X } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { notify } from "@/components/toast-viewport";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { formatDate } from "@/lib/utils";
 
 export function RejectionsView() {
   const mockRejections = [

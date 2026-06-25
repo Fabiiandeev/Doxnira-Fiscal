@@ -1,5 +1,4 @@
-﻿
-import { inventoryIncomingMock } from '@/lib/mocks/fiscal-mocks';
+﻿import { inventoryIncomingMock } from '@/lib/mocks/fiscal-mocks';
 import type { InventoryIncomingItem } from '@/lib/fiscal-types';
 
 const STORAGE_KEY = 'ns-inventory-incoming';
@@ -7,7 +6,9 @@ const STORAGE_KEY = 'ns-inventory-incoming';
 function getStored(): InventoryIncomingItem[] {
   if (typeof window === 'undefined') return inventoryIncomingMock;
   const stored = localStorage.getItem(STORAGE_KEY);
-  if (stored) return JSON.parse(stored);
+  if (stored) {
+    try { return JSON.parse(stored); } catch { /* fall through */ }
+  }
   localStorage.setItem(STORAGE_KEY, JSON.stringify(inventoryIncomingMock));
   return inventoryIncomingMock;
 }
@@ -47,7 +48,7 @@ export async function linkProduct(itemId: string, internalProductId: string, int
     internalProductName,
     isLinked: true,
     canAutoLaunch: !data[index].hasDivergence,
-    status: data[index].hasDivergence ? 'BLOCKED' : 'LINKED'
+    status: data[index].hasDivergence ? 'BLOCKED' : 'LINKED',
   };
   setStored(data);
   return data[index];
@@ -69,7 +70,7 @@ export async function createProductFromXML(itemId: string, productData: { ncm: s
     unit: productData.unit,
     isLinked: true,
     canAutoLaunch: !data[index].hasDivergence,
-    status: data[index].hasDivergence ? 'BLOCKED' : 'LINKED'
+    status: data[index].hasDivergence ? 'BLOCKED' : 'LINKED',
   };
   setStored(data);
   return data[index];
@@ -88,7 +89,7 @@ export async function configureConversion(itemId: string, conversionFactor: numb
     hasDivergence: false,
     divergenceType: undefined,
     canAutoLaunch: true,
-    status: 'LINKED'
+    status: 'LINKED',
   };
   setStored(data);
   return data[index];
@@ -102,11 +103,7 @@ export async function launchStock(itemId: string): Promise<InventoryIncomingItem
   
   if (!data[index].canAutoLaunch) return null;
   
-  data[index] = { 
-    ...data[index], 
-    status: 'LAUNCHED',
-    launchedAt: new Date().toISOString()
-  };
+  data[index] = { ...data[index], status: 'LAUNCHED' };
   setStored(data);
   return data[index];
 }
@@ -140,7 +137,7 @@ export async function bulkLaunchStock(itemIds: string[]): Promise<{ success: num
   for (const itemId of itemIds) {
     const index = data.findIndex(item => item.id === itemId);
     if (index !== -1 && data[index].canAutoLaunch) {
-      data[index] = { ...data[index], status: 'LAUNCHED', launchedAt: new Date().toISOString() };
+      data[index] = { ...data[index], status: 'LAUNCHED' };
       success++;
     } else {
       failed++;
@@ -150,4 +147,3 @@ export async function bulkLaunchStock(itemIds: string[]): Promise<{ success: num
   setStored(data);
   return { success, failed };
 }
-
