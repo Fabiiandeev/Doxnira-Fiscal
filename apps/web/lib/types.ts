@@ -152,3 +152,5 @@ export interface SyncLog {
   errorMessage?: string | null;
   duration?: string;
 }
+
+export * from "./fiscal-types";
