@@ -69,7 +69,7 @@ export function FiscalMaturityView() {
           <div className="space-y-3">
             {data.requirements.map((req) => (
               <div key={req.id} className="flex items-center gap-3 p-3 rounded-xl bg-white border border-line">
-                <CheckCircle2 className={`h-5 w-5 ${req.completed ? "text-emerald-500" : "text-gray-300"}`} />
+                <CheckCircle2 className={`h-5 w-5 ${req.completed ? "text-emerald-500" : "text-subtle"}`} />
                 <span className="flex-1">{req.description}</span>
                 <Badge variant="outline">{levelNames[req.level]}</Badge>
                 {!req.completed && <Button variant="lime" size="sm" onClick={async () => { const d = await completeRequirement(req.id); setData(d); notify({ title: "Requisito concluido" }); }}>Concluir</Button>}

@@ -1,28 +1,20 @@
-﻿import { inventoryIncomingMock } from '@/lib/mocks/fiscal-mocks';
-import type { InventoryIncomingItem } from '@/lib/fiscal-types';
+﻿import { safeParseStorage, setStorage } from "@/lib/safe-storage";
+import type { InventoryIncomingItem } from "@/lib/fiscal-types";
 
-const STORAGE_KEY = 'ns-inventory-incoming';
+const STORAGE_KEY = "ns-inventory-incoming";
 
 function getStored(): InventoryIncomingItem[] {
-  if (typeof window === 'undefined') return inventoryIncomingMock;
-  const stored = localStorage.getItem(STORAGE_KEY);
-  if (stored) {
-    try { return JSON.parse(stored); } catch { /* fall through */ }
-  }
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(inventoryIncomingMock));
-  return inventoryIncomingMock;
+  return safeParseStorage<InventoryIncomingItem[]>(STORAGE_KEY, []);
 }
 
 function setStored(data: InventoryIncomingItem[]) {
-  if (typeof window !== 'undefined') {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-  }
+  setStorage(STORAGE_KEY, data);
 }
 
 export async function getInventoryIncoming(filters?: { status?: string; documentId?: string; hasDivergence?: boolean }): Promise<InventoryIncomingItem[]> {
   await new Promise(resolve => setTimeout(resolve, 200));
   let data = getStored();
-  
+
   if (filters?.status) {
     data = data.filter(item => item.status === filters.status);
   }
@@ -32,7 +24,7 @@ export async function getInventoryIncoming(filters?: { status?: string; document
   if (filters?.hasDivergence !== undefined) {
     data = data.filter(item => item.hasDivergence === filters.hasDivergence);
   }
-  
+
   return data;
 }
 
@@ -41,14 +33,14 @@ export async function linkProduct(itemId: string, internalProductId: string, int
   const data = getStored();
   const index = data.findIndex(item => item.id === itemId);
   if (index === -1) return null;
-  
-  data[index] = { 
-    ...data[index], 
-    internalProductId, 
+
+  data[index] = {
+    ...data[index],
+    internalProductId,
     internalProductName,
     isLinked: true,
     canAutoLaunch: !data[index].hasDivergence,
-    status: data[index].hasDivergence ? 'BLOCKED' : 'LINKED',
+    status: data[index].hasDivergence ? "BLOCKED" : "LINKED",
   };
   setStored(data);
   return data[index];
@@ -59,18 +51,18 @@ export async function createProductFromXML(itemId: string, productData: { ncm: s
   const data = getStored();
   const index = data.findIndex(item => item.id === itemId);
   if (index === -1) return null;
-  
-  const newProductId = 'prod-' + Date.now();
-  data[index] = { 
-    ...data[index], 
+
+  const newProductId = "prod-" + Date.now();
+  data[index] = {
+    ...data[index],
     internalProductId: newProductId,
     internalProductName: data[index].supplierProductName,
     ncm: productData.ncm,
-    cest: productData.cest || '',
+    cest: productData.cest || "",
     unit: productData.unit,
     isLinked: true,
     canAutoLaunch: !data[index].hasDivergence,
-    status: data[index].hasDivergence ? 'BLOCKED' : 'LINKED',
+    status: data[index].hasDivergence ? "BLOCKED" : "LINKED",
   };
   setStored(data);
   return data[index];
@@ -81,15 +73,15 @@ export async function configureConversion(itemId: string, conversionFactor: numb
   const data = getStored();
   const index = data.findIndex(item => item.id === itemId);
   if (index === -1) return null;
-  
-  data[index] = { 
-    ...data[index], 
+
+  data[index] = {
+    ...data[index],
     unit: targetUnit,
     quantity: Math.round(data[index].quantity * conversionFactor),
     hasDivergence: false,
     divergenceType: undefined,
     canAutoLaunch: true,
-    status: 'LINKED',
+    status: "LINKED",
   };
   setStored(data);
   return data[index];
@@ -100,10 +92,10 @@ export async function launchStock(itemId: string): Promise<InventoryIncomingItem
   const data = getStored();
   const index = data.findIndex(item => item.id === itemId);
   if (index === -1) return null;
-  
+
   if (!data[index].canAutoLaunch) return null;
-  
-  data[index] = { ...data[index], status: 'LAUNCHED' };
+
+  data[index] = { ...data[index], status: "LAUNCHED" };
   setStored(data);
   return data[index];
 }
@@ -113,17 +105,17 @@ export async function sendToAccountantReview(itemIds: string[]): Promise<{ succe
   const data = getStored();
   let success = 0;
   let failed = 0;
-  
+
   for (const itemId of itemIds) {
     const index = data.findIndex(item => item.id === itemId);
     if (index !== -1) {
-      data[index] = { ...data[index], status: 'SENT_TO_ACCOUNTANT' };
+      data[index] = { ...data[index], status: "SENT_TO_ACCOUNTANT" };
       success++;
     } else {
       failed++;
     }
   }
-  
+
   setStored(data);
   return { success, failed };
 }
@@ -133,17 +125,17 @@ export async function bulkLaunchStock(itemIds: string[]): Promise<{ success: num
   const data = getStored();
   let success = 0;
   let failed = 0;
-  
+
   for (const itemId of itemIds) {
     const index = data.findIndex(item => item.id === itemId);
     if (index !== -1 && data[index].canAutoLaunch) {
-      data[index] = { ...data[index], status: 'LAUNCHED' };
+      data[index] = { ...data[index], status: "LAUNCHED" };
       success++;
     } else {
       failed++;
     }
   }
-  
+
   setStored(data);
   return { success, failed };
 }

@@ -1,22 +1,32 @@
-﻿import { fiscalMaturityMock } from "@/lib/mocks/fiscal-mocks";
+﻿import { safeParseStorage, setStorage } from "@/lib/safe-storage";
 import type { FiscalMaturityData, FiscalMaturityLevel } from "@/lib/fiscal-types";
 
 const STORAGE_KEY = "ns-fiscal-maturity";
 
+const emptyMaturityData: FiscalMaturityData = {
+  currentLevel: "LEVEL_1_MESSY",
+  levelName: "Nivel 1 - Baguncado",
+  progress: 0,
+  requirements: [
+    { id: "req-1", description: "Importar todos os XMLs", completed: false, level: "LEVEL_1_MESSY" as const },
+    { id: "req-2", description: "Organizar XMLs por competencia", completed: false, level: "LEVEL_2_DOCUMENTS_ORGANIZED" as const },
+    { id: "req-3", description: "Validar cadastros de clientes", completed: false, level: "LEVEL_3_REGISTRATIONS_VALIDATED" as const },
+    { id: "req-4", description: "Classificar NCMs dos produtos", completed: false, level: "LEVEL_3_REGISTRATIONS_VALIDATED" as const },
+    { id: "req-5", description: "Cadastrar codigos IBGE", completed: false, level: "LEVEL_3_REGISTRATIONS_VALIDATED" as const },
+    { id: "req-6", description: "Vincular CT-e a NF-e", completed: false, level: "LEVEL_4_FISCAL_STOCK_CONTROLLED" as const },
+    { id: "req-7", description: "Controlar estoque fiscal", completed: false, level: "LEVEL_4_FISCAL_STOCK_CONTROLLED" as const },
+    { id: "req-8", description: "Configurar fechamento automatico", completed: false, level: "LEVEL_5_AUTO_CLOSING" as const },
+    { id: "req-9", description: "Ativar piloto automatico", completed: false, level: "LEVEL_6_FISCAL_AUTOPILOT" as const },
+  ],
+  nextLevelRequirements: ["Importar todos os XMLs"],
+};
+
 function getStored(): FiscalMaturityData {
-  if (typeof window === "undefined") return fiscalMaturityMock;
-  const stored = localStorage.getItem(STORAGE_KEY);
-  if (stored) {
-    try { return JSON.parse(stored); } catch { /* fall through */ }
-  }
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(fiscalMaturityMock));
-  return fiscalMaturityMock;
+  return safeParseStorage<FiscalMaturityData>(STORAGE_KEY, emptyMaturityData);
 }
 
 function setStored(data: FiscalMaturityData) {
-  if (typeof window !== "undefined") {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-  }
+  setStorage(STORAGE_KEY, data);
 }
 
 const LEVELS: FiscalMaturityLevel[] = [

@@ -1,12 +1,16 @@
-import type { Config } from "tailwindcss";
-import tailwindcssAnimate from "tailwindcss-animate";
+const path = require("node:path");
+const tailwindcssAnimate = require("tailwindcss-animate");
 
-const config: Config = {
+const appDir = path.resolve(__dirname).replace(/\\/g, "/");
+
+/** @type {import('tailwindcss').Config} */
+module.exports = {
   darkMode: ["class"],
   content: [
-    "./app/**/*.{ts,tsx}",
-    "./components/**/*.{ts,tsx}",
-    "./lib/**/*.{ts,tsx}",
+    `${appDir}/app/**/*.{ts,tsx}`,
+    `${appDir}/components/**/*.{ts,tsx}`,
+    `${appDir}/lib/**/*.{ts,tsx}`,
+    `${appDir}/utils/**/*.{ts,tsx}`,
   ],
   theme: {
     extend: {
@@ -45,5 +49,3 @@ const config: Config = {
   },
   plugins: [tailwindcssAnimate],
 };
-
-export default config;

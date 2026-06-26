@@ -1,25 +1,7 @@
-﻿
-import { fiscalScoreMock } from '@/lib/mocks/fiscal-mocks';
-import type { FiscalScoreData, FiscalScoreItem, RiskLevel } from '@/lib/fiscal-types';
+﻿import { safeParseStorage, setStorage } from "@/lib/safe-storage";
+import type { FiscalScoreData, FiscalScoreItem, RiskLevel } from "@/lib/fiscal-types";
 
-const STORAGE_KEY = 'ns-fiscal-score';
-
-function getStored(): FiscalScoreData {
-  if (typeof window === 'undefined') return enrichScoreData(fiscalScoreMock);
-  const stored = localStorage.getItem(STORAGE_KEY);
-  if (stored) {
-    try { return enrichScoreData(JSON.parse(stored)); } catch { /* fall through */ }
-  }
-  const data = enrichScoreData(fiscalScoreMock);
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-  return data;
-}
-
-function setStored(data: FiscalScoreData) {
-  if (typeof window !== 'undefined') {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-  }
-}
+const STORAGE_KEY = "ns-fiscal-score";
 
 type ScoreFactor = {
   id: string;
@@ -31,6 +13,46 @@ type ScoreFactor = {
   details: string;
   reason?: string;
 };
+
+const emptyScoreData: FiscalScoreData = {
+  score: 0,
+  riskLevel: "CRITICAL",
+  closingScore: 0,
+  closingPeriod: "",
+  items: [
+    { id: "sc-1", label: "Empresa configurada", status: "ERROR", weight: 20, details: "Configure os dados da empresa" },
+    { id: "sc-2", label: "Certificado digital", status: "ERROR", weight: 20, details: "Cadastre um certificado digital A1" },
+    { id: "sc-3", label: "Clientes cadastrados", status: "ERROR", weight: 15, details: "Cadastre clientes para iniciar" },
+    { id: "sc-4", label: "Produtos classificados", status: "ERROR", weight: 15, details: "Cadastre produtos com NCM" },
+    { id: "sc-5", label: "Documentos fiscais", status: "ERROR", weight: 20, details: "Importe XMLs de documentos fiscais" },
+    { id: "sc-6", label: "Fechamento fiscal", status: "ERROR", weight: 10, details: "Realize o fechamento fiscal" },
+  ],
+  evolution: [],
+  positivePoints: [],
+  risks: ["Nenhum dado fiscal configurado"],
+  criticalPendencies: [
+    "Configurar dados da empresa",
+    "Cadastrar certificado digital",
+    "Cadastrar clientes",
+    "Classificar produtos com NCM",
+    "Importar documentos fiscais (XMLs)",
+    "Realizar fechamento fiscal",
+  ],
+  recommendedActions: [
+    "Cadastre ou selecione uma empresa",
+    "Importe um certificado digital A1",
+    "Importe XMLs de notas fiscais",
+    "Cadastre produtos e clientes",
+  ],
+};
+
+function getStored(): FiscalScoreData {
+  return safeParseStorage<FiscalScoreData>(STORAGE_KEY, emptyScoreData);
+}
+
+function setStored(data: FiscalScoreData) {
+  setStorage(STORAGE_KEY, data);
+}
 
 function calculateScoreFromItems(items: FiscalScoreItem[]): { totalPoints: number; factors: ScoreFactor[] } {
   const factors: ScoreFactor[] = items.map(item => {
@@ -63,17 +85,6 @@ function getRiskLevel(score: number): RiskLevel {
   return "CRITICAL";
 }
 
-function enrichScoreData(base: FiscalScoreData): FiscalScoreData & { factors?: ScoreFactor[] } {
-  const { totalPoints } = calculateScoreFromItems(base.items);
-  const scaledScore = Math.round(totalPoints * 10);
-  const riskLevel = getRiskLevel(scaledScore);
-  return {
-    ...base,
-    score: scaledScore,
-    riskLevel,
-  };
-}
-
 export async function getFiscalScore(): Promise<FiscalScoreData> {
   await new Promise(resolve => setTimeout(resolve, 300));
   return getStored();
@@ -88,15 +99,15 @@ export async function getScoreFactors(): Promise<ScoreFactor[]> {
 export async function recalculateScore(): Promise<FiscalScoreData> {
   await new Promise(resolve => setTimeout(resolve, 500));
   const data = getStored();
-  const variation = Math.floor(Math.random() * 50) - 20;
-  const newScore = Math.max(0, Math.min(1000, data.score + variation));
+  const { totalPoints } = calculateScoreFromItems(data.items);
+  const newScore = Math.round(totalPoints * 10);
   const riskLevel = getRiskLevel(newScore);
 
   const updated: FiscalScoreData = {
     ...data,
     score: newScore,
     riskLevel,
-    closingScore: Math.max(0, Math.min(100, data.closingScore + Math.floor(Math.random() * 5) - 2)),
+    closingScore: Math.max(0, Math.min(100, Math.round(totalPoints / 10))),
   };
 
   setStored(updated);

@@ -56,8 +56,8 @@ export function FiscalInboxView() {
   return (
     <div className="space-y-6">
       <div className="rounded-3xl border bg-white p-6 shadow-sm">
-        <h1 className="text-2xl font-bold text-slate-950">Doxnira Inbox Fiscal</h1>
-        <p className="mt-2 text-sm text-slate-600">Central Ãºnica de pendencias fiscais com dono, prazo e impacto.</p>
+        <h1 className="text-2xl font-bold text-ink">Doxnira Inbox Fiscal</h1>
+        <p className="mt-2 text-sm text-subtle">Central Ãºnica de pendencias fiscais com dono, prazo e impacto.</p>
         <input
           value={query}
           onChange={(event) => setQuery(event.target.value)}
@@ -75,13 +75,13 @@ export function FiscalInboxView() {
                   <span className={`rounded-full border px-3 py-1 text-xs font-medium ${priorityClass[item.priority]}`}>
                     {item.priority}
                   </span>
-                  <span className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-700">{item.status}</span>
+                  <span className="rounded-full bg-muted px-3 py-1 text-xs text-subtle">{item.status}</span>
                 </div>
-                <h2 className="mt-3 font-semibold text-slate-950">{item.problem}</h2>
-                <p className="mt-1 text-sm text-slate-600">{item.company}</p>
-                <p className="mt-1 text-xs text-slate-500">ResponsÃ¡vel: {item.responsible} Â· Impacto: {item.impact}</p>
+                <h2 className="mt-3 font-semibold text-ink">{item.problem}</h2>
+                <p className="mt-1 text-sm text-subtle">{item.company}</p>
+                <p className="mt-1 text-xs text-subtle">ResponsÃ¡vel: {item.responsible} Â· Impacto: {item.impact}</p>
               </div>
-              <button type="button" onClick={() => resolveItem(item.id)} className="rounded-xl bg-lime-300 px-4 py-2 text-sm font-semibold text-slate-950">
+              <button type="button" onClick={() => resolveItem(item.id)} className="rounded-xl bg-lime-300 px-4 py-2 text-sm font-semibold text-ink">
                 Marcar resolvido
               </button>
             </div>

@@ -41,7 +41,7 @@ export function DashboardView() {
   const companyId = getCompanyId();
   const query = useQuery({
     queryKey: ["accounting-dashboard", companyId],
-    queryFn: () => getDashboard(companyId!),
+    queryFn: () => getDashboard(companyId ?? ""),
     enabled: Boolean(companyId),
     refetchInterval: 60_000,
   });

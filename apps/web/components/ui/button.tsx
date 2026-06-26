@@ -12,7 +12,7 @@ const buttonVariants = cva(
         default: "bg-ink text-white hover:bg-black",
         lime: "bg-lime text-ink hover:bg-lime-dark",
         outline: "border border-line bg-white text-ink hover:bg-muted",
-        ghost: "text-ink hover:bg-black/5",
+        ghost: "text-ink hover:bg-muted",
         danger: "bg-red-500 text-white hover:bg-red-600",
       },
       size: {

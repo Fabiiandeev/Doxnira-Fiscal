@@ -83,6 +83,7 @@ model Company {
   documentItems     FiscalDocumentItem[]
   monthlyClosings   MonthlyTaxClosing[]
   taxRules          TaxRule[]
+  products          Product[]
 
   @@index([ownerId])
   @@map("companies")
@@ -648,19 +649,67 @@ model Client {
   municipio           String?   @db.VarChar(120)
   uf                  String?   @db.Char(2)
   codigoIbge          String?   @map("codigo_ibge") @db.VarChar(20)
+  codigoUfIbge        String?   @map("codigo_uf_ibge") @db.VarChar(2)
 
   // Contato
   email               String?   @db.VarChar(255)
   telefone            String?   @db.VarChar(20)
+  whatsapp            String?   @db.VarChar(20)
+  site                String?   @db.VarChar(255)
+  contatoFinanceiro   String?   @map("contato_financeiro") @db.VarChar(255)
+  contatoFiscal       String?   @map("contato_fiscal") @db.VarChar(255)
 
   // Observações e fonte
   observacoes         String?   @db.Text
   fonteDados          String?   @map("fonte_dados") @db.VarChar(100)
 
+  // Dados cadastrais estendidos
+  porte               String?   @db.VarChar(60)
+  capitalSocial       String?   @map("capital_social") @db.VarChar(40)
+  dataAbertura        DateTime? @map("data_abertura")
+  situacaoMotivo      String?   @map("situacao_motivo") @db.VarChar(200)
+  optanteSimples      Boolean?  @map("optante_simples")
+  mei                 Boolean?  @db.Boolean
+  empresaPublica      Boolean?  @map("empresa_publica") @db.Boolean
+  filial              Boolean?  @db.Boolean
+  matriz              Boolean?  @db.Boolean
+
+  // Dados tributários estendidos
+  crt                 String?   @db.VarChar(2)
+  indicadorIe         String?   @map("indicador_ie") @db.VarChar(2)
+  ieStatus            String?   @map("ie_status") @db.VarChar(40)
+  imStatus            String?   @map("im_status") @db.VarChar(40)
+  tipoContribuinte    String?   @map("tipo_contribuinte") @db.VarChar(60)
+  contribuinteIcms    Boolean?  @map("contribuinte_icms") @db.Boolean
+  contribuinteIss     Boolean?  @map("contribuinte_iss") @db.Boolean
+  substituicaoTributaria Boolean? @map("substituicao_tributaria") @db.Boolean
+  retencoes           Json?     @db.Json
+
+  // CNAEs
+  cnaeSecundarios     Json?     @map("cnae_secundarios") @db.Json
+  riscoFiscalCnae     String?   @map("risco_fiscal_cnae") @db.VarChar(20)
+  atividadesPermitidas Json?    @map("atividades_permitidas") @db.Json
+  atividadesIncompativeis Json? @map("atividades_incompativeis") @db.Json
+
+  // Endereço estendido
+  pais                String?   @db.VarChar(80)
+  latitude            Float?    
+  longitude           Float?    
+
+  // FiscalAI
+  fiscalAi            Json?     @map("fiscal_ai") @db.Json
+  scoreCadastro       Int?      @map("score_cadastro") @db.SmallInt
+  scoreDetalhes       Json?     @map("score_detalhes") @db.Json
+
+  // Preparação reforma tributária
+  reformaPrep         Json?     @map("reforma_prep") @db.Json
+
   // Dados de auditoria
   dadosOriginaisJson  Json?     @map("dados_originais_json")
   alertasJson         Json?     @map("alertas_json")
   validadoPorIa       Boolean   @default(false) @map("validado_por_ia")
+  historicoJson       Json?     @map("historico_json") @db.Json
+  ultimaConsulta      DateTime? @map("ultima_consulta")
 
   // Timestamps
   createdAt           DateTime  @default(now()) @map("created_at")
@@ -675,4 +724,26 @@ model Client {
   @@index([cnpj])
   @@index([tipoPessoa])
   @@map("clients")
+}
+
+model Product {
+  id           String   @id @default(uuid()) @db.Uuid
+  companyId    String   @map("company_id") @db.Uuid
+  name         String   @db.VarChar(255)
+  code         String   @db.VarChar(80)
+  ncm          String?  @db.VarChar(20)
+  cest         String?  @db.VarChar(20)
+  unit         String   @default("UN") @db.VarChar(10)
+  price        Decimal  @default(0) @db.Decimal(15, 2)
+  stock        Int      @default(0)
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@unique([companyId, code])
+  @@index([companyId])
+  @@index([companyId, active])
+  @@map("products")
 }

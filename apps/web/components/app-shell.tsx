@@ -82,9 +82,9 @@ const navGroups: NavGroup[] = [
     label: "FiscalAI",
     icon: Brain,
     items: [
-      { label: "Fiscal Autopilot", href: "/fiscal-autopilot", icon: Zap, badge: "42" },
-      { label: "Chat Fiscal", href: "/fiscal-ai", icon: Brain, badge: "8" },
-      { label: "Radar Fiscal", href: "/fiscal-radar", icon: Activity, badge: "5" },
+      { label: "Fiscal Autopilot", href: "/fiscal-autopilot", icon: Zap },
+      { label: "Chat Fiscal", href: "/fiscal-ai", icon: Brain },
+      { label: "Radar Fiscal", href: "/fiscal-radar", icon: Activity },
       { label: "Score Fiscal", href: "/fiscal-score", icon: Target },
       { label: "Ranking de Risco", href: "/accountant/risk-ranking", icon: Shield },
     ],
@@ -94,7 +94,7 @@ const navGroups: NavGroup[] = [
     label: "Documentos Fiscais",
     icon: FileText,
     items: [
-      { label: "Inbox Fiscal", href: "/fiscal-inbox", icon: Inbox, badge: "15" },
+      { label: "Inbox Fiscal", href: "/fiscal-inbox", icon: Inbox },
       { label: "NF-e Entrada", href: "/documents/incoming", icon: Truck },
       { label: "NF-e Saida", href: "/documents/outgoing", icon: FileText },
       { label: "CT-e Entrada", href: "/cte/incoming", icon: Truck },
@@ -102,7 +102,7 @@ const navGroups: NavGroup[] = [
       { label: "MDF-e", href: "/documents/services", icon: Send },
       { label: "XML Fiscal", href: "/xml-center", icon: FileBarChart },
       { label: "Entrada Automatica", href: "/inventory/incoming", icon: Truck },
-      { label: "Rejeicoes", href: "/rejections", icon: AlertTriangle, badge: "7" },
+      { label: "Rejeicoes", href: "/rejections", icon: AlertTriangle },
     ],
   },
   {
@@ -145,7 +145,7 @@ const navGroups: NavGroup[] = [
     label: "Agenda Fiscal",
     icon: CalendarDays,
     items: [
-      { label: "Agenda Fiscal", href: "/fiscal-calendar", icon: CalendarDays, badge: "8" },
+      { label: "Agenda Fiscal", href: "/fiscal-calendar", icon: CalendarDays },
       { label: "Solicitacoes", href: "/accountant/requests", icon: Inbox },
       { label: "Fila Fiscal", href: "/accountant/work-queue", icon: ListChecks },
     ],
@@ -268,7 +268,7 @@ function SidebarContent({
                   "flex h-10 items-center gap-3 rounded-xl px-3 text-[12px] font-bold transition",
                   isActive
                     ? "bg-lime text-ink shadow-sm"
-                    : "text-subtle hover:bg-white/60 hover:text-ink",
+                    : "text-subtle hover:bg-surface hover:text-ink",
                 )}
               >
                 <Icon className="h-[18px] w-[18px]" strokeWidth={isActive ? 2.4 : 2} />
@@ -277,7 +277,7 @@ function SidebarContent({
                   <span
                     className={cn(
                       "rounded-full px-2 py-0.5 text-[10px]",
-                      isActive ? "bg-ink text-white" : "bg-white text-subtle",
+                      isActive ? "bg-ink text-white" : "bg-surface text-subtle",
                     )}
                   >
                     {badge}
@@ -302,7 +302,7 @@ function SidebarContent({
                   "flex h-10 w-full items-center gap-3 rounded-xl px-3 text-[12px] font-bold transition",
                   hasActiveChild
                     ? "text-ink"
-                    : "text-subtle hover:bg-white/60 hover:text-ink",
+                    : "text-subtle hover:bg-surface hover:text-ink",
                 )}
               >
                 <GroupIcon className="h-[18px] w-[18px]" strokeWidth={hasActiveChild ? 2.4 : 2} />
@@ -334,14 +334,14 @@ function SidebarContent({
                     const Icon = item.icon;
                     return (
                       <Link
-                        key={item.href}
+                        key={`${group.id}-${item.href}`}
                         href={item.href}
                         onClick={onNavigate}
                         className={cn(
                           "flex h-9 items-center gap-2.5 rounded-lg px-3 text-[11px] font-semibold transition",
                           isActive
                             ? "bg-lime text-ink shadow-sm"
-                            : "text-subtle hover:bg-white/60 hover:text-ink",
+                            : "text-subtle hover:bg-surface hover:text-ink",
                         )}
                       >
                         <Icon className="h-[14px] w-[14px]" strokeWidth={isActive ? 2.4 : 2} />
@@ -350,7 +350,7 @@ function SidebarContent({
                           <span
                             className={cn(
                               "rounded-full px-1.5 py-0.5 text-[9px]",
-                              isActive ? "bg-ink text-white" : "bg-white text-subtle",
+                              isActive ? "bg-ink text-white" : "bg-surface text-subtle",
                             )}
                           >
                             {badge}
@@ -366,11 +366,11 @@ function SidebarContent({
         })}
       </nav>
       <div className="mx-4 mb-3">
-        <button type="button" onClick={() => notify({ title: "Menu compacto", description: "Aplicado automaticamente em telas menores." })} className="flex h-9 w-full items-center justify-center gap-2 rounded-xl border border-line bg-white text-[10px] font-bold text-subtle">
+        <button type="button" onClick={() => notify({ title: "Menu compacto", description: "Aplicado automaticamente em telas menores." })} className="flex h-9 w-full items-center justify-center gap-2 rounded-xl border border-line bg-surface text-[10px] font-bold text-subtle">
           <ChevronLeft className="h-3.5 w-3.5" />Recolher menu
         </button>
       </div>
-      <div className="m-4 mt-0 rounded-2xl border border-line bg-white p-4">
+      <div className="m-4 mt-0 rounded-2xl border border-line bg-surface p-4">
         <div className="flex items-center gap-3">
           <div className="grid h-9 w-9 place-items-center rounded-full bg-ink text-white"><Zap className="h-4 w-4" /></div>
           <div><p className="text-[10px] font-extrabold">Contabilidade NS Fiscal</p><p className="mt-1 text-[9px] text-subtle">Portal contábil ativo</p></div>
@@ -401,11 +401,11 @@ function Topbar({
   const debouncedSearch = useDebouncedValue(search.trim(), 400);
   const readiness = useQuery({
     queryKey: ["sync-readiness", activeCompany?.id],
-    queryFn: () => getSyncReadiness(activeCompany!.id),
+    queryFn: () => getSyncReadiness(activeCompany?.id ?? ""),
     enabled: Boolean(activeCompany?.id),
   });
   const sync = useMutation({
-    mutationFn: () => requestSync(activeCompany!.id),
+    mutationFn: () => requestSync(activeCompany?.id ?? ""),
     onSuccess: (result) => {
       notify({ title: result.message, description: "Acompanhe o processamento na tela de sincronização." });
       queryClient.invalidateQueries({ queryKey: ["sync"] });
@@ -458,7 +458,7 @@ function Topbar({
   }
 
   return (
-    <header className="flex min-h-[82px] items-center gap-3 border-b border-black/5 bg-white px-4 md:px-6">
+    <header className="flex min-h-[82px] items-center gap-3 border-b border-line bg-white px-4 md:px-6">
       <button
         onClick={onOpenMenu}
         className="grid h-11 w-11 place-items-center rounded-xl bg-white text-ink lg:hidden"
@@ -487,7 +487,7 @@ function Topbar({
       </form>
 
       <div className="ml-auto flex items-center gap-2">
-        <div className="relative hidden h-11 items-center gap-2 rounded-xl border border-line bg-white px-3 lg:flex">
+        <div className="relative hidden h-11 items-center gap-2 rounded-xl border border-line bg-surface px-3 lg:flex">
           <CalendarDays className="h-4 w-4 text-subtle" />
           <span className="text-[10px] font-extrabold capitalize">{new Intl.DateTimeFormat("pt-BR", { month: "long", year: "numeric" }).format(new Date())}</span>
           <ChevronDown className="h-3.5 w-3.5 text-subtle" />
@@ -501,7 +501,7 @@ function Topbar({
           <RefreshCw className={`h-4 w-4 ${sync.isPending ? "animate-spin" : ""}`} />
           {sync.isPending ? "Iniciando..." : "Sincronizar todas"}
         </Button>
-        <div className="relative hidden h-11 items-center gap-3 rounded-xl border border-line bg-white px-3 text-left md:flex">
+        <div className="relative hidden h-11 items-center gap-3 rounded-xl border border-line bg-surface px-3 text-left md:flex">
           <div className="grid h-8 w-8 place-items-center rounded-xl bg-pastel-purple text-indigo-700">
             <Building2 className="h-4 w-4" />
           </div>
@@ -529,7 +529,7 @@ function Topbar({
         </div>
         <Link
           href="/alerts"
-          className="relative grid h-11 w-11 place-items-center rounded-xl border border-line bg-white text-subtle hover:text-ink"
+          className="relative grid h-11 w-11 place-items-center rounded-xl border border-line bg-surface text-subtle hover:text-ink"
           aria-label="Notificações"
         >
           <Bell className="h-[18px] w-[18px]" />
@@ -542,7 +542,7 @@ function Topbar({
         <div className="relative">
         <button
           onClick={() => setProfileOpen((value) => !value)}
-          className="flex h-11 items-center gap-2 rounded-xl border border-line bg-white px-1.5 pr-3 text-ink"
+          className="flex h-11 items-center gap-2 rounded-xl border border-line bg-surface px-1.5 pr-3 text-ink"
         >
           <span className="grid h-8 w-8 place-items-center rounded-lg bg-lime text-xs font-extrabold text-ink">
             {getStoredUser()?.name.slice(0, 2).toUpperCase() || "FN"}
@@ -551,7 +551,7 @@ function Topbar({
           <ChevronDown className="hidden h-3.5 w-3.5 text-subtle 2xl:block" />
         </button>
           {profileOpen && (
-            <div className="absolute right-0 top-14 z-40 w-56 rounded-2xl border border-line bg-white p-2 shadow-card">
+            <div className="absolute right-0 top-14 z-40 w-56 rounded-2xl border border-line bg-surface p-2 shadow-card">
               <Link href="/settings" className="block rounded-xl px-3 py-2.5 text-[11px] font-bold hover:bg-muted">
                 Preferências
               </Link>
@@ -595,11 +595,26 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     }
   }, [activeCompanyId, companiesQuery.data]);
 
+  useEffect(() => {
+    if (
+      ready &&
+      !activeCompanyId &&
+      companiesQuery.isSuccess &&
+      (companiesQuery.data?.data ?? []).length === 0
+    ) {
+      router.replace("/onboarding");
+    }
+  }, [ready, activeCompanyId, companiesQuery.isSuccess, companiesQuery.data, router]);
+
   if (!ready) return <div className="min-h-screen animate-pulse bg-canvas" />;
 
   const companies = companiesQuery.data?.data || [];
   const activeCompany =
     companies.find((company) => company.id === activeCompanyId) || companies[0];
+
+  if (companies.length === 0 && companiesQuery.isSuccess) {
+    return <div className="min-h-screen animate-pulse bg-canvas" />;
+  }
   const documentCount = activeCompany?._count?.fiscalDocuments || 0;
   const alertCount = activeCompany?._count?.alerts || 0;
 
@@ -612,9 +627,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="min-h-screen bg-white">
+    <div className="min-h-screen bg-canvas">
       <div className="mx-auto flex min-h-screen max-w-[1920px] overflow-hidden bg-surface">
-        <aside className="hidden w-[220px] shrink-0 flex-col border-r border-black/5 bg-white lg:flex">
+        <aside className="hidden w-[220px] shrink-0 flex-col overflow-y-auto border-r border-line bg-white lg:flex">
           <SidebarContent documentCount={documentCount} alertCount={alertCount} />
         </aside>
 

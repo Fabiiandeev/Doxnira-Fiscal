@@ -21,9 +21,9 @@ export function LoginForm() {
     setLoading(true);
     setError("");
     try {
-      await login(String(form.get("email")), String(form.get("password")));
+      const result = await login(String(form.get("email")), String(form.get("password")));
       notify({ title: "Acesso autorizado", description: "Sessão fiscal iniciada." });
-      window.location.assign("/dashboard");
+      window.location.assign(result.hasCompany ? "/dashboard" : "/onboarding");
     } catch (caught) {
       const message =
         caught instanceof ApiError ? caught.message : "Não foi possível acessar a central.";
@@ -45,7 +45,6 @@ export function LoginForm() {
             id="email"
             name="email"
             type="email"
-            defaultValue="admin@nssistemas.com.br"
             className="h-12 rounded-2xl pl-11"
             required
           />
@@ -70,7 +69,6 @@ export function LoginForm() {
             id="password"
             name="password"
             type={showPassword ? "text" : "password"}
-            defaultValue="123456"
             className="h-12 rounded-2xl pl-11 pr-12"
             required
           />

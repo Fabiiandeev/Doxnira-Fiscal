@@ -1,8 +1,9 @@
 "use client";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { ToastViewport } from "@/components/toast-viewport";
+import { cleanStaleMockStorage } from "@/lib/safe-storage";
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(
@@ -18,6 +19,8 @@ export function Providers({ children }: { children: React.ReactNode }) {
         },
       }),
   );
+
+  useEffect(() => { cleanStaleMockStorage(); }, []);
 
   return (
     <QueryClientProvider client={queryClient}>

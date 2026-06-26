@@ -17,31 +17,63 @@ const columnColors: Record<ColumnKey, string> = { CRITICAL: "bg-red-50 border-re
 export function AccountantWorkQueueView() {
   const [items, setItems] = useState<AccountantWorkQueueItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const load = async () => { setLoading(true); const data = await getAccountantWorkQueue(); setItems(data); setLoading(false); };
+    const load = async () => {
+      try {
+        setError(null);
+        const data = await getAccountantWorkQueue();
+        setItems(data);
+      } catch {
+        setError("Nao foi possivel carregar a fila fiscal. Tente novamente.");
+        notify({ title: "Erro ao carregar fila fiscal", tone: "error" });
+      } finally {
+        setLoading(false);
+      }
+    };
     load();
   }, []);
 
   const handleMove = async (id: string, newColumn: ColumnKey) => {
-    await moveWorkQueueItem(id, newColumn);
-    notify({ title: "Movido para " + newColumn });
-    const data = await getAccountantWorkQueue();
-    setItems(data);
+    try {
+      await moveWorkQueueItem(id, newColumn);
+      notify({ title: "Movido para " + newColumn, tone: "success" });
+      const data = await getAccountantWorkQueue();
+      setItems(data);
+    } catch {
+      notify({ title: "Erro ao mover item", tone: "error" });
+    }
   };
 
   const handleAction = async (item: AccountantWorkQueueItem, action: string) => {
-    if (action === "assign_accountant") await updateWorkQueueItem(item.id, { responsible: "ACCOUNTANT" });
-    if (action === "request_client") await updateWorkQueueItem(item.id, { responsible: "COMPANY" });
-    if (action === "auto_fix") await updateWorkQueueItem(item.id, { status: "AUTO_FIXED" });
-    if (action === "ignore") await updateWorkQueueItem(item.id, { status: "IGNORED" });
-    if (action === "mark_resolved") await updateWorkQueueItem(item.id, { status: "RESOLVED", column: "RESOLVED" });
-    notify({ title: "Acao: " + action });
-    const data = await getAccountantWorkQueue();
-    setItems(data);
+    try {
+      if (action === "assign_accountant") await updateWorkQueueItem(item.id, { responsible: "ACCOUNTANT" });
+      if (action === "request_client") await updateWorkQueueItem(item.id, { responsible: "COMPANY" });
+      if (action === "auto_fix") await updateWorkQueueItem(item.id, { status: "AUTO_FIXED" });
+      if (action === "ignore") await updateWorkQueueItem(item.id, { status: "IGNORED" });
+      if (action === "mark_resolved") await updateWorkQueueItem(item.id, { status: "RESOLVED", column: "RESOLVED" });
+      notify({ title: "Acao: " + action, tone: "success" });
+      const data = await getAccountantWorkQueue();
+      setItems(data);
+    } catch {
+      notify({ title: "Erro ao executar acao", tone: "error" });
+    }
   };
 
   if (loading) return <div className="h-[600px] animate-pulse rounded-2xl bg-white/60" />;
+
+  if (error) {
+    return (
+      <div className="space-y-4">
+        <div><h1 className="text-2xl font-extrabold">Fila Fiscal do Contador</h1><p className="text-sm text-subtle">Kanban de demandas fiscais por criticidade</p></div>
+        <Card className="p-6">
+          <p className="text-sm text-red-600">{error}</p>
+          <Button variant="outline" className="mt-4" onClick={async () => { setLoading(true); setError(null); try { const data = await getAccountantWorkQueue(); setItems(data); } catch { setError("Nao foi possivel carregar a fila fiscal. Tente novamente."); } finally { setLoading(false); } }}>Tentar novamente</Button>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">

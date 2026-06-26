@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { notify } from "@/components/toast-viewport";
-import { buscarCnpj, buscarCpf, salvarCliente } from "@/lib/services/cliente-service";
+import { buscarCnpj, buscarCpf, createClient } from "@/lib/services/cliente-service";
 import { normalizeCnpj, normalizeCpf } from "@/lib/utils";
 import type React from "react";
 
@@ -83,7 +83,7 @@ export function ClientForm({ companyId }: { companyId?: string }) {
   });
 
   const save = useMutation({
-    mutationFn: (payload: FormState) => salvarCliente(payload),
+    mutationFn: (payload: FormState) => createClient(payload),
     onSuccess: () => notify({ title: "Cliente salvo." }),
     onError: (error: unknown) => notify({ title: "Erro ao salvar", description: (error as Error)?.message }),
   });

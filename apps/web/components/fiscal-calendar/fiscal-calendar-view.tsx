@@ -48,13 +48,14 @@ export function FiscalCalendarView() {
 
       <Card className="p-4">
         <div className="flex flex-wrap gap-3 mb-4">
-          <select value={filters.status} onChange={e => setFilters(f => ({ ...f, status: e.target.value }))} className="h-10 rounded-xl border border-line bg-white px-3"><option value="">Todos status</option><option value="PENDING">Pendente</option><option value="OPEN">Em aberto</option><option value="DUE_SOON">Vence em breve</option><option value="PAID">Pago</option><option value="OVERDUE">Atrasado</option><option value="WAITING_ACCOUNTANT">Aguardando contador</option></select>
+          <select value={filters.status} onChange={e => setFilters(f => ({ ...f, status: e.target.value }))} className="h-10 rounded-xl border border-line bg-white px-3 min-w-[200px]"><option value="">Todos status</option><option value="PENDING">Pendente</option><option value="OPEN">Em aberto</option><option value="DUE_SOON">Vence em breve</option><option value="PAID">Pago</option><option value="OVERDUE">Atrasado</option><option value="WAITING_ACCOUNTANT">Aguardando contador</option></select>
         </div>
       </Card>
 
       {loading ? <div className="h-64 animate-pulse rounded-xl bg-white/60" /> : (
         <Card className="overflow-hidden">
-          <table className="w-full">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[800px]">
             <thead><tr className="bg-muted/50 text-xs font-bold uppercase text-subtle"><th className="px-4 py-3">Obrigacao</th><th className="px-4 py-3">Empresa</th><th className="px-4 py-3">Competencia</th><th className="px-4 py-3">Valor</th><th className="px-4 py-3">Vencimento</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Responsavel</th><th className="px-4 py-3">Acoes</th></tr></thead>
             <tbody className="divide-y divide-line">
               {items.map((item) => (
@@ -79,6 +80,7 @@ export function FiscalCalendarView() {
               ))}
             </tbody>
           </table>
+          </div>
         </Card>
       )}
     </div>

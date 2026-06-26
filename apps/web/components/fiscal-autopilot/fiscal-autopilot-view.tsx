@@ -60,7 +60,7 @@ const TYPE_LABELS: Record<CorrectionType, string> = {
 const TYPE_COLORS: Record<CorrectionType, string> = {
   AUTO_SAFE: "bg-lime text-ink",
   AUTO_CONFIRM: "bg-blue-50 text-blue-700",
-  MANUAL_GUIDED: "bg-gray-100 text-gray-700",
+  MANUAL_GUIDED: "bg-muted text-subtle",
   ACCOUNTANT_REVIEW: "bg-purple-50 text-purple-700",
   RETRY_ONLY: "bg-orange-50 text-orange-700",
 };
@@ -89,7 +89,7 @@ const STATUS_COLORS: Record<FiscalIssueStatus, string> = {
   WAITING_ACCOUNTANT: "bg-purple-50 text-purple-700",
   AUTO_FIXED: "bg-lime text-ink",
   RESOLVED: "bg-emerald-100 text-emerald-700",
-  IGNORED: "bg-gray-100 text-gray-500",
+  IGNORED: "bg-muted text-subtle",
 };
 
 const RISK_ORDER: Record<RiskLevel, number> = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
@@ -221,12 +221,12 @@ export function FiscalAutopilotView() {
 
   return (
     <div className="space-y-6">
-      <div className="rounded-3xl border bg-white p-6 shadow-sm">
+      <div className="rounded-3xl border border-line bg-white p-6 shadow-card">
         <div className="flex items-start justify-between">
           <div>
             <p className="text-sm font-medium text-lime-700">Fiscal Autopilot</p>
-            <h1 className="mt-2 text-3xl font-bold text-slate-950">Centro de Operacoes Fiscal</h1>
-            <p className="mt-2 max-w-3xl text-sm text-slate-600">
+            <h1 className="mt-2 text-3xl font-bold text-ink">Centro de Operacoes Fiscal</h1>
+            <p className="mt-2 max-w-3xl text-sm text-subtle">
               Analise cadastros, notas, XMLs, estoque, impostos e pendencias. Corrija automaticamente o que for seguro, confirme sugestoes ou encaminhe ao contador.
             </p>
           </div>
@@ -265,8 +265,8 @@ export function FiscalAutopilotView() {
           <div className="flex items-center gap-3">
             <AlertTriangle className="h-8 w-8 text-red-500" />
             <div>
-              <p className="text-xs text-slate-500">Pendencias criticas</p>
-              <p className="text-2xl font-extrabold text-slate-950">{criticalCount}</p>
+              <p className="text-xs text-subtle">Pendencias criticas</p>
+              <p className="text-2xl font-extrabold text-ink">{criticalCount}</p>
             </div>
           </div>
         </Card>
@@ -274,8 +274,8 @@ export function FiscalAutopilotView() {
           <div className="flex items-center gap-3">
             <XCircle className="h-8 w-8 text-orange-500" />
             <div>
-              <p className="text-xs text-slate-500">Total problemas</p>
-              <p className="text-2xl font-extrabold text-slate-950">{summary.totalIssues}</p>
+              <p className="text-xs text-subtle">Total problemas</p>
+              <p className="text-2xl font-extrabold text-ink">{summary.totalIssues}</p>
             </div>
           </div>
         </Card>
@@ -283,8 +283,8 @@ export function FiscalAutopilotView() {
           <div className="flex items-center gap-3">
             <CircleDollarSign className="h-8 w-8 text-emerald-500" />
             <div>
-              <p className="text-xs text-slate-500">Impacto financeiro</p>
-              <p className="text-2xl font-extrabold text-slate-950">{formatCurrency(summary.financialImpact)}</p>
+              <p className="text-xs text-subtle">Impacto financeiro</p>
+              <p className="text-2xl font-extrabold text-ink">{formatCurrency(summary.financialImpact)}</p>
             </div>
           </div>
         </Card>
@@ -292,8 +292,8 @@ export function FiscalAutopilotView() {
           <div className="flex items-center gap-3">
             <CheckCircle2 className="h-8 w-8 text-lime-600" />
             <div>
-              <p className="text-xs text-slate-500">Correcoes aplicadas</p>
-              <p className="text-2xl font-extrabold text-slate-950">{summary.correctionsApplied}</p>
+              <p className="text-xs text-subtle">Correcoes aplicadas</p>
+              <p className="text-2xl font-extrabold text-ink">{summary.correctionsApplied}</p>
             </div>
           </div>
         </Card>
@@ -301,20 +301,20 @@ export function FiscalAutopilotView() {
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Card className="p-4">
-          <p className="text-xs text-slate-500">Pode corrigir sozinho</p>
+          <p className="text-xs text-subtle">Pode corrigir sozinho</p>
           <p className="text-xl font-extrabold text-lime-600">{summary.autoSafeCount}</p>
         </Card>
         <Card className="p-4">
-          <p className="text-xs text-slate-500">Precisa confirmacao</p>
+          <p className="text-xs text-subtle">Precisa confirmacao</p>
           <p className="text-xl font-extrabold text-blue-600">{summary.needsConfirmationCount}</p>
         </Card>
         <Card className="p-4">
-          <p className="text-xs text-slate-500">Precisa contador</p>
+          <p className="text-xs text-subtle">Precisa contador</p>
           <p className="text-xl font-extrabold text-purple-600">{summary.needsAccountantCount}</p>
         </Card>
         <Card className="p-4">
-          <p className="text-xs text-slate-500">Score Fiscal</p>
-          <p className="text-xl font-extrabold text-slate-950">{summary.fiscalScore}/100</p>
+          <p className="text-xs text-subtle">Score Fiscal</p>
+          <p className="text-xl font-extrabold text-ink">{summary.fiscalScore}/100</p>
         </Card>
       </div>
 
@@ -339,7 +339,7 @@ export function FiscalAutopilotView() {
               </div>
               {selectedIssues.size > 0 && (
                 <div className="flex items-center gap-2">
-                  <span className="text-sm text-slate-500">{selectedIssues.size} selecionados</span>
+                  <span className="text-sm text-subtle">{selectedIssues.size} selecionados</span>
                   <Button variant="ghost" size="sm" onClick={() => setSelectedIssues(new Set())}>
                     <X className="h-3 w-3" /> Limpar
                   </Button>
@@ -350,9 +350,9 @@ export function FiscalAutopilotView() {
             {showFilters && (
               <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 <div>
-                  <label className="text-xs font-bold text-slate-500 mb-1 block">Tipo</label>
+                  <label className="text-xs font-bold text-subtle mb-1 block">Tipo</label>
                   <select
-                    className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"
+                    className="h-11 w-full rounded-xl border border-line bg-white px-3 text-sm"
                     value={filters.type}
                     onChange={e => setFilters(f => ({ ...f, type: e.target.value }))}
                   >
@@ -361,9 +361,9 @@ export function FiscalAutopilotView() {
                   </select>
                 </div>
                 <div>
-                  <label className="text-xs font-bold text-slate-500 mb-1 block">Status</label>
+                  <label className="text-xs font-bold text-subtle mb-1 block">Status</label>
                   <select
-                    className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"
+                    className="h-11 w-full rounded-xl border border-line bg-white px-3 text-sm"
                     value={filters.status}
                     onChange={e => setFilters(f => ({ ...f, status: e.target.value }))}
                   >
@@ -372,9 +372,9 @@ export function FiscalAutopilotView() {
                   </select>
                 </div>
                 <div>
-                  <label className="text-xs font-bold text-slate-500 mb-1 block">Gravidade</label>
+                  <label className="text-xs font-bold text-subtle mb-1 block">Gravidade</label>
                   <select
-                    className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"
+                    className="h-11 w-full rounded-xl border border-line bg-white px-3 text-sm"
                     value={filters.riskLevel}
                     onChange={e => setFilters(f => ({ ...f, riskLevel: e.target.value }))}
                   >
@@ -386,7 +386,7 @@ export function FiscalAutopilotView() {
                   </select>
                 </div>
                 <div>
-                  <label className="text-xs font-bold text-slate-500 mb-1 block">Buscar</label>
+                  <label className="text-xs font-bold text-subtle mb-1 block">Buscar</label>
                   <Input
                     value={filters.search}
                     onChange={e => setFilters(f => ({ ...f, search: e.target.value }))}
@@ -397,20 +397,20 @@ export function FiscalAutopilotView() {
             )}
 
             {filteredIssues.length === 0 ? (
-              <div className="py-12 text-center text-slate-400">
+              <div className="py-12 text-center text-subtle">
                 <CheckCircle2 className="h-12 w-12 mx-auto mb-3 text-lime-500" />
                 <p className="font-bold">Nenhum problema encontrado</p>
               </div>
             ) : (
               <div className="space-y-2">
-                <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-100">
+                <div className="flex items-center gap-2 px-3 py-2 border-b border-line">
                   <input
                     type="checkbox"
                     checked={filteredIssues.length > 0 && filteredIssues.every(i => selectedIssues.has(i.id))}
                     onChange={toggleAllVisible}
                     className="rounded"
                   />
-                  <span className="text-xs font-bold text-slate-400 flex-1">Selecionar todos ({filteredIssues.length})</span>
+                  <span className="text-xs font-bold text-subtle flex-1">Selecionar todos ({filteredIssues.length})</span>
                 </div>
                 {filteredIssues.map(issue => (
                   <IssueRow
@@ -428,19 +428,19 @@ export function FiscalAutopilotView() {
         <TabsContent value="categories">
           <div className="grid gap-4 lg:grid-cols-3">
             {categories.map(cat => (
-              <Card key={cat.label} className="p-5">
+              <Card key={cat.label} className="p-4">
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="font-bold text-slate-950">{cat.label}</h3>
+                  <h3 className="font-bold text-ink">{cat.label}</h3>
                   <Badge className={TYPE_COLORS[cat.type]}>{cat.count}</Badge>
                 </div>
                 <ul className="space-y-2">
                   {cat.items.map(item => (
-                    <li key={item.id} className="rounded-xl bg-slate-50 px-3 py-2">
+                    <li key={item.id} className="rounded-xl bg-muted px-3 py-2">
                       <div className="flex items-center justify-between">
-                        <span className="text-sm font-medium text-slate-700">{item.title}</span>
+                        <span className="text-sm font-medium text-subtle">{item.title}</span>
                         <Badge className={RISK_COLORS[item.riskLevel]}>{item.riskLevel}</Badge>
                       </div>
-                      <p className="text-xs text-slate-500 mt-1">{item.description}</p>
+                      <p className="text-xs text-subtle mt-1">{item.description}</p>
                       {item.autoFixAction && (
                         <p className="text-xs text-lime-600 mt-1 font-medium">
                           <Bot className="h-3 w-3 inline" /> {item.autoFixAction}
@@ -457,14 +457,14 @@ export function FiscalAutopilotView() {
         <TabsContent value="corrections">
           <Card className="p-4">
             {recentCorrections.length === 0 ? (
-              <div className="py-8 text-center text-slate-400">
+              <div className="py-8 text-center text-subtle">
                 <Clock className="h-8 w-8 mx-auto mb-2" />
                 <p className="text-sm">Nenhuma correcao registrada ainda</p>
               </div>
             ) : (
               <div className="space-y-2">
                 {recentCorrections.map(correction => (
-                  <div key={correction.id} className="flex items-center justify-between p-3 rounded-xl bg-white border border-slate-100">
+                  <div key={correction.id} className="flex items-center justify-between p-3 rounded-xl bg-white border border-line">
                     <div className="flex items-center gap-3">
                       {correction.status === "SUCCESS" ? (
                         <CheckCircle2 className="h-5 w-5 text-emerald-500" />
@@ -473,14 +473,14 @@ export function FiscalAutopilotView() {
                       )}
                       <div>
                         <p className="text-sm font-medium">{correction.action}</p>
-                        <p className="text-xs text-slate-500">{correction.entity}</p>
+                        <p className="text-xs text-subtle">{correction.entity}</p>
                       </div>
                     </div>
                     <div className="text-right">
                       <Badge className={correction.status === "SUCCESS" ? "bg-emerald-100 text-emerald-700" : "bg-yellow-100 text-yellow-700"}>
                         {correction.status}
                       </Badge>
-                      <p className="text-xs text-slate-400 mt-1">{formatDate(correction.timestamp, true)}</p>
+                      <p className="text-xs text-subtle mt-1">{formatDate(correction.timestamp, true)}</p>
                     </div>
                   </div>
                 ))}
@@ -495,17 +495,17 @@ export function FiscalAutopilotView() {
 
 function IssueRow({ issue, selected, onToggle }: { issue: FiscalIssue; selected: boolean; onToggle: () => void }) {
   return (
-    <div className={`flex items-center gap-3 rounded-xl border p-3 transition-colors ${selected ? "border-lime-300 bg-lime-50/50" : "border-slate-100 bg-white hover:bg-slate-50"}`}>
+    <div className={`flex items-center gap-3 rounded-xl border p-3 transition-colors ${selected ? "border-lime-300 bg-lime-50/50" : "border-line bg-white hover:bg-muted"}`}>
       <input type="checkbox" checked={selected} onChange={onToggle} className="rounded" />
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap mb-1">
-          <span className="text-sm font-bold text-slate-950">{issue.title}</span>
+          <span className="text-sm font-bold text-ink">{issue.title}</span>
           <Badge className={RISK_COLORS[issue.riskLevel]}>{issue.riskLevel}</Badge>
           <Badge className={TYPE_COLORS[issue.type]}>{TYPE_LABELS[issue.type]}</Badge>
           <Badge className={STATUS_COLORS[issue.status]}>{STATUS_LABELS[issue.status]}</Badge>
         </div>
-        <p className="text-xs text-slate-500 truncate">{issue.description}</p>
-        <div className="flex items-center gap-4 mt-1 text-xs text-slate-400">
+        <p className="text-xs text-subtle truncate">{issue.description}</p>
+        <div className="flex items-center gap-4 mt-1 text-xs text-subtle">
           <span>Codigo: {issue.code}</span>
           {issue.confidence != null && <span>Confianca: {Math.round(issue.confidence * 100)}%</span>}
           {issue.financialImpact > 0 && <span className="text-red-500 font-medium">Impacto: {formatCurrency(issue.financialImpact)}</span>}

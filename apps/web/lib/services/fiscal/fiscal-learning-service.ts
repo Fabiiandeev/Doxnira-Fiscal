@@ -2,19 +2,11 @@
   id: string;
   title: string;
   company: string;
-  confidence: "Alta" | "MÃ©dia" | "Baixa";
+  confidence: "Alta" | "Media" | "Baixa";
   status: "Pendente" | "Aprovada" | "Rejeitada";
 };
 
-const rules: FiscalLearningRule[] = [
-  {
-    id: "learn-1",
-    title: "Vincular Ã³leo de soja do fornecedor Alfa ao produto interno",
-    company: "Alfa ComÃ©rcio Ltda.",
-    confidence: "Alta",
-    status: "Pendente",
-  },
-];
+const rules: FiscalLearningRule[] = [];
 
 export async function getFiscalLearningRules(): Promise<FiscalLearningRule[]> {
   return rules;

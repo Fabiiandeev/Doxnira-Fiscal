@@ -6,14 +6,6 @@
   highRiskCompanies: number;
 };
 
-const impact: TaxReformImpact = {
-  companiesAnalyzed: 28,
-  impactedProducts: 1284,
-  impactedServices: 342,
-  pendingRules: 76,
-  highRiskCompanies: 6,
-};
-
 function delay(): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, 300);
@@ -22,7 +14,13 @@ function delay(): Promise<void> {
 
 export async function getTaxReformImpact(): Promise<TaxReformImpact> {
   await delay();
-  return impact;
+  return {
+    companiesAnalyzed: 0,
+    impactedProducts: 0,
+    impactedServices: 0,
+    pendingRules: 0,
+    highRiskCompanies: 0,
+  };
 }
 
 export async function applyTaxReformRule(ruleId: string): Promise<{ success: boolean; ruleId: string }> {

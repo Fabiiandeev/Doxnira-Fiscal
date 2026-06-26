@@ -44,7 +44,7 @@ const CONVERSATIONS_KEY = "ns-fiscal-ai-conversations";
 const TYPE_COLORS: Record<CorrectionType, string> = {
   AUTO_SAFE: "bg-lime text-ink",
   AUTO_CONFIRM: "bg-blue-50 text-blue-700",
-  MANUAL_GUIDED: "bg-gray-100 text-gray-700",
+  MANUAL_GUIDED: "bg-muted text-subtle",
   ACCOUNTANT_REVIEW: "bg-purple-50 text-purple-700",
   RETRY_ONLY: "bg-orange-50 text-orange-700",
 };
@@ -207,16 +207,16 @@ export function FiscalAiView() {
   const recentConvs = conversations.filter(c => !c.favorite).slice(0, 10);
 
   return (
-    <div className="flex gap-4 h-[calc(100vh-6rem)]">
+    <div className="flex flex-col lg:flex-row gap-4 h-[calc(100vh-6rem)]">
       <div className="flex-1 flex flex-col min-w-0">
         <div className="mb-4">
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-2xl font-extrabold">Chat Fiscal</h1>
-              <p className="text-sm text-slate-500">Motor de decisao fiscal - Pergunte, receba sugestoes com regra, confianca e acao</p>
+              <p className="text-sm text-subtle">Motor de decisao fiscal - Pergunte, receba sugestoes com regra, confianca e acao</p>
             </div>
             <div className="flex gap-2">
-              <Button variant="outline" size="sm" onClick={() => setSidePanelOpen(!sidePanelOpen)}>
+              <Button variant="outline" size="sm" onClick={() => setSidePanelOpen(!sidePanelOpen)} className="hidden lg:flex">
                 <BookOpen className="h-4 w-4" /> {sidePanelOpen ? "Ocultar" : "Painel"}
               </Button>
               <Button variant="lime" size="sm" onClick={createNewConversation}>
@@ -231,8 +231,8 @@ export function FiscalAiView() {
             {activeConversation && activeConversation.messages.length === 0 && (
               <div className="flex flex-col items-center justify-center h-full text-center py-12">
                 <Bot className="h-16 w-16 text-lime-500 mb-4" />
-                <h2 className="text-xl font-bold text-slate-950 mb-2">Ola! Sou a FiscalAI</h2>
-                <p className="text-sm text-slate-500 max-w-md mb-6">
+                <h2 className="text-xl font-bold text-ink mb-2">Ola! Sou a FiscalAI</h2>
+                <p className="text-sm text-subtle max-w-md mb-6">
                   Posso analisar notas, corrigir cadastros, orientar sobre impostos e ajudar no fechamento fiscal. Pergunte algo ou use uma sugestao rapida:
                 </p>
                 <div className="flex flex-wrap gap-2 justify-center max-w-lg">
@@ -252,7 +252,7 @@ export function FiscalAiView() {
                     <Bot className="h-4 w-4 text-lime-700" />
                   </div>
                 )}
-                <div className={`max-w-[80%] rounded-2xl p-4 ${msg.role === "user" ? "bg-ink text-white" : "bg-slate-50 border border-slate-100"}`}>
+                <div className={`max-w-[80%] rounded-2xl p-4 ${msg.role === "user" ? "bg-ink text-white" : "bg-muted border border-line"}`}>
                   {msg.role === "user" ? (
                     <p className="text-sm">{msg.content}</p>
                   ) : msg.response ? (
@@ -260,7 +260,7 @@ export function FiscalAiView() {
                   ) : (
                     <p className="text-sm">{msg.content}</p>
                   )}
-                  <p className={`text-[10px] mt-2 ${msg.role === "user" ? "text-white/50" : "text-slate-400"}`}>
+                  <p className={`text-[10px] mt-2 ${msg.role === "user" ? "text-white/50" : "text-subtle"}`}>
                     {new Date(msg.timestamp).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
                   </p>
                 </div>
@@ -272,7 +272,7 @@ export function FiscalAiView() {
                 <div className="shrink-0 h-8 w-8 rounded-full bg-lime-100 flex items-center justify-center">
                   <Bot className="h-4 w-4 text-lime-700" />
                 </div>
-                <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4">
+                <div className="bg-muted border border-line rounded-2xl p-4">
                   <div className="flex items-center gap-2">
                     <div className="animate-bounce h-2 w-2 rounded-full bg-lime-400" style={{ animationDelay: "0ms" }} />
                     <div className="animate-bounce h-2 w-2 rounded-full bg-lime-400" style={{ animationDelay: "150ms" }} />
@@ -285,7 +285,7 @@ export function FiscalAiView() {
           </div>
 
           {!activeConversation && (
-            <div className="flex-1 flex items-center justify-center text-slate-400">
+            <div className="flex-1 flex items-center justify-center text-subtle">
               <div className="text-center">
                 <MessageSquare className="h-12 w-12 mx-auto mb-3" />
                 <p>Selecione uma conversa ou crie uma nova</p>
@@ -293,7 +293,7 @@ export function FiscalAiView() {
             </div>
           )}
 
-          <div className="border-t border-slate-100 p-4">
+          <div className="border-t border-line p-4">
             <div className="flex gap-2">
               <Input
                 value={question}
@@ -314,7 +314,7 @@ export function FiscalAiView() {
                   type="button"
                   onClick={() => handleAsk(q)}
                   disabled={loading}
-                  className="text-[11px] px-2 py-1 rounded-full border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-50 transition"
+                  className="text-[11px] px-2 py-1 rounded-full border border-line text-subtle hover:bg-muted disabled:opacity-50 transition"
                 >
                   {q}
                 </button>
@@ -325,7 +325,7 @@ export function FiscalAiView() {
       </div>
 
       {sidePanelOpen && (
-        <div className="w-72 shrink-0 space-y-4 overflow-y-auto">
+        <div className="hidden lg:block w-72 shrink-0 space-y-4 overflow-y-auto">
           <Card className="p-3">
             <Tabs defaultValue="history">
               <TabsList className="w-full">
@@ -343,25 +343,25 @@ export function FiscalAiView() {
               <TabsContent value="history">
                 <div className="space-y-1 mt-2">
                   {recentConvs.length === 0 && (
-                    <p className="text-xs text-slate-400 py-4 text-center">Nenhuma conversa ainda</p>
+                    <p className="text-xs text-subtle py-4 text-center">Nenhuma conversa ainda</p>
                   )}
                   {recentConvs.map(conv => (
                     <div
                       key={conv.id}
-                      className={`flex items-center gap-2 p-2 rounded-lg cursor-pointer transition ${conv.id === activeConversationId ? "bg-lime-50 border border-lime-200" : "hover:bg-slate-50"}`}
+                      className={`flex items-center gap-2 p-2 rounded-lg cursor-pointer transition ${conv.id === activeConversationId ? "bg-lime-50 border border-lime-200" : "hover:bg-muted"}`}
                       onClick={() => setActiveConversationId(conv.id)}
                     >
-                      <MessageSquare className="h-3 w-3 text-slate-400 shrink-0" />
+                      <MessageSquare className="h-3 w-3 text-subtle shrink-0" />
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-medium truncate">{conv.title}</p>
-                        <p className="text-[10px] text-slate-400">{conv.messages.length} mensagens</p>
+                        <p className="text-[10px] text-subtle">{conv.messages.length} mensagens</p>
                       </div>
                       <div className="flex gap-1">
-                        <button type="button" onClick={e => { e.stopPropagation(); toggleFavorite(conv.id); }} className="p-1 hover:bg-slate-100 rounded">
-                          <Heart className={`h-3 w-3 ${conv.favorite ? "text-red-500 fill-red-500" : "text-slate-300"}`} />
+                        <button type="button" onClick={e => { e.stopPropagation(); toggleFavorite(conv.id); }} className="p-1 hover:bg-muted rounded">
+                          <Heart className={`h-3 w-3 ${conv.favorite ? "text-red-500 fill-red-500" : "text-subtle"}`} />
                         </button>
                         <button type="button" onClick={e => { e.stopPropagation(); deleteConversation(conv.id); }} className="p-1 hover:bg-red-50 rounded">
-                          <Trash2 className="h-3 w-3 text-slate-300 hover:text-red-500" />
+                          <Trash2 className="h-3 w-3 text-subtle hover:text-red-500" />
                         </button>
                       </div>
                     </div>
@@ -372,20 +372,20 @@ export function FiscalAiView() {
               <TabsContent value="favorites">
                 <div className="space-y-1 mt-2">
                   {favorites.length === 0 && (
-                    <p className="text-xs text-slate-400 py-4 text-center">Nenhum favorito</p>
+                    <p className="text-xs text-subtle py-4 text-center">Nenhum favorito</p>
                   )}
                   {favorites.map(conv => (
                     <div
                       key={conv.id}
-                      className={`flex items-center gap-2 p-2 rounded-lg cursor-pointer transition ${conv.id === activeConversationId ? "bg-lime-50 border border-lime-200" : "hover:bg-slate-50"}`}
+                      className={`flex items-center gap-2 p-2 rounded-lg cursor-pointer transition ${conv.id === activeConversationId ? "bg-lime-50 border border-lime-200" : "hover:bg-muted"}`}
                       onClick={() => setActiveConversationId(conv.id)}
                     >
                       <Heart className="h-3 w-3 text-red-500 fill-red-500 shrink-0" />
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-medium truncate">{conv.title}</p>
-                        <p className="text-[10px] text-slate-400">{conv.messages.length} mensagens</p>
+                        <p className="text-[10px] text-subtle">{conv.messages.length} mensagens</p>
                       </div>
-                      <button type="button" onClick={e => { e.stopPropagation(); toggleFavorite(conv.id); }} className="p-1 hover:bg-slate-100 rounded">
+                      <button type="button" onClick={e => { e.stopPropagation(); toggleFavorite(conv.id); }} className="p-1 hover:bg-muted rounded">
                         <Heart className="h-3 w-3 text-red-500 fill-red-500" />
                       </button>
                     </div>
@@ -395,7 +395,7 @@ export function FiscalAiView() {
 
               <TabsContent value="prompts">
                 <div className="space-y-2 mt-2">
-                  <p className="text-xs font-bold text-slate-400 uppercase">Sugestoes rapidas</p>
+                  <p className="text-xs font-bold text-subtle uppercase">Sugestoes rapidas</p>
                   {quickQuestions.map(q => (
                     <button
                       key={q}
@@ -414,8 +414,8 @@ export function FiscalAiView() {
           </Card>
 
           <Card className="p-3">
-            <p className="text-xs font-bold text-slate-400 uppercase mb-2">Sobre a FiscalAI</p>
-            <div className="space-y-2 text-xs text-slate-500">
+            <p className="text-xs font-bold text-subtle uppercase mb-2">Sobre a FiscalAI</p>
+            <div className="space-y-2 text-xs text-subtle">
               <p className="flex items-center gap-2"><Sparkles className="h-3 w-3 text-lime-500" /> Respostas baseadas em regras fiscais</p>
               <p className="flex items-center gap-2"><BookOpen className="h-3 w-3 text-blue-500" /> Fontes: MOC, SPED, ICP-Brasil, LC 116</p>
               <p className="flex items-center gap-2"><Play className="h-3 w-3 text-purple-500" /> Acoes diretas: corrigir, enviar, confirmar</p>
@@ -442,11 +442,11 @@ function StructuredResponse({
         <Badge variant="outline">Confianca: {Math.round(response.confidence * 100)}%</Badge>
       </div>
 
-      <p className="text-sm text-slate-700">{response.answer}</p>
+      <p className="text-sm text-ink">{response.answer}</p>
 
       {response.sources.length > 0 && (
         <div className="flex flex-wrap gap-1">
-          <span className="text-[10px] text-slate-400">Fontes:</span>
+          <span className="text-[10px] text-subtle">Fontes:</span>
           {response.sources.map(s => (
             <Badge key={s} variant="neutral" className="text-[9px]">{s}</Badge>
           ))}
@@ -454,8 +454,8 @@ function StructuredResponse({
       )}
 
       {response.suggestions.length > 0 && (
-        <div className="space-y-2 mt-3 border-t border-slate-100 pt-3">
-          <p className="text-xs font-bold text-slate-500 uppercase">Sugestoes ({response.suggestions.length})</p>
+        <div className="space-y-2 mt-3 border-t border-line pt-3">
+          <p className="text-xs font-bold text-subtle uppercase">Sugestoes ({response.suggestions.length})</p>
           {response.suggestions.map(s => (
             <SuggestionItem key={s.id} suggestion={s} />
           ))}
@@ -463,7 +463,7 @@ function StructuredResponse({
       )}
 
       {response.actions.length > 0 && (
-        <div className="flex flex-wrap gap-2 mt-3 border-t border-slate-100 pt-3">
+        <div className="flex flex-wrap gap-2 mt-3 border-t border-line pt-3">
           {response.actions.map(a => (
             <Button
               key={a.action + a.type}
@@ -482,16 +482,16 @@ function StructuredResponse({
 
 function SuggestionItem({ suggestion }: { suggestion: FiscalAiSuggestion }) {
   return (
-    <div className="p-3 rounded-xl border border-slate-100 bg-white">
+    <div className="p-3 rounded-xl border border-line bg-white">
       <div className="flex items-center gap-2 mb-1">
         <span className="text-xs font-bold">{suggestion.entityType}:{suggestion.field}</span>
         <Badge className={TYPE_COLORS[suggestion.type]}>{suggestion.type}</Badge>
         <Badge variant="outline">{Math.round(suggestion.confidence * 100)}%</Badge>
       </div>
-      <p className="text-xs text-slate-500">
+      <p className="text-xs text-subtle">
         {suggestion.currentValue ?? "(vazio)"} <ChevronRight className="inline h-3 w-3" /> <span className="text-lime-600 font-medium">{suggestion.suggestedValue}</span>
       </p>
-      <p className="text-[10px] text-slate-400 mt-1">
+      <p className="text-[10px] text-subtle mt-1">
         Regra: {suggestion.ruleReference} | Impacto: {formatCurrency(suggestion.financialImpact)}
       </p>
     </div>

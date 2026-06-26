@@ -4,17 +4,15 @@
   value: string;
 };
 
-const reportItems: AccountantValueReportItem[] = [
-  { id: "validated-documents", label: "Documentos validados", value: "32" },
-  { id: "classified-products", label: "Produtos classificados", value: "18" },
-  { id: "fixed-rejections", label: "RejeiÃ§Ãµes corrigidas", value: "7" },
-  { id: "linked-cte", label: "CT-e vinculados", value: "4" },
-  { id: "checked-guides", label: "Guias conferidas", value: "2" },
-  { id: "unlocked-money", label: "Notas destravadas", value: "R$ 48.000,00" },
-];
-
 export async function getAccountantValueReport(): Promise<AccountantValueReportItem[]> {
-  return reportItems;
+  return [
+    { id: "validated-documents", label: "Documentos validados", value: "0" },
+    { id: "classified-products", label: "Produtos classificados", value: "0" },
+    { id: "fixed-rejections", label: "Rejeicoes corrigidas", value: "0" },
+    { id: "linked-cte", label: "CT-e vinculados", value: "0" },
+    { id: "checked-guides", label: "Guias conferidas", value: "0" },
+    { id: "unlocked-money", label: "Notas destravadas", value: "R$ 0,00" },
+  ];
 }
 
 export async function generateValueReportPdf(): Promise<{ success: boolean; fileName: string }> {

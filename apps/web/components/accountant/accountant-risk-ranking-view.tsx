@@ -55,7 +55,7 @@ const TREND_ICONS: Record<string, typeof TrendingUp> = {
 
 const TREND_COLORS: Record<string, string> = {
   IMPROVING: "text-emerald-500",
-  STABLE: "text-slate-400",
+  STABLE: "text-subtle",
   WORSENING: "text-red-500",
 };
 
@@ -75,27 +75,53 @@ const PRIORITY_COLORS: Record<string, string> = {
 export function AccountantRiskRankingView() {
   const [data, setData] = useState<AccountantRiskRanking | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [expandedCompany, setExpandedCompany] = useState<string | null>(null);
   const [filterCategory, setFilterCategory] = useState<string>("");
 
   const loadData = useCallback(async () => {
     setLoading(true);
-    const d = await getAccountantRiskRanking();
-    setData(d);
-    setLoading(false);
+    setError(null);
+    try {
+      const d = await getAccountantRiskRanking();
+      setData(d);
+    } catch {
+      setError("Nao foi possivel carregar o ranking de risco. Tente novamente.");
+      notify({ title: "Erro ao carregar ranking", tone: "error" });
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => { loadData(); }, [loadData]);
 
   const handleCompletePlanItem = async (companyId: string, planItemId: string) => {
-    const result = await completeActionPlanItem(companyId, planItemId);
-    if (result) {
-      setData(result);
-      notify({ title: "Acao concluida", tone: "success" });
+    try {
+      const result = await completeActionPlanItem(companyId, planItemId);
+      if (result) {
+        setData(result);
+        notify({ title: "Acao concluida", tone: "success" });
+      }
+    } catch {
+      notify({ title: "Erro ao concluir acao", tone: "error" });
     }
   };
 
-  if (loading || !data) return <div className="h-[600px] animate-pulse rounded-2xl bg-white/60" />;
+  if (loading) return <div className="h-[600px] animate-pulse rounded-2xl bg-white/60" />;
+  if (error) {
+    return (
+      <div className="space-y-4">
+        <h1 className="text-2xl font-extrabold">Ranking de Risco</h1>
+        <Card className="p-6">
+          <p className="text-sm text-red-600">{error}</p>
+          <Button variant="outline" className="mt-4" onClick={loadData}>Tentar novamente</Button>
+        </Card>
+      </div>
+    );
+  }
+  if (!data) return null;
+
+  const hasCompanies = data.companies.length > 0;
 
   const sortedCompanies = [...data.companies].sort(
     (a, b) => (CATEGORY_ORDER[a.riskLevel] ?? 99) - (CATEGORY_ORDER[b.riskLevel] ?? 99)
@@ -114,12 +140,26 @@ export function AccountantRiskRankingView() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-extrabold">Ranking de Risco</h1>
-          <p className="text-sm text-slate-500">Empresas classificadas por criticidade fiscal</p>
+          <p className="text-sm text-subtle">Empresas classificadas por criticidade fiscal</p>
         </div>
         <Button variant="outline" onClick={loadData}>
           <RefreshCw className="h-4 w-4" /> Atualizar
         </Button>
       </div>
+
+      {!hasCompanies && (
+        <Card className="p-8 text-center">
+          <Shield className="h-12 w-12 mx-auto mb-3 text-subtle" />
+          <h2 className="text-xl font-bold text-ink mb-2">Nenhuma empresa encontrada para calcular ranking de risco</h2>
+          <p className="text-sm text-subtle max-w-md mx-auto mb-4">
+            Cadastre empresas ou sincronize dados para gerar o ranking de risco fiscal.
+          </p>
+          <div className="flex flex-wrap gap-2 justify-center">
+            <Button variant="lime" onClick={() => window.location.href = "/companies"}>Cadastrar empresa</Button>
+            <Button variant="outline" onClick={() => window.location.href = "/sync"}>Sincronizar dados</Button>
+          </div>
+        </Card>
+      )}
 
       <div className="flex flex-wrap gap-2">
         {(["CRITICAL", "HIGH", "MEDIUM", "LOW", "VERY_LOW"] as RiskCategory[]).map(cat => {
@@ -134,7 +174,7 @@ export function AccountantRiskRankingView() {
               type="button"
               onClick={() => setFilterCategory(filterCategory === cat ? "" : cat)}
               className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-bold transition border ${
-                filterCategory === cat ? "border-slate-300 ring-2 ring-lime-200" : "border-slate-100 hover:border-slate-200"
+                filterCategory === cat ? "border-line ring-2 ring-lime-200" : "border-line hover:border-line"
               }`}
             >
               <Badge className={CATEGORY_COLORS[cat]}>{CATEGORY_LABELS[cat]}</Badge>
@@ -149,7 +189,7 @@ export function AccountantRiskRankingView() {
           <div className="flex items-center gap-3">
             <XCircle className="h-8 w-8 text-red-500" />
             <div>
-              <p className="text-xs text-slate-500">Empresas criticas</p>
+              <p className="text-xs text-subtle">Empresas criticas</p>
               <p className="text-2xl font-extrabold text-red-600">{criticalCompanies.length}</p>
             </div>
           </div>
@@ -158,7 +198,7 @@ export function AccountantRiskRankingView() {
           <div className="flex items-center gap-3">
             <CheckCircle2 className="h-8 w-8 text-emerald-500" />
             <div>
-              <p className="text-xs text-slate-500">Melhor desempenho</p>
+              <p className="text-xs text-subtle">Melhor desempenho</p>
               <p className="text-2xl font-extrabold text-emerald-600">{bestPerforming.length}</p>
             </div>
           </div>
@@ -167,8 +207,8 @@ export function AccountantRiskRankingView() {
           <div className="flex items-center gap-3">
             <Building2 className="h-8 w-8 text-blue-500" />
             <div>
-              <p className="text-xs text-slate-500">Total empresas</p>
-              <p className="text-2xl font-extrabold text-slate-950">{data.companies.length}</p>
+              <p className="text-xs text-subtle">Total empresas</p>
+              <p className="text-2xl font-extrabold text-ink">{data.companies.length}</p>
             </div>
           </div>
         </Card>
@@ -176,8 +216,8 @@ export function AccountantRiskRankingView() {
           <div className="flex items-center gap-3">
             <Shield className="h-8 w-8 text-orange-500" />
             <div>
-              <p className="text-xs text-slate-500">Impacto total</p>
-              <p className="text-lg font-extrabold text-slate-950">{formatCurrency(totalImpact)}</p>
+              <p className="text-xs text-subtle">Impacto total</p>
+              <p className="text-lg font-extrabold text-ink">{formatCurrency(totalImpact)}</p>
             </div>
           </div>
         </Card>
@@ -194,7 +234,7 @@ export function AccountantRiskRankingView() {
           <Card className="overflow-hidden">
             <table className="w-full">
               <thead>
-                <tr className="bg-slate-50 text-xs font-bold uppercase text-slate-400">
+                <tr className="bg-muted text-xs font-bold uppercase text-subtle">
                   <th className="px-4 py-3 text-left">#</th>
                   <th className="px-4 py-3 text-left">Empresa</th>
                   <th className="px-4 py-3 text-center">Score</th>
@@ -206,7 +246,7 @@ export function AccountantRiskRankingView() {
                   <th className="px-4 py-3 text-right">Acao</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-line">
                 {filteredCompanies.map((company, idx) => (
                   <CompanyRow
                     key={company.id}
@@ -220,7 +260,7 @@ export function AccountantRiskRankingView() {
               </tbody>
             </table>
             {filteredCompanies.length === 0 && (
-              <div className="py-12 text-center text-slate-400">
+              <div className="py-12 text-center text-subtle">
                 <Shield className="h-12 w-12 mx-auto mb-3 text-lime-500" />
                 <p className="font-bold">Nenhuma empresa nesta categoria</p>
               </div>
@@ -232,8 +272,8 @@ export function AccountantRiskRankingView() {
           {criticalCompanies.length === 0 ? (
             <Card className="p-8 text-center">
               <CheckCircle2 className="h-12 w-12 mx-auto mb-3 text-lime-500" />
-              <p className="font-bold text-slate-950">Nenhuma empresa critica</p>
-              <p className="text-sm text-slate-500">Todas as empresas estao em niveis aceitaveis</p>
+              <p className="font-bold text-ink">Nenhuma empresa critica</p>
+              <p className="text-sm text-subtle">Todas as empresas estao em niveis aceitaveis</p>
             </Card>
           ) : (
             <div className="space-y-4">
@@ -243,15 +283,15 @@ export function AccountantRiskRankingView() {
                     <div>
                       <div className="flex items-center gap-2 mb-2">
                         <Building2 className="h-5 w-5 text-red-500" />
-                        <span className="font-bold text-lg text-slate-950">{company.name}</span>
+                        <span className="font-bold text-lg text-ink">{company.name}</span>
                         <Badge className={CATEGORY_COLORS[company.riskLevel]}>{CATEGORY_LABELS[company.riskLevel]}</Badge>
-                        <Badge className={TREND_COLORS[company.trend] + " bg-slate-50"}>
+                        <Badge className={TREND_COLORS[company.trend] + " bg-muted"}>
                           {(() => { const Icon = TREND_ICONS[company.trend]; return <Icon className="h-3 w-3" />; })()}
                           {TREND_LABELS[company.trend]}
                         </Badge>
                       </div>
                       <p className="text-sm text-red-600 font-medium">{company.mainIssue}</p>
-                      <p className="text-sm text-slate-500 mt-1">Score: {company.score}/100 | Impacto: <span className="text-red-600 font-bold">{formatCurrency(company.financialImpact)}</span></p>
+                      <p className="text-sm text-subtle mt-1">Score: {company.score}/100 | Impacto: <span className="text-red-600 font-bold">{formatCurrency(company.financialImpact)}</span></p>
                     </div>
                     <div className="flex gap-2">
                       <Button variant="danger" size="sm">
@@ -265,7 +305,7 @@ export function AccountantRiskRankingView() {
 
                   {company.actionPlan.length > 0 && (
                     <div className="mt-4 pt-4 border-t border-red-100">
-                      <p className="text-xs font-bold text-slate-500 uppercase mb-2">Plano de acao</p>
+                      <p className="text-xs font-bold text-subtle uppercase mb-2">Plano de acao</p>
                       <div className="space-y-2">
                         {company.actionPlan.map(item => (
                           <ActionPlanRow key={item.id} item={item} onComplete={() => handleCompletePlanItem(company.id, item.id)} />
@@ -289,13 +329,13 @@ export function AccountantRiskRankingView() {
                 <Card key={company.id} className="p-5">
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2">
-                      <Building2 className="h-4 w-4 text-slate-500" />
-                      <span className="font-bold text-slate-950">{company.name}</span>
+                      <Building2 className="h-4 w-4 text-subtle" />
+                      <span className="font-bold text-ink">{company.name}</span>
                       <Badge className={CATEGORY_COLORS[company.riskLevel]}>{CATEGORY_LABELS[company.riskLevel]}</Badge>
                     </div>
-                    <span className="text-sm text-slate-500">{completed}/{total} concluidos</span>
+                    <span className="text-sm text-subtle">{completed}/{total} concluidos</span>
                   </div>
-                  <div className="h-2 rounded-full bg-slate-100 overflow-hidden mb-3">
+                  <div className="h-2 rounded-full bg-muted overflow-hidden mb-3">
                     <div
                       className={`h-full rounded-full transition-all ${pct === 100 ? "bg-lime-400" : pct > 50 ? "bg-yellow-400" : "bg-red-400"}`}
                       style={{ width: `${pct}%` }}
@@ -338,19 +378,19 @@ function CompanyRow({
   const TrendIcon = TREND_ICONS[company.trend] ?? ArrowRight;
   return (
     <>
-      <tr className="hover:bg-slate-50 transition cursor-pointer" onClick={onToggle}>
-        <td className="px-4 py-3 text-sm font-bold text-slate-400">{rank}</td>
+      <tr className="hover:bg-muted transition cursor-pointer" onClick={onToggle}>
+        <td className="px-4 py-3 text-sm font-bold text-subtle">{rank}</td>
         <td className="px-4 py-3">
           <div className="flex items-center gap-2">
-            <Building2 className="h-4 w-4 text-slate-400" />
-            <span className="font-medium text-slate-950">{company.name}</span>
+            <Building2 className="h-4 w-4 text-subtle" />
+            <span className="font-medium text-ink">{company.name}</span>
           </div>
         </td>
         <td className="px-4 py-3 text-center">
           <span className={`font-extrabold text-xl ${company.score < 40 ? "text-red-600" : company.score < 70 ? "text-orange-500" : "text-emerald-600"}`}>
             {company.score}
           </span>
-          <span className="text-xs text-slate-400">/100</span>
+          <span className="text-xs text-subtle">/100</span>
         </td>
         <td className="px-4 py-3 text-center">
           <Badge className={CATEGORY_COLORS[company.riskLevel]}>{CATEGORY_LABELS[company.riskLevel]}</Badge>
@@ -363,21 +403,21 @@ function CompanyRow({
         </td>
         <td className="px-4 py-3 text-sm text-red-600">{company.mainIssue}</td>
         <td className="px-4 py-3 text-right font-bold">{formatCurrency(company.financialImpact)}</td>
-        <td className="px-4 py-3 text-center text-xs text-slate-400">{formatDate(company.lastEventDate)}</td>
+        <td className="px-4 py-3 text-center text-xs text-subtle">{formatDate(company.lastEventDate)}</td>
         <td className="px-4 py-3 text-right">
           <div className="flex gap-1 justify-end">
             <Button variant={company.riskLevel === "CRITICAL" ? "danger" : company.riskLevel === "HIGH" ? "default" : "outline"} size="sm">
               {company.action}
             </Button>
-            <ChevronDown className={`h-4 w-4 text-slate-400 transition-transform ${expanded ? "rotate-180" : ""}`} />
+            <ChevronDown className={`h-4 w-4 text-subtle transition-transform ${expanded ? "rotate-180" : ""}`} />
           </div>
         </td>
       </tr>
       {expanded && company.actionPlan.length > 0 && (
         <tr>
-          <td colSpan={9} className="px-4 py-3 bg-slate-50/50">
+          <td colSpan={9} className="px-4 py-3 bg-muted/50">
             <div className="max-w-2xl ml-8">
-              <p className="text-xs font-bold text-slate-500 uppercase mb-2">Plano de acao</p>
+              <p className="text-xs font-bold text-subtle uppercase mb-2">Plano de acao</p>
               <div className="space-y-2">
                 {company.actionPlan.map(item => (
                   <ActionPlanRow key={item.id} item={item} onComplete={() => onCompletePlanItem(company.id, item.id)} />
@@ -393,19 +433,19 @@ function CompanyRow({
 
 function ActionPlanRow({ item, onComplete }: { item: ActionPlanItem; onComplete: () => void }) {
   return (
-    <div className={`flex items-center gap-3 p-2 rounded-lg ${item.completed ? "bg-emerald-50" : "bg-white border border-slate-100"}`}>
+    <div className={`flex items-center gap-3 p-2 rounded-lg ${item.completed ? "bg-emerald-50" : "bg-white border border-line"}`}>
       <button
         type="button"
         onClick={onComplete}
         className={`shrink-0 h-5 w-5 rounded-full border-2 flex items-center justify-center transition ${
-          item.completed ? "border-emerald-500 bg-emerald-500" : "border-slate-300 hover:border-lime-400"
+          item.completed ? "border-emerald-500 bg-emerald-500" : "border-line hover:border-lime-400"
         }`}
       >
         {item.completed && <CheckCircle2 className="h-3 w-3 text-white" />}
       </button>
       <div className="flex-1 min-w-0">
-        <p className={`text-sm ${item.completed ? "line-through text-slate-400" : "text-slate-700"}`}>{item.description}</p>
-        <div className="flex items-center gap-2 mt-0.5 text-[10px] text-slate-400">
+        <p className={`text-sm ${item.completed ? "line-through text-subtle" : "text-subtle"}`}>{item.description}</p>
+        <div className="flex items-center gap-2 mt-0.5 text-[10px] text-subtle">
           <Badge className={PRIORITY_COLORS[item.priority]}>{item.priority}</Badge>
           <span>Prazo: {formatDate(item.deadline)}</span>
           <span>Responsavel: {item.responsible}</span>

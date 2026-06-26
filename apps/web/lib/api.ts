@@ -59,11 +59,13 @@ export function saveSession(input: {
 }) {
   window.localStorage.setItem(storageKeys.token, input.token);
   window.localStorage.setItem(storageKeys.user, JSON.stringify(input.user));
+  document.cookie = `${storageKeys.token}=${input.token};path=/;max-age=604800;samesite=lax`;
   if (input.companyId) setCompanyId(input.companyId);
 }
 
 export function clearSession() {
   Object.values(storageKeys).forEach((key) => window.localStorage.removeItem(key));
+  document.cookie = `${storageKeys.token}=;path=/;max-age=0`;
 }
 
 export async function apiFetch<T>(

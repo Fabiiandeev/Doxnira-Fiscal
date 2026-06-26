@@ -1,29 +1,14 @@
-﻿import { fiscalCalendarMock } from "@/lib/mocks/fiscal-mocks";
+﻿import { safeParseStorage, setStorage } from "@/lib/safe-storage";
 import type { FiscalCalendarItem } from "@/lib/fiscal-types";
 
 const STORAGE_KEY = "fiscal-calendar";
 
 function getStored(): FiscalCalendarItem[] {
-  if (typeof window === "undefined") return fiscalCalendarMock;
-
-  const stored = localStorage.getItem(STORAGE_KEY);
-
-  if (!stored || stored === "undefined" || stored === "null") {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(fiscalCalendarMock));
-    return fiscalCalendarMock;
-  }
-
-  try {
-    return JSON.parse(stored);
-  } catch {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(fiscalCalendarMock));
-    return fiscalCalendarMock;
-  }
+  return safeParseStorage<FiscalCalendarItem[]>(STORAGE_KEY, []);
 }
 
 function setStored(data: FiscalCalendarItem[]) {
-  if (typeof window === "undefined") return;
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  setStorage(STORAGE_KEY, data);
 }
 
 export async function getFiscalCalendar(filters?: { status?: string; companyId?: string }): Promise<FiscalCalendarItem[]> {

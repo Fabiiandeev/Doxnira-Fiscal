@@ -1,14 +1,12 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Building2, CheckCircle2, FileText, Send, Target, Zap } from "lucide-react";
+import { AlertTriangle, Building2, CheckCircle2, FileText, Send, Target, Zap } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { getOnboardingFiscal, completeOnboardingStep, startAIDiagnosis, applySafeCorrections } from "@/lib/services/fiscal/onboarding-fiscal-service";
 import { notify } from "@/components/toast-viewport";
-
-import { AlertTriangle } from "lucide-react";
 
 type OnboardingData = {
   status: {

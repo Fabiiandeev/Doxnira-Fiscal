@@ -7,7 +7,13 @@ export interface AuthUser {
   role: string;
 }
 
-export async function login(email: string, password: string) {
+export interface LoginResult {
+  user: AuthUser;
+  token: string;
+  hasCompany: boolean;
+}
+
+export async function login(email: string, password: string): Promise<LoginResult> {
   const result = await apiFetch<{ user: AuthUser; token: string }>("/auth/login", {
     method: "POST",
     body: JSON.stringify({ email, password }),
@@ -15,8 +21,9 @@ export async function login(email: string, password: string) {
   const companies = await apiFetch<{ data: Array<{ id: string }> }>("/companies", {
     headers: { authorization: `Bearer ${result.token}` },
   });
-  saveSession({ ...result, companyId: companies.data[0]?.id });
-  return result;
+  const firstCompanyId = companies.data[0]?.id;
+  saveSession({ ...result, companyId: firstCompanyId });
+  return { ...result, hasCompany: !!firstCompanyId };
 }
 
 export async function register(name: string, email: string, password: string) {

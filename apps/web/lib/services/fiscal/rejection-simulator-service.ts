@@ -1,35 +1,33 @@
-﻿
-import { rejectionSimulatorMock } from '@/lib/mocks/fiscal-mocks';
-import type { RejectionSimulation } from '@/lib/fiscal-types';
+﻿import type { RejectionSimulation } from "@/lib/fiscal-types";
 
 export async function simulateRejection(documentData: { clientIE?: string; certificateValid?: boolean; [key: string]: unknown }): Promise<RejectionSimulation> {
   await new Promise(res => setTimeout(res, 500));
-  
-  // Simulate analysis based on document data
-  const risks = [...rejectionSimulatorMock.risks];
+
+  const risks: RejectionSimulation["risks"] = [];
   let criticalBlocking = false;
   let canEmit = true;
-  
-  // Check for critical issues in document data
+  let rejectionChance = 0;
+
   if (!documentData.clientIE) {
     criticalBlocking = true;
     canEmit = false;
+    rejectionChance += 40;
   }
   if (!documentData.certificateValid) {
     criticalBlocking = true;
     canEmit = false;
+    rejectionChance += 30;
   }
-  
+
   return {
-    rejectionChance: rejectionSimulatorMock.rejectionChance + (criticalBlocking ? 50 : 0),
+    rejectionChance,
     risks,
     canEmit,
-    criticalBlocking
+    criticalBlocking,
   };
 }
 
-export async function getRejectionRisks(): Promise<RejectionSimulation['risks']> {
+export async function getRejectionRisks(): Promise<RejectionSimulation["risks"]> {
   await new Promise(res => setTimeout(res, 100));
-  return rejectionSimulatorMock.risks;
+  return [];
 }
-

@@ -171,9 +171,9 @@ export function FiscalRadarView() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-extrabold">Radar Fiscal</h1>
-          <p className="text-sm text-slate-500">
+          <p className="text-sm text-subtle">
             Monitor em tempo real - Antecipa problemas antes que virem multas
-            {lastRefresh && <span className="ml-2 text-slate-400">Atualizado: {lastRefresh.toLocaleTimeString("pt-BR")}</span>}
+            {lastRefresh && <span className="ml-2 text-subtle">Atualizado: {lastRefresh.toLocaleTimeString("pt-BR")}</span>}
           </p>
         </div>
         <div className="flex gap-2">
@@ -196,7 +196,7 @@ export function FiscalRadarView() {
           <div className="flex items-center gap-3">
             <XCircle className="h-7 w-7 text-red-500" />
             <div>
-              <p className="text-xs text-slate-500">Criticos</p>
+              <p className="text-xs text-subtle">Criticos</p>
               <p className="text-2xl font-extrabold text-red-600">{criticalCount}</p>
             </div>
           </div>
@@ -205,7 +205,7 @@ export function FiscalRadarView() {
           <div className="flex items-center gap-3">
             <AlertTriangle className="h-7 w-7 text-orange-500" />
             <div>
-              <p className="text-xs text-slate-500">Altos</p>
+              <p className="text-xs text-subtle">Altos</p>
               <p className="text-2xl font-extrabold text-orange-600">{highCount}</p>
             </div>
           </div>
@@ -214,7 +214,7 @@ export function FiscalRadarView() {
           <div className="flex items-center gap-3">
             <AlertTriangle className="h-7 w-7 text-yellow-500" />
             <div>
-              <p className="text-xs text-slate-500">Medios</p>
+              <p className="text-xs text-subtle">Medios</p>
               <p className="text-2xl font-extrabold text-yellow-600">{mediumCount}</p>
             </div>
           </div>
@@ -223,8 +223,8 @@ export function FiscalRadarView() {
           <div className="flex items-center gap-3">
             <CircleDollarSign className="h-7 w-7 text-emerald-500" />
             <div>
-              <p className="text-xs text-slate-500">Impacto total</p>
-              <p className="text-lg font-extrabold text-slate-950">{formatCurrency(totalImpact)}</p>
+              <p className="text-xs text-subtle">Impacto total</p>
+              <p className="text-lg font-extrabold text-ink">{formatCurrency(totalImpact)}</p>
             </div>
           </div>
         </Card>
@@ -232,8 +232,8 @@ export function FiscalRadarView() {
           <div className="flex items-center gap-3">
             <Bell className="h-7 w-7 text-blue-500" />
             <div>
-              <p className="text-xs text-slate-500">Total alertas</p>
-              <p className="text-2xl font-extrabold text-slate-950">{alerts.length}</p>
+              <p className="text-xs text-subtle">Total alertas</p>
+              <p className="text-2xl font-extrabold text-ink">{alerts.length}</p>
             </div>
           </div>
         </Card>
@@ -272,9 +272,9 @@ export function FiscalRadarView() {
             {showFilters && (
               <div className="mb-4 grid gap-3 sm:grid-cols-3">
                 <div>
-                  <label className="text-xs font-bold text-slate-500 mb-1 block">Gravidade</label>
+                  <label className="text-xs font-bold text-subtle mb-1 block">Gravidade</label>
                   <select
-                    className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"
+                    className="h-11 w-full rounded-xl border border-line bg-white px-3 text-sm"
                     value={filters.riskLevel}
                     onChange={e => setFilters(f => ({ ...f, riskLevel: e.target.value }))}
                   >
@@ -286,9 +286,9 @@ export function FiscalRadarView() {
                   </select>
                 </div>
                 <div>
-                  <label className="text-xs font-bold text-slate-500 mb-1 block">Categoria</label>
+                  <label className="text-xs font-bold text-subtle mb-1 block">Categoria</label>
                   <select
-                    className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"
+                    className="h-11 w-full rounded-xl border border-line bg-white px-3 text-sm"
                     value={filters.category}
                     onChange={e => setFilters(f => ({ ...f, category: e.target.value }))}
                   >
@@ -297,7 +297,7 @@ export function FiscalRadarView() {
                   </select>
                 </div>
                 <div>
-                  <label className="text-xs font-bold text-slate-500 mb-1 block">Buscar</label>
+                  <label className="text-xs font-bold text-subtle mb-1 block">Buscar</label>
                   <Input
                     value={filters.search}
                     onChange={e => setFilters(f => ({ ...f, search: e.target.value }))}
@@ -310,7 +310,7 @@ export function FiscalRadarView() {
             {loading ? (
               <div className="h-64 animate-pulse rounded-xl bg-white/60" />
             ) : filteredAlerts.length === 0 ? (
-              <div className="py-12 text-center text-slate-400">
+              <div className="py-12 text-center text-subtle">
                 <CheckCircle2 className="h-12 w-12 mx-auto mb-3 text-lime-500" />
                 <p className="font-bold">Nenhum alerta encontrado</p>
               </div>
@@ -319,19 +319,19 @@ export function FiscalRadarView() {
                 {filteredAlerts.map(alert => {
                   const CategoryIcon = CATEGORY_ICONS[alert.category] ?? FileText;
                   return (
-                    <div key={alert.id} className="p-4 rounded-xl border border-slate-100 bg-white hover:border-slate-200 transition">
+                    <div key={alert.id} className="p-4 rounded-xl border border-line bg-white hover:border-ink/20 transition">
                       <div className="flex items-start gap-3">
                         <div className={`shrink-0 h-10 w-10 rounded-xl flex items-center justify-center ${CATEGORY_COLORS[alert.category]}`}>
                           <CategoryIcon className="h-5 w-5" />
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap mb-1">
-                            <span className="font-bold text-slate-950">{alert.title}</span>
+                            <span className="font-bold text-ink">{alert.title}</span>
                             <Badge className={RISK_COLORS[alert.riskLevel]}>{RISK_LABELS[alert.riskLevel]}</Badge>
                             <Badge className={CATEGORY_COLORS[alert.category]}>{CATEGORY_LABELS[alert.category]}</Badge>
                           </div>
-                          <p className="text-sm text-slate-500">{alert.description}</p>
-                          <div className="mt-2 flex flex-wrap gap-3 text-xs text-slate-400">
+                          <p className="text-sm text-subtle">{alert.description}</p>
+                          <div className="mt-2 flex flex-wrap gap-3 text-xs text-subtle">
                             <span>Impacto: <span className="font-bold text-red-500">{formatCurrency(alert.estimatedImpact)}</span></span>
                             {alert.dueDate && <span>Vence: <span className="font-bold">{formatDate(alert.dueDate)}</span></span>}
                             <span>Criado: {formatDate(alert.createdAt)}</span>
@@ -355,21 +355,21 @@ export function FiscalRadarView() {
           <Card className="p-4">
             <h3 className="text-sm font-bold mb-4">Linha do tempo de eventos</h3>
             <div className="relative pl-6">
-              <div className="absolute left-2.5 top-0 bottom-0 w-0.5 bg-slate-200" />
+              <div className="absolute left-2.5 top-0 bottom-0 w-0.5 bg-line" />
               {timeline.map((event) => (
                 <div key={event.id} className="relative mb-6 last:mb-0">
                   <div className={`absolute -left-3.5 top-1 h-4 w-4 rounded-full border-2 border-white ${getEventDotColor(event.type)}`} />
                   <div className="ml-4">
                     <div className="flex items-center gap-2 mb-1">
-                      <span className="text-xs text-slate-400">{formatDate(event.timestamp, true)}</span>
+                      <span className="text-xs text-subtle">{formatDate(event.timestamp, true)}</span>
                       <Badge className={`text-[9px] ${RISK_COLORS[event.riskLevel]}`}>{RISK_LABELS[event.riskLevel]}</Badge>
                     </div>
-                    <p className="text-sm text-slate-700">{event.description}</p>
+                    <p className="text-sm text-ink">{event.description}</p>
                   </div>
                 </div>
               ))}
               {timeline.length === 0 && (
-                <div className="py-8 text-center text-slate-400">
+                <div className="py-8 text-center text-subtle">
                   <Clock className="h-8 w-8 mx-auto mb-2" />
                   <p className="text-sm">Nenhum evento registrado</p>
                 </div>
@@ -387,22 +387,22 @@ export function FiscalRadarView() {
                 <Card key={catKey} className="p-5">
                   <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center gap-2">
-                      <CategoryIcon className="h-5 w-5 text-slate-500" />
-                      <h3 className="font-bold text-slate-950">{catLabel}</h3>
+                      <CategoryIcon className="h-5 w-5 text-subtle" />
+                      <h3 className="font-bold text-ink">{catLabel}</h3>
                     </div>
                     <Badge className={CATEGORY_COLORS[catKey]}>{catAlerts.length}</Badge>
                   </div>
                   {catAlerts.length === 0 ? (
-                    <p className="text-xs text-slate-400">Nenhum alerta</p>
+                    <p className="text-xs text-subtle">Nenhum alerta</p>
                   ) : (
                     <ul className="space-y-2">
                       {catAlerts.map(alert => (
-                        <li key={alert.id} className="p-3 rounded-xl bg-slate-50 border border-slate-100">
+                        <li key={alert.id} className="p-3 rounded-xl bg-muted border border-line">
                           <div className="flex items-center justify-between mb-1">
-                            <span className="text-sm font-medium text-slate-700">{alert.title}</span>
+                            <span className="text-sm font-medium text-ink">{alert.title}</span>
                             <Badge className={RISK_COLORS[alert.riskLevel]}>{RISK_LABELS[alert.riskLevel]}</Badge>
                           </div>
-                          <p className="text-xs text-slate-500">{alert.description}</p>
+                          <p className="text-xs text-subtle">{alert.description}</p>
                           <p className="text-xs text-red-500 font-medium mt-1">Impacto: {formatCurrency(alert.estimatedImpact)}</p>
                         </li>
                       ))}

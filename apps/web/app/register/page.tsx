@@ -20,8 +20,9 @@ export default function RegisterPage() {
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    const password = String(form.get("password"));
-    if (password !== String(form.get("confirmation"))) {
+    const password = String(form.get("password") ?? "").trim();
+    const confirmation = String(form.get("confirmation") ?? "").trim();
+    if (password && confirmation && password !== confirmation) {
       setError("As senhas não conferem.");
       return;
     }

@@ -1,4 +1,5 @@
-﻿
+﻿import { safeParseStorage, setStorage } from "@/lib/safe-storage";
+
 export type OnboardingFiscalStatus = {
   importedXmls: number;
   createdProducts: number;
@@ -14,38 +15,30 @@ type OnboardingStoredData = {
   steps: { id: number; title: string; description: string; completed: boolean }[];
 };
 
-function getStored(): OnboardingStoredData {
-  const defaultData: OnboardingStoredData = {
-    status: {
-      importedXmls: 128,
-      createdProducts: 34,
-      createdCustomers: 12,
-      pendingIssues: 9,
-      accountantSuggestions: 4,
-    },
-    steps: [
-      { id: 1, title: "Importar XMLs", description: "Importe os XMLs de notas fiscais da empresa", completed: false },
-      { id: 2, title: "Criar produtos", description: "Cadastre produtos a partir dos dados dos XMLs", completed: false },
-      { id: 3, title: "Criar clientes", description: "Cadastre os clientes e fornecedores", completed: false },
-      { id: 4, title: "Validar cadastros fiscais", description: "Verifique NCMs, CFOPs, CSTs e outras regras", completed: false },
-      { id: 5, title: "Configurar estoque fiscal", description: "Lanche estoque e configure regras de inventario", completed: false },
-      { id: 6, title: "Ativar piloto automatico", description: "Habilite correcoes automaticas e monitoramento", completed: false },
-    ],
-  };
+const emptyData: OnboardingStoredData = {
+  status: {
+    importedXmls: 0,
+    createdProducts: 0,
+    createdCustomers: 0,
+    pendingIssues: 0,
+    accountantSuggestions: 0,
+  },
+  steps: [
+    { id: 1, title: "Importar XMLs", description: "Importe os XMLs de notas fiscais da empresa", completed: false },
+    { id: 2, title: "Criar produtos", description: "Cadastre produtos a partir dos dados dos XMLs", completed: false },
+    { id: 3, title: "Criar clientes", description: "Cadastre os clientes e fornecedores", completed: false },
+    { id: 4, title: "Validar cadastros fiscais", description: "Verifique NCMs, CFOPs, CSTs e outras regras", completed: false },
+    { id: 5, title: "Configurar estoque fiscal", description: "Lance estoque e configure regras de inventario", completed: false },
+    { id: 6, title: "Ativar piloto automatico", description: "Habilite correcoes automaticas e monitoramento", completed: false },
+  ],
+};
 
-  if (typeof window === "undefined") return defaultData;
-  const stored = localStorage.getItem(STORAGE_KEY);
-  if (stored) {
-    try { return JSON.parse(stored); } catch { /* fall through */ }
-  }
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(defaultData));
-  return defaultData;
+function getStored(): OnboardingStoredData {
+  return safeParseStorage<OnboardingStoredData>(STORAGE_KEY, emptyData);
 }
 
 function setStored(data: OnboardingStoredData) {
-  if (typeof window !== "undefined") {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-  }
+  setStorage(STORAGE_KEY, data);
 }
 
 export async function getOnboardingFiscal(): Promise<OnboardingStoredData> {
@@ -59,14 +52,6 @@ export async function completeOnboardingStep(stepId: number): Promise<Onboarding
   const step = data.steps.find(s => s.id === stepId);
   if (step) {
     step.completed = true;
-    
-    const completedCount = data.steps.filter(s => s.completed).length;
-    data.status.importedXmls = stepId <= 1 ? 128 : data.status.importedXmls;
-    data.status.createdProducts = stepId <= 2 ? 34 : data.status.createdProducts;
-    data.status.createdCustomers = stepId <= 3 ? 12 : data.status.createdCustomers;
-    data.status.pendingIssues = Math.max(0, data.status.pendingIssues - (stepId <= 4 ? 3 : 2));
-    data.status.accountantSuggestions = Math.max(0, data.status.accountantSuggestions - (completedCount >= 5 ? 1 : 0));
-    
     setStored(data);
   }
   return data;
@@ -79,10 +64,7 @@ export async function startAIDiagnosis(): Promise<OnboardingStoredData> {
 
 export async function applySafeCorrections(): Promise<OnboardingStoredData> {
   await new Promise(res => setTimeout(res, 300));
-  const data = getStored();
-  data.status.pendingIssues = Math.max(0, data.status.pendingIssues - 3);
-  setStored(data);
-  return data;
+  return getStored();
 }
 
 export async function getOnboardingFiscalStatus(): Promise<OnboardingFiscalStatus> {
@@ -96,7 +78,7 @@ export async function startFiscalDiagnostic(): Promise<OnboardingFiscalStatus> {
 }
 
 export async function applyOnboardingSafeCorrections(): Promise<{ success: boolean; corrected: number }> {
-  return { success: true, corrected: 5 };
+  return { success: true, corrected: 0 };
 }
 
 export async function sendOnboardingToAccountant(): Promise<{ success: boolean }> {
