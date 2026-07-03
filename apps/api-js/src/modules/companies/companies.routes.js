@@ -8,7 +8,7 @@ import { validate } from "../../middlewares/validate.middleware.js";
 import { AppError } from "../../utils/app-error.js";
 import { isValidCnpj, normalizeCnpj } from "../../utils/cnpj.js";
 import { asyncHandler, sendSuccess } from "../../utils/response.js";
-import { lookupCompanyFiscalData } from "../../services/cnpj-lookup.service.js";
+import { resolveCnpjData } from "../../services/data-resolver.service.js";
 import { writeAudit } from "../audit/audit.service.js";
 
 const companySchema = z.object({
@@ -113,7 +113,7 @@ empresasRouter.get(
     const sanitized = sanitizeCnpjInput(raw);
 
     try {
-      const data = await lookupCompanyFiscalData(sanitized);
+      const data = await resolveCnpjData(sanitized);
       sendSuccess(response, data);
     } catch (error) {
       if (error instanceof AppError && error.code === "INVALID_CNPJ_FORMAT") {

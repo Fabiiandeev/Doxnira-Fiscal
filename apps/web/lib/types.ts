@@ -68,6 +68,11 @@ export interface DocumentFilters {
   onlyNewSuppliers: boolean;
 }
 
+export type IcmsContribType = "SIM" | "NAO" | "ISENTO";
+export type CrtValue = "1" | "2" | "3" | "4";
+export type ApuracaoPeriod = "MENSAL" | "TRIMESTRAL";
+export type VencimentoOption = "ULTIMO_DIA_UTIL" | "DIA_15" | "DIA_20" | "DIA_25" | "DIA_30";
+
 export interface CompanyTaxSettings {
   id?: string;
   companyId?: string;
@@ -82,6 +87,44 @@ export interface CompanyTaxSettings {
   isIpiTaxpayer: boolean;
   pisCofinsRegime: "CUMULATIVO" | "NAO_CUMULATIVO" | "SIMPLES" | "PENDENTE_CONFIRMACAO";
   accumulatedRevenue: number | null;
+  secondaryCnaes: string[] | null;
+  icmsContribType: IcmsContribType | null;
+  providesService: boolean;
+  sellsMerchandise: boolean;
+  municipalRegistration: string | null;
+  crt: CrtValue | null;
+  fiscalConfigComplete: boolean;
+  simplesNominalRate: number | null;
+  simplesDeductAmount: number | null;
+  simplesEffectiveRate: number | null;
+  simplesIcmsPercent: number | null;
+  simplesIssPercent: number | null;
+  simplesCppPercent: number | null;
+  simplesFatorR: number | null;
+  simplesRevenue12m: number | null;
+  simplesPayroll12m: number | null;
+  simplesManualOverride: boolean;
+  presumidoIrpjBase: number | null;
+  presumidoCsllBase: number | null;
+  presumidoPisRate: number | null;
+  presumidoCofinsRate: number | null;
+  presumidoIssRate: number | null;
+  presumidoIcmsRate: number | null;
+  presumidoIpiRate: number | null;
+  presumidoRatPercent: number | null;
+  presumidoThirdParty: number | null;
+  presumidoInssPatronal: number | null;
+  presumidoIrpjVencimento: VencimentoOption | null;
+  presumidoCsllVencimento: VencimentoOption | null;
+  realapuracaoPeriod: ApuracaoPeriod | null;
+  realPisRate: number | null;
+  realCofinsRate: number | null;
+  realCreditAllowed: boolean;
+  realLalurControl: boolean;
+  realPrejuizoControl: boolean;
+  realIrpjRate: number | null;
+  realCsllRate: number | null;
+  _completeness?: { fiscalConfigComplete: boolean; missingFields: string[] };
 }
 
 export interface MonthlyClosingItem {

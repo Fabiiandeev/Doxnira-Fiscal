@@ -20,6 +20,42 @@ export async function generateFiscalConfig(empresa) {
     contribuinteIPI: null,
     receitaAcumulada12Meses: null,
     simplesNacional: false,
+    icmsContribType: null,
+    providesService: false,
+    sellsMerchandise: true,
+    municipalRegistration: null,
+    crt: null,
+    simplesNominalRate: null,
+    simplesDeductAmount: null,
+    simplesEffectiveRate: null,
+    simplesIcmsPercent: null,
+    simplesIssPercent: null,
+    simplesCppPercent: null,
+    simplesFatorR: null,
+    simplesRevenue12m: null,
+    simplesPayroll12m: null,
+    simplesManualOverride: false,
+    presumidoIrpjBase: null,
+    presumidoCsllBase: null,
+    presumidoPisRate: null,
+    presumidoCofinsRate: null,
+    presumidoIssRate: null,
+    presumidoIcmsRate: null,
+    presumidoIpiRate: null,
+    presumidoRatPercent: null,
+    presumidoThirdParty: null,
+    presumidoInssPatronal: null,
+    presumidoIrpjVencimento: null,
+    presumidoCsllVencimento: null,
+    realapuracaoPeriod: null,
+    realPisRate: null,
+    realCofinsRate: null,
+    realCreditAllowed: false,
+    realLalurControl: false,
+    realPrejuizoControl: false,
+    realIrpjRate: null,
+    realCsllRate: null,
+    fiscalConfigComplete: false,
     pendencias: [],
   };
 
@@ -39,8 +75,9 @@ export async function generateFiscalConfig(empresa) {
   if (config.simplesNacional) {
     config.regimeTributario = "SIMPLES_NACIONAL";
     config.pisCofins = "SIMPLES";
+    config.crt = "1";
     config.anexoSimples = resolveSimpleNacionalAnexo(empresa.cnaePrincipal);
-    
+
     if (!config.anexoSimples && empresa.cnaePrincipal) {
       config.pendencias.push({
         campo: "anexoSimples",
@@ -51,10 +88,10 @@ export async function generateFiscalConfig(empresa) {
     }
 
     config.pendencias.push({
-      campo: "receitaAcumulada12Meses",
+      campo: "simplesRevenue12m",
       tipo: "ALERTA",
       motivo: "Receita acumulada 12 meses não informada",
-      impacto: "Necessária para cálculo correto de faixas Simples",
+      impacto: "Necessária para cálculo correto de faixas Simples e Fator R",
     });
   } else {
     config.regimeTributario = "PENDENTE_CONFIRMACAO";
@@ -71,6 +108,12 @@ export async function generateFiscalConfig(empresa) {
       motivo: "Regime tributário não definido",
       impacto: "Cálculo de PIS/COFINS pendente",
     });
+    config.pendencias.push({
+      campo: "presumidoPisRate",
+      tipo: "ALERTA",
+      motivo: "Alíquota PIS não configurada para Presumido/Real",
+      impacto: "Necessária para cálculo de PIS",
+    });
   }
 
   if (!empresa.uf) {
@@ -85,9 +128,11 @@ export async function generateFiscalConfig(empresa) {
     if (ieResult.found && ieResult.inscricaoEstadual) {
       config.inscricaoEstadual = ieResult.inscricaoEstadual;
       config.contribuinteICMS = ieResult.ativo ? "ATIVO" : "INATIVO";
+      config.icmsContribType = ieResult.ativo ? "SIM" : "NAO";
     } else {
       config.inscricaoEstadual = null;
       config.contribuinteICMS = "PENDENTE_SINTEGRA";
+      config.icmsContribType = "NAO";
       config.pendencias.push({
         campo: "inscricaoEstadual",
         tipo: "BLOQUEANTE",

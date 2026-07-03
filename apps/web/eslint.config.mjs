@@ -9,6 +9,12 @@ const config = [
   {
     ignores: [".next/**", "node_modules/**", "next-env.d.ts"],
   },
+  {
+    files: ["postcss.config.js", "tailwind.config.js"],
+    rules: {
+      "@typescript-eslint/no-require-imports": "off",
+    },
+  },
 ];
 
 export default config;

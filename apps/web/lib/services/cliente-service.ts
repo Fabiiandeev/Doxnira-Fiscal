@@ -42,9 +42,12 @@ export async function lookupViaCep(cep: string): Promise<ViaCepResult | null> {
   }
 }
 
-export async function listClients(): Promise<IntelligentClient[]> {
+export async function listClients(q?: string): Promise<IntelligentClient[]> {
   const companyId = getCompanyId();
-  const res = await apiFetch<ClientListResponse>(`/companies/${companyId}/clientes`);
+  const params = new URLSearchParams();
+  if (q) params.set("q", q);
+  const qs = params.toString();
+  const res = await apiFetch<ClientListResponse>(`/companies/${companyId}/clientes${qs ? `?${qs}` : ""}`);
   return res.data;
 }
 
@@ -57,7 +60,7 @@ export async function createClient(payload: Record<string, unknown>): Promise<In
   const companyId = getCompanyId();
   return apiFetch<IntelligentClient>(`/companies/${companyId}/clientes`, {
     method: "POST",
-    body: JSON.stringify({ ...payload, companyId }),
+    body: JSON.stringify(payload),
   });
 }
 
@@ -80,6 +83,26 @@ export async function buscarCnpj(cnpj: string): Promise<ClientLookupResult> {
 
 export async function buscarCpf(cpf: string): Promise<ClientLookupResult> {
   return apiFetch<ClientLookupResult>(`/clientes/buscar-cpf?cpf=${encodeURIComponent(cpf)}`);
+}
+
+export interface SintegraResult {
+  success: boolean;
+  cnpj: string;
+  uf: string | null;
+  inscricaoEstadual: string | null;
+  inscricaoEstadualFormatada: string | null;
+  ieStatus: string;
+  situacao: string;
+  fonte: string;
+  indicadorIe: string;
+  contribuinteIcms: boolean;
+  tipoContribuinte: string;
+}
+
+export async function validarSintegra(cnpj: string, uf?: string): Promise<SintegraResult> {
+  const params = new URLSearchParams({ cnpj });
+  if (uf) params.set("uf", uf);
+  return apiFetch<SintegraResult>(`/clientes/validar-sintegra?${params.toString()}`);
 }
 
 export async function validarCliente(cliente: Record<string, unknown>): Promise<ClientValidationResult> {

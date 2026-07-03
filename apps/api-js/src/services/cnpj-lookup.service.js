@@ -8,7 +8,7 @@ const CNPJWS_URL = "https://publica.cnpj.ws/cnpj";
 const lookupCache = new Map();
 
 const SITUACAO_CADASTRAL_MAP = { 1: "ATIVA", 2: "SUSPENSA", 3: "BAIXADA", 4: "NULA" };
-const PORTE_MAP = { 1: "MICROEMPRESA", 3: "EPP", 5: "DEMAIS" };
+const PORTE_MAP = { 0: null, 1: "ME", 2: "ME/EPP", 3: "EPP", 4: "MEI", 5: "DEMAIS" };
 const UF_IBGE = { RO:"11",AC:"12",AM:"13",RR:"14",PA:"15",AP:"16",TO:"17",MA:"21",PI:"22",CE:"23",RN:"24",PB:"25",PE:"26",AL:"27",SE:"28",BA:"29",MG:"31",ES:"32",RJ:"33",SP:"35",PR:"41",SC:"42",RS:"43",MS:"50",MT:"51",GO:"52",DF:"53" };
 
 export { UF_IBGE };
@@ -183,7 +183,7 @@ function mapPorte(code) {
   return PORTE_MAP[Number(code)] || null;
 }
 
-function buildCnpjWsResult(data) {
+function buildCnpjWsResult(data, originalCnpj) {
   const est = data.estabelecimento || {};
   const mainCnae = est.atividade_principal || {};
   const uf = est.estado?.sigla || null;
@@ -197,8 +197,8 @@ function buildCnpjWsResult(data) {
     : null;
 
   const simples = data.simples || {};
-  const opcaoSimples = Boolean(simples.opcao_pelo_simples);
-  const opcaoMei = Boolean(simples.opcao_pelo_mei);
+  const opcaoSimples = simples.opcao_pelo_simples === true ? true : simples.opcao_pelo_simples === false ? false : null;
+  const opcaoMei = simples.opcao_pelo_mei === true ? true : simples.opcao_pelo_mei === false ? false : null;
   const tipo = est.tipo != null ? Number(est.tipo) : null;
   const porte = mapPorte(data.porte);
   const natJur = data.natureza_juridica || {};
@@ -211,7 +211,7 @@ function buildCnpjWsResult(data) {
 
   return {
     empresa: {
-      cnpj: data.cnpj_raiz ? String(data.cnpj_raiz).padStart(8, "0") + String(est.cnpj_ordem || "").padStart(4, "0") + String(est.cnpj_dv || "").padStart(2, "0") : null,
+      cnpj: originalCnpj,
       razaoSocial: data.razao_social || null,
       nomeFantasia: est.nome_fantasia || null,
       endereco: est.endereco || null,
@@ -227,6 +227,7 @@ function buildCnpjWsResult(data) {
         descricao: mainCnae.descricao || null,
       },
       cnaeSecundarios: extractSecundariosCnpjWs(data),
+      inscricaoMunicipal: est.inscricao_municipal || null,
       telefone: telefone1,
       telefone1,
       telefone2,
@@ -267,8 +268,8 @@ function buildCnpjWsResult(data) {
 
 function buildBrasilApiResult(data) {
   const uf = data.uf || null;
-  const opcaoSimples = Boolean(data.opcao_pelo_simples);
-  const opcaoMei = Boolean(data.opcao_pelo_mei);
+  const opcaoSimples = data.opcao_pelo_simples === true ? true : data.opcao_pelo_simples === false ? false : null;
+  const opcaoMei = data.opcao_pelo_mei === true ? true : data.opcao_pelo_mei === false ? false : null;
   const cnaeDigits = String(data.cnae_fiscal || "").replace(/\D/g, "");
   const cepDigits = data.cep ? String(data.cep).replace(/\D/g, "") : null;
 
@@ -293,6 +294,7 @@ function buildBrasilApiResult(data) {
         descricao: data.cnae_fiscal_descricao || null,
       },
       cnaeSecundarios: extractSecundariosBrasilApi(data),
+      inscricaoMunicipal: null,
       telefone: data.ddd && data.telefone ? `(${data.ddd})${data.telefone}` : (data.telefone || null),
       telefone1: data.telefone || null,
       telefone2: null,
@@ -339,8 +341,8 @@ export async function lookupCompanyFiscalData(cnpj) {
   if (cachedData) return cachedData;
 
   try {
-    const data = await lookupCnpjWs(normalized);
-    return saveCache(normalized, buildCnpjWsResult(data));
+      const data = await lookupCnpjWs(normalized);
+      return saveCache(normalized, buildCnpjWsResult(data, normalized));
   } catch (error) {
     if (
       error instanceof AppError &&

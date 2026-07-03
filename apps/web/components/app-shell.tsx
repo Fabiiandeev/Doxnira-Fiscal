@@ -9,6 +9,7 @@ import {
   BookOpen,
   Brain,
   Building2,
+  Calculator,
   CalendarDays,
   ChevronDown,
   ChevronLeft,
@@ -24,7 +25,6 @@ import {
   FolderSync,
   Inbox,
   LayoutDashboard,
-  LineChart,
   ListChecks,
   Menu,
   Package,
@@ -110,7 +110,7 @@ const navGroups: NavGroup[] = [
     label: "Emissao",
     icon: FileOutput,
     items: [
-      { label: "Emitir NF-e", href: "/emitir-nota", icon: FileOutput },
+      { label: "Notas Fiscais", href: "/notas-fiscais", icon: FileOutput },
       { label: "Emitir NFS-e", href: "/nfse-national", icon: BookOpen },
       { label: "Carta de Correcao", href: "/fiscal-rules", icon: FileText },
       { label: "Cancelamentos", href: "/rejections", icon: AlertTriangle },
@@ -123,10 +123,10 @@ const navGroups: NavGroup[] = [
     icon: Users,
     items: [
       { label: "Clientes", href: "/clients", icon: Users },
-      { label: "Fornecedores", href: "/companies", icon: Building2 },
       { label: "Produtos", href: "/products", icon: Package },
       { label: "Servicos", href: "/services", icon: ClipboardCheck },
-      { label: "Transportadoras", href: "/cte/incoming", icon: Truck },
+      { label: "Transportadoras", href: "/transportadoras", icon: Truck },
+      { label: "Fornecedores", href: "/fornecedores", icon: Package },
       { label: "Empresas", href: "/companies", icon: Building2 },
     ],
   },
@@ -156,10 +156,10 @@ const navGroups: NavGroup[] = [
     icon: FileClock,
     items: [
       { label: "Fechamento Fiscal", href: "/monthly-closing", icon: FileClock },
+      { label: "Simulador Tributario", href: "/simulador", icon: Calculator },
       { label: "Previsao de Impostos", href: "/tax-forecast", icon: CircleDollarSign },
       { label: "Guias", href: "/guides", icon: FileOutput },
       { label: "SPED", href: "/sped", icon: FileBarChart },
-      { label: "Sintegra", href: "/sped", icon: LineChart },
     ],
   },
   {
@@ -321,7 +321,7 @@ function SidebarContent({
                 )}
               >
                 <div className="space-y-0.5 pb-1 pl-4">
-                  {group.items.map((item) => {
+                  {group.items.map((item, index) => {
                     const badge =
                       item.href === "/documents"
                         ? documentCount
@@ -334,7 +334,7 @@ function SidebarContent({
                     const Icon = item.icon;
                     return (
                       <Link
-                        key={`${group.id}-${item.href}`}
+                        key={`${group.id}-${item.href}-${index}`}
                         href={item.href}
                         onClick={onNavigate}
                         className={cn(

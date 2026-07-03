@@ -27,6 +27,7 @@ export interface IntelligentClient {
 
   regimeTributario: string | null;
   crt: string | null;
+  descricaoCrt: string | null;
   indicadorIe: string | null;
   inscricaoEstadual: string | null;
   ieStatus: string | null;
@@ -143,7 +144,7 @@ export interface SmartError {
   impacto: string;
   regraUtilizada: string;
   correcaoSugerida: string;
-  confianca: "ALTA" | "MEDIA" | "BAIXA";
+  confianca: "ALTA" | "MEDIA" | "BAIXA" | "INFORMATIVO";
   tipo: "ERRO" | "ALERTA" | "DICA";
   acoes: SmartErrorAction[];
   corrigido: boolean;
@@ -199,11 +200,15 @@ export interface ClientLookupResult {
   matriz?: boolean | null;
   filial?: boolean | null;
   crt?: string | null;
+  descricaoCrt?: string | null;
   indicadorIe?: string | null;
   tipoContribuinte?: string | null;
   contribuinteIcms?: boolean | null;
   contribuinteIss?: boolean | null;
   cnaeSecundarios?: CnaeItem[] | null;
+  retencoes?: Retencoes | null;
+  ieStatus?: string | null;
+  imStatus?: string | null;
 }
 
 export interface ClientValidationResult {
@@ -212,6 +217,7 @@ export interface ClientValidationResult {
   normalizacoes: Record<string, string>;
   alertas: SmartError[];
   pendencias: SmartError[];
+  dicas: SmartError[];
   sugestoesCorrecao: string[];
   validadoPorIa: boolean;
   mensagem: string;

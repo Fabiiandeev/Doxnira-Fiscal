@@ -8,13 +8,8 @@ import { AppError } from "../../utils/app-error.js";
 import { asyncHandler, sendSuccess } from "../../utils/response.js";
 import { isValidCnpj, normalizeCnpj } from "../../utils/cnpj.js";
 import { normalizeCpf, isValidCpf } from "../../utils/cpf.js";
-import {
-  lookupCompanyFiscalData,
-  lookupViaCep,
-  resolveIbgeCode,
-  ensureCodigoUfIbgeColumn,
-  UF_IBGE,
-} from "../../services/cnpj-lookup.service.js";
+import { ensureCodigoUfIbgeColumn } from "../../services/cnpj-lookup.service.js";
+import { resolveCnpjData } from "../../services/data-resolver.service.js";
 import { validarClienteParaEmissao } from "../../lib/fiscal/validar-cliente-para-emissao.js";
 
 const BOOLEAN_STRING_FIELDS = [
@@ -65,9 +60,44 @@ function normalizePayload(raw) {
 }
 
 function computeCrt(optanteSimples, mei) {
-  if (mei) return "4";
-  if (optanteSimples) return "1";
-  return "3";
+  if (mei === true) return "4";
+  if (optanteSimples === true) return "1";
+  if (optanteSimples === false && mei === false) return null;
+  return null;
+}
+
+const CLIENT_PRISMA_FIELDS = new Set([
+  "tipoPessoa", "ownerId", "companyId", "nome", "razaoSocial", "nomeFantasia",
+  "cpf", "cnpj", "inscricaoEstadual", "inscricaoMunicipal",
+  "regimeTributario", "cnae", "atividadeEconomica", "naturezaJuridica",
+  "situacaoCadastral", "rg", "dataNascimento",
+  "cep", "logradouro", "numero", "complemento", "bairro",
+  "municipio", "uf", "codigoIbge", "codigoUfIbge",
+  "email", "telefone", "whatsapp", "site",
+  "contatoFinanceiro", "contatoFiscal",
+  "observacoes", "fonteDados",
+  "porte", "capitalSocial", "dataAbertura", "situacaoMotivo",
+  "optanteSimples", "mei", "empresaPublica", "filial", "matriz",
+  "crt", "indicadorIe", "ieStatus", "imStatus", "tipoContribuinte",
+  "contribuinteIcms", "contribuinteIss", "substituicaoTributaria",
+  "retencoes", "cnaeSecundarios", "riscoFiscalCnae",
+  "atividadesPermitidas", "atividadesIncompativeis",
+  "pais", "latitude", "longitude",
+  "fiscalAi", "scoreCadastro", "scoreDetalhes", "reformaPrep",
+  "dadosOriginaisJson", "alertasJson", "validadoPorIa",
+  "historicoJson", "ultimaConsulta",
+]);
+
+function stripUnknownFields(data) {
+  const clean = {};
+  for (const [key, value] of Object.entries(data)) {
+    if (CLIENT_PRISMA_FIELDS.has(key)) {
+      clean[key] = value;
+    } else {
+      console.warn("STRIP_UNKNOWN_FIELD", key, "value_type", typeof value);
+    }
+  }
+  return clean;
 }
 
 function computeIndicadorIe(ieNumber) {
@@ -109,54 +139,43 @@ clientesPublicRouter.get(
     }
 
     try {
-      const data = await lookupCompanyFiscalData(digits);
+      const data = await resolveCnpjData(digits);
       const emp = data.empresa || {};
       const ie = data.inscricaoEstadual || {};
       const fiscal = data.fiscal || {};
+      const enrichment = data._enrichment || {};
+      const derived = enrichment.derived || {};
       const ieFound = Boolean(ie.numero);
 
-      let codigoIbge = null;
-      let ddd = null;
-      const cepDigits = emp.cep ? String(emp.cep).replace(/\D/g, "") : null;
+      const codigoIbge = enrichment.codigoIbge || null;
+      const ddd = enrichment.ddd || null;
+      const codigoUfIbge = enrichment.codigoUfIbge || null;
 
-      if (cepDigits && cepDigits.length === 8 && (!emp.endereco || !emp.bairro || !emp.cidade)) {
-        const viaCep = await lookupViaCep(cepDigits);
-        if (viaCep) {
-          if (!emp.endereco) emp.endereco = viaCep.logradouro;
-          if (!emp.bairro) emp.bairro = viaCep.bairro;
-          if (!emp.complemento) emp.complemento = viaCep.complemento;
-          if (!emp.cidade) emp.cidade = viaCep.cidade;
-          if (!emp.uf) emp.uf = viaCep.uf;
-          if (viaCep.codigoIbge) codigoIbge = viaCep.codigoIbge;
-          if (viaCep.ddd) ddd = viaCep.ddd;
-        }
-      }
+      const optanteSimples = emp.optanteSimples === true ? true : emp.optanteSimples === false ? false : null;
+      const mei = emp.mei === true ? true : emp.mei === false ? false : null;
+      const regimeTributario = derived.regimeTributario || (mei === true ? "MEI" : optanteSimples === true ? "Simples Nacional" : "PENDENTE_CONFIRMACAO");
+      const crt = derived.crt || computeCrt(optanteSimples, mei);
+      const indicadorIe = derived.indicadorIe || computeIndicadorIe(ie.numero);
+      const contribuinteIcms = derived.contribuinteIcms ?? (ieFound ? true : null);
+      const tipoContribuinte = derived.tipoContribuinte || computeTipoContribuinte(contribuinteIcms, null);
 
-      if (!codigoIbge) {
-        codigoIbge = await resolveIbgeCode(emp.cidade, emp.uf, cepDigits);
-      }
-
-      const codigoUfIbge = emp.uf ? (UF_IBGE[emp.uf] || null) : null;
-
-      const optanteSimples = emp.optanteSimples != null ? emp.optanteSimples : null;
-      const mei = emp.mei != null ? emp.mei : null;
-      const crt = computeCrt(optanteSimples, mei);
-      const indicadorIe = computeIndicadorIe(ie.numero);
-      const contribuinteIcms = ieFound ? true : null;
-      const contribuinteIssCapable = null;
-      const tipoContribuinte = computeTipoContribuinte(contribuinteIcms, contribuinteIssCapable);
-
-      const situacaoMotivo = null;
+      const retencoes = {
+        irrf: false,
+        csll: false,
+        pis: false,
+        cofins: false,
+        iss: false,
+      };
 
       const mapped = {
         success: true,
         tipoPessoa: "PJ",
-        cnpj: emp.cnpj || digits,
+        cnpj: emp.cnpj ?? digits,
         razaoSocial: emp.razaoSocial || null,
         nomeFantasia: emp.nomeFantasia || null,
         inscricaoEstadual: ie.numero || null,
-        inscricaoMunicipal: null,
-        regimeTributario: fiscal.regimeTributario || null,
+        inscricaoMunicipal: emp.inscricaoMunicipal || null,
+        regimeTributario,
         cnae: emp.cnaePrincipal?.codigo || null,
         atividadeEconomica: emp.cnaePrincipal?.descricao || null,
         situacaoCadastral: emp.situacaoCadastral || null,
@@ -173,7 +192,7 @@ clientesPublicRouter.get(
         uf: emp.uf || null,
         codigoIbge,
         codigoUfIbge,
-        ddd: ddd || null,
+        ddd,
         pais: "BRASIL",
         latitude: null,
         longitude: null,
@@ -184,7 +203,7 @@ clientesPublicRouter.get(
         porte: emp.porte || null,
         capitalSocial: emp.capitalSocial || null,
         dataAbertura: emp.dataAbertura || null,
-        situacaoMotivo,
+        situacaoMotivo: null,
         situacaoData: emp.situacaoCadastralData || null,
         optanteSimples,
         mei,
@@ -192,15 +211,17 @@ clientesPublicRouter.get(
         filial: emp.filial != null ? emp.filial : null,
         matriz: emp.matriz != null ? emp.matriz : null,
         crt,
+        descricaoCrt: derived.descricaoCrt || (crt === "4" ? "4 — MEI" : crt === "1" ? "1 — Simples Nacional" : crt === "2" ? "2 — Simples com ST" : crt === "3" ? "3 — Regime Normal" : null),
         indicadorIe,
-        ieStatus: ieFound ? "ENCONTRADA" : "NAO_ENCONTRADA",
-        imStatus: null,
+        ieStatus: derived.ieStatus || (ieFound ? "ENCONTRADA" : "NAO_ENCONTRADA"),
+        imStatus: derived.imStatus || (emp.inscricaoMunicipal ? "ATIVA" : null),
         tipoContribuinte,
         contribuinteIcms,
         contribuinteIss: null,
         substituicaoTributaria: null,
+        retencoes,
         whatsapp: null,
-        site: null,
+        site: enrichment.site || null,
         contatoFinanceiro: null,
         contatoFiscal: null,
         cnaeSecundarios: emp.cnaeSecundarios || null,
@@ -208,10 +229,20 @@ clientesPublicRouter.get(
         atividadesPermitidas: null,
         atividadesIncompativeis: null,
         observacoes: null,
+        qsa: enrichment.qsa || null,
+        dataOpcaoSimples: enrichment.dataOpcaoSimples || null,
+        dataExclusaoSimples: enrichment.dataExclusaoSimples || null,
+        fieldSources: enrichment.fieldSources || {},
+        fieldScores: enrichment.fieldScores || {},
+        _enrichmentLog: enrichment.log || null,
       };
 
       if (!mapped.inscricaoEstadual) {
         mapped.alertas.push({ code: "IE_NOT_FOUND", message: "IE não encontrada automaticamente. Confirme manualmente antes de emitir NF-e." });
+      }
+
+      if (enrichment.log && enrichment.log.fallbackUsed) {
+        mapped.alertas.push({ code: "ENRICHMENT_FALLBACK", message: "Dados complementados por fonte alternativa para maior completude." });
       }
 
       sendSuccess(response, mapped);
@@ -260,6 +291,47 @@ clientesPublicRouter.get(
   }),
 );
 
+clientesPublicRouter.get(
+  "/validar-sintegra",
+  asyncHandler(async (request, response) => {
+    const cnpj = String(request.query.cnpj || "");
+    const uf = String(request.query.uf || "").toUpperCase();
+    const digits = normalizeCnpj(cnpj);
+    if (!isValidCnpj(digits)) {
+      throw new AppError("CNPJ inválido.", "INVALID_CNPJ_FORMAT", 400);
+    }
+
+    try {
+      const data = await resolveCnpjData(digits);
+      const ie = data.inscricaoEstadual || {};
+      const emp = data.empresa || {};
+      const enrichment = data._enrichment || {};
+      const derived = enrichment.derived || {};
+      const ieNumber = ie.numero || null;
+      const ieFound = Boolean(ieNumber);
+
+      const result = {
+        success: true,
+        cnpj: digits,
+        uf: uf || ie.uf || emp.uf || null,
+        inscricaoEstadual: ieNumber,
+        inscricaoEstadualFormatada: ie.numeroFormatado || ieNumber,
+        ieStatus: derived.ieStatus || (ieFound ? "ENCONTRADA" : "NAO_ENCONTRADA"),
+        situacao: ie.situacao || "PENDENTE_VALIDACAO_SEFAZ",
+        fonte: ie.fonte || (ieFound ? "BUSCA_AUTOMATICA" : "NAO_ENCONTRADA"),
+        indicadorIe: derived.indicadorIe || (ieFound ? "1" : "9"),
+        contribuinteIcms: derived.contribuinteIcms ?? (ieFound ? true : false),
+        tipoContribuinte: derived.tipoContribuinte || (ieFound ? "Contribuinte ICMS" : "Não contribuinte"),
+      };
+
+      sendSuccess(response, result);
+    } catch (error) {
+      if (error instanceof AppError) throw error;
+      throw new AppError("Erro ao consultar Sintegra.", "SINTEGRA_ERROR", 503);
+    }
+  }),
+);
+
 clientesRouter.post(
   "/",
   asyncHandler(async (request, response) => {
@@ -277,8 +349,13 @@ clientesRouter.post(
       if (!payload.razaoSocial) {
         throw new AppError("Razão Social é obrigatória.", "RAZAO_SOCIAL_REQUIRED", 400);
       }
-      if (!payload.uf || !payload.cidade || !payload.logradouro) {
-        throw new AppError("Dados de endereço incompletos.", "ENDERECO_INCOMPLETO", 400);
+      const cidade = payload.cidade || payload.municipio;
+      if (!payload.uf || !cidade || !payload.logradouro) {
+        throw new AppError("Dados de endereço incompletos (UF, cidade e logradouro obrigatórios).", "ENDERECO_INCOMPLETO", 400, [
+          { field: "uf", message: !payload.uf ? "UF obrigatória" : undefined },
+          { field: "cidade", message: !cidade ? "Cidade obrigatória" : undefined },
+          { field: "logradouro", message: !payload.logradouro ? "Logradouro obrigatório" : undefined },
+        ].filter(e => e.message !== undefined));
       }
     }
 
@@ -291,27 +368,202 @@ clientesRouter.post(
       }
     }
 
-    const data = {
-      ...payload,
-      cpf: payload.cpf ? String(payload.cpf).replace(/\D/g, "") : null,
-      cnpj: payload.cnpj ? String(payload.cnpj).replace(/\D/g, "") : null,
-      ownerId: request.user.id,
-      dadosOriginaisJson: payload.dadosOriginais || payload.dadosOriginaisJson || null,
-      alertasJson: payload.alertas || payload.alertasJson || null,
+    const nullIfEmpty = (v) => (v === "" || v === undefined || v === null) ? null : v;
+    const parseDate = (v) => {
+      if (!v) return null;
+      const d = new Date(v);
+      return isNaN(d.getTime()) ? null : d;
+    };
+    const parseNum = (v) => {
+      if (v == null || v === "") return null;
+      const n = Number(v);
+      return isNaN(n) ? null : n;
+    };
+    const parseBool = (v) => {
+      if (v === true || v === "true" || v === 1) return true;
+      if (v === false || v === "false" || v === 0) return false;
+      return null;
+    };
+    const parseJson = (v) => {
+      if (v == null) return null;
+      if (typeof v === "object") return v;
+      try { return JSON.parse(v); } catch { return null; }
     };
 
-    delete data.dadosOriginais;
-    delete data.alertas;
+    const data = {
+      tipoPessoa: tipo,
+      ownerId: request.user.id,
+      companyId: request.company.id,
+      cnpj: tipo === "PJ" ? String(payload.cnpj).replace(/\D/g, "") : null,
+      cpf: tipo === "PF" ? String(payload.cpf).replace(/\D/g, "") : null,
+      razaoSocial: nullIfEmpty(payload.razaoSocial),
+      nomeFantasia: nullIfEmpty(payload.nomeFantasia),
+      nome: nullIfEmpty(payload.nome),
+      naturezaJuridica: nullIfEmpty(payload.naturezaJuridica),
+      porte: nullIfEmpty(payload.porte),
+      capitalSocial: nullIfEmpty(payload.capitalSocial),
+      dataAbertura: parseDate(payload.dataAbertura),
+      dataNascimento: parseDate(payload.dataNascimento),
+      situacaoCadastral: nullIfEmpty(payload.situacaoCadastral),
+      situacaoMotivo: nullIfEmpty(payload.situacaoMotivo),
+      rg: nullIfEmpty(payload.rg),
+      optanteSimples: parseBool(payload.optanteSimples),
+      mei: parseBool(payload.mei),
+      empresaPublica: parseBool(payload.empresaPublica),
+      filial: parseBool(payload.filial),
+      matriz: parseBool(payload.matriz),
+      regimeTributario: nullIfEmpty(payload.regimeTributario),
+      crt: nullIfEmpty(payload.crt),
+      indicadorIe: nullIfEmpty(payload.indicadorIe),
+      inscricaoEstadual: nullIfEmpty(payload.inscricaoEstadual),
+      ieStatus: nullIfEmpty(payload.ieStatus),
+      inscricaoMunicipal: nullIfEmpty(payload.inscricaoMunicipal),
+      imStatus: nullIfEmpty(payload.imStatus),
+      tipoContribuinte: nullIfEmpty(payload.tipoContribuinte),
+      contribuinteIcms: parseBool(payload.contribuinteIcms),
+      contribuinteIss: parseBool(payload.contribuinteIss),
+      substituicaoTributaria: parseBool(payload.substituicaoTributaria),
+      retencoes: parseJson(payload.retencoes),
+      cnae: nullIfEmpty(payload.cnae),
+      atividadeEconomica: nullIfEmpty(payload.atividadeEconomica),
+      cnaeSecundarios: parseJson(payload.cnaeSecundarios),
+      riscoFiscalCnae: nullIfEmpty(payload.riscoFiscalCnae),
+      atividadesPermitidas: parseJson(payload.atividadesPermitidas),
+      atividadesIncompativeis: parseJson(payload.atividadesIncompativeis),
+      cep: nullIfEmpty(payload.cep) ? String(payload.cep).replace(/\D/g, "") : null,
+      logradouro: nullIfEmpty(payload.logradouro),
+      numero: nullIfEmpty(payload.numero),
+      complemento: nullIfEmpty(payload.complemento),
+      bairro: nullIfEmpty(payload.bairro),
+      municipio: nullIfEmpty(payload.municipio || payload.cidade),
+      uf: nullIfEmpty(payload.uf),
+      codigoIbge: nullIfEmpty(payload.codigoIbge),
+      codigoUfIbge: nullIfEmpty(payload.codigoUfIbge),
+      pais: nullIfEmpty(payload.pais),
+      latitude: parseNum(payload.latitude),
+      longitude: parseNum(payload.longitude),
+      telefone: nullIfEmpty(payload.telefone) ? String(payload.telefone).replace(/\D/g, "") : null,
+      whatsapp: nullIfEmpty(payload.whatsapp),
+      email: nullIfEmpty(payload.email),
+      site: nullIfEmpty(payload.site),
+      contatoFinanceiro: nullIfEmpty(payload.contatoFinanceiro),
+      contatoFiscal: nullIfEmpty(payload.contatoFiscal),
+      observacoes: nullIfEmpty(payload.observacoes),
+      fonteDados: nullIfEmpty(payload.fonteDados),
+      dadosOriginaisJson: parseJson(payload.dadosOriginaisJson || payload.dadosOriginais),
+      alertasJson: parseJson(payload.alertasJson || payload.alertas),
+      historicoJson: parseJson(payload.historicoJson),
+      fiscalAi: parseJson(payload.fiscalAi),
+      scoreCadastro: parseNum(payload.scoreCadastro) != null ? Math.round(Number(payload.scoreCadastro)) : null,
+      scoreDetalhes: parseJson(payload.scoreDetalhes),
+      reformaPrep: parseJson(payload.reformaPrep),
+      validadoPorIa: parseBool(payload.validadoPorIa) ?? false,
+      ultimaConsulta: parseDate(payload.ultimaConsulta),
+    };
 
-    const client = await prisma.client.create({ data });
-    sendSuccess(response, client, 201);
+    const cleanData = stripUnknownFields(data);
+
+    try {
+      const client = await prisma.client.create({ data: cleanData });
+      sendSuccess(response, client, 201);
+    } catch (error) {
+      console.error("CREATE_CLIENT_ERROR", error.code, error.message, JSON.stringify(error.meta || {}));
+      if (error.code === "P2002") {
+        const target = error.meta?.target || [];
+        throw new AppError(`Dados duplicados: ${target.join(", ")}`, "DUPLICATE", 409);
+      }
+      if (error.code === "P2000") {
+        throw new AppError("Valor muito longo para um campo.", "VALUE_TOO_LONG", 400, [{ field: error.meta?.column, message: "Valor excede o tamanho máximo" }]);
+      }
+      if (error.code === "P2003") {
+        throw new AppError("Referência inválida: dado conectado não encontrado.", "FK_VIOLATION", 400, [{ field: error.meta?.field_name, message: error.message || "Chave estrangeira inválida" }]);
+      }
+      throw new AppError("Erro ao salvar cliente. Verifique os dados.", "CREATE_FAILED", 400, [{ field: "general", message: error.message || "Erro desconhecido" }]);
+    }
   }),
 );
 
 clientesRouter.get(
   "/",
   asyncHandler(async (request, response) => {
-    const items = await prisma.client.findMany({ where: { ownerId: request.user.id } });
+    const companyId = request.company.id;
+    const query = String(request.query.q ?? "").trim();
+    const queryDigits = query.replace(/\D/g, "");
+
+    let where = { companyId };
+
+    if (query) {
+      const orConditions = [
+        { razaoSocial: { contains: query, mode: "insensitive" } },
+        { nomeFantasia: { contains: query, mode: "insensitive" } },
+        { nome: { contains: query, mode: "insensitive" } },
+        { email: { contains: query, mode: "insensitive" } },
+        { municipio: { contains: query, mode: "insensitive" } },
+        { uf: { contains: query.toUpperCase() } },
+      ];
+
+      if (queryDigits) {
+        orConditions.push(
+          { cnpj: { contains: queryDigits } },
+          { cnpj: { contains: query } },
+          { cpf: { contains: queryDigits } },
+          { cpf: { contains: query } },
+          { telefone: { contains: queryDigits } },
+          { telefone: { contains: query } },
+          { inscricaoEstadual: { contains: queryDigits } },
+          { inscricaoEstadual: { contains: query } },
+        );
+      } else {
+        orConditions.push(
+          { inscricaoEstadual: { contains: query, mode: "insensitive" } },
+        );
+      }
+
+      where = { ...where, OR: orConditions };
+    }
+
+    const items = await prisma.client.findMany({
+      where,
+      orderBy: { updatedAt: "desc" },
+    });
+    sendSuccess(response, { data: items });
+  }),
+);
+
+clientesRouter.get(
+  "/search",
+  asyncHandler(async (request, response) => {
+    const companyId = request.company.id;
+    const query = String(request.query.q ?? request.query.search ?? "").trim();
+    const queryDigits = query.replace(/\D/g, "");
+
+    const where = { companyId };
+    if (query) {
+      where.OR = [
+        { razaoSocial: { contains: query, mode: "insensitive" } },
+        { nomeFantasia: { contains: query, mode: "insensitive" } },
+        { nome: { contains: query, mode: "insensitive" } },
+        { email: { contains: query, mode: "insensitive" } },
+        { municipio: { contains: query, mode: "insensitive" } },
+        { uf: { contains: query.toUpperCase() } },
+        { inscricaoEstadual: { contains: query, mode: "insensitive" } },
+      ];
+
+      if (queryDigits) {
+        where.OR.push(
+          { cnpj: { contains: queryDigits } },
+          { cpf: { contains: queryDigits } },
+          { telefone: { contains: queryDigits } },
+          { inscricaoEstadual: { contains: queryDigits } },
+        );
+      }
+    }
+
+    const items = await prisma.client.findMany({
+      where,
+      orderBy: { updatedAt: "desc" },
+      take: Math.min(Math.max(Number(request.query.limit || 25), 1), 100),
+    });
     sendSuccess(response, { data: items });
   }),
 );
@@ -319,7 +571,9 @@ clientesRouter.get(
 clientesRouter.get(
   "/:id",
   asyncHandler(async (request, response) => {
-    const client = await prisma.client.findUnique({ where: { id: request.params.id } });
+    const client = await prisma.client.findFirst({
+      where: { id: request.params.id, companyId: request.company.id },
+    });
     if (!client) throw new AppError("Cliente não encontrado.", "NOT_FOUND", 404);
     sendSuccess(response, client);
   }),
@@ -328,7 +582,9 @@ clientesRouter.get(
 clientesRouter.put(
   "/:id",
   asyncHandler(async (request, response) => {
-    const existing = await prisma.client.findUnique({ where: { id: request.params.id } });
+    const existing = await prisma.client.findFirst({
+      where: { id: request.params.id, companyId: request.company.id },
+    });
     if (!existing) throw new AppError("Cliente não encontrado.", "NOT_FOUND", 404);
 
     const payload = normalizePayload(request.body || {});
@@ -339,30 +595,150 @@ clientesRouter.put(
       throw new AppError("CNPJ inválido.", "INVALID_CNPJ", 400);
     }
 
-    const data = {
-      ...payload,
-      cpf: payload.cpf ? String(payload.cpf).replace(/\D/g, "") : existing.cpf,
-      cnpj: payload.cnpj ? String(payload.cnpj).replace(/\D/g, "") : existing.cnpj,
+    const nullIfEmpty = (v) => {
+      if (v === undefined) return undefined;
+      return (v === "" || v === null) ? null : v;
+    };
+    const parseDate = (v) => {
+      if (!v) return null;
+      const d = new Date(v);
+      return isNaN(d.getTime()) ? null : d;
+    };
+    const parseNum = (v) => {
+      if (v == null || v === "") return undefined;
+      const n = Number(v);
+      return isNaN(n) ? undefined : n;
+    };
+    const parseBool = (v) => {
+      if (v === true || v === "true" || v === 1) return true;
+      if (v === false || v === "false" || v === 0) return false;
+      return undefined;
+    };
+    const parseJson = (v) => {
+      if (v == null) return undefined;
+      if (typeof v === "object") return v;
+      try { return JSON.parse(v); } catch { return undefined; }
     };
 
-    const updated = await prisma.client.update({ where: { id: existing.id }, data });
-    sendSuccess(response, updated);
+    const setIfProvided = (obj, key, value) => {
+      if (value !== undefined) obj[key] = value;
+    };
+
+    const data = {};
+    setIfProvided(data, "tipoPessoa", nullIfEmpty(payload.tipoPessoa));
+    setIfProvided(data, "cnpj", payload.cnpj ? String(payload.cnpj).replace(/\D/g, "") : undefined);
+    setIfProvided(data, "cpf", payload.cpf ? String(payload.cpf).replace(/\D/g, "") : undefined);
+    setIfProvided(data, "razaoSocial", nullIfEmpty(payload.razaoSocial));
+    setIfProvided(data, "nomeFantasia", nullIfEmpty(payload.nomeFantasia));
+    setIfProvided(data, "nome", nullIfEmpty(payload.nome));
+    setIfProvided(data, "naturezaJuridica", nullIfEmpty(payload.naturezaJuridica));
+    setIfProvided(data, "porte", nullIfEmpty(payload.porte));
+    setIfProvided(data, "capitalSocial", nullIfEmpty(payload.capitalSocial));
+    setIfProvided(data, "dataAbertura", payload.dataAbertura != null ? parseDate(payload.dataAbertura) : undefined);
+    setIfProvided(data, "dataNascimento", payload.dataNascimento != null ? parseDate(payload.dataNascimento) : undefined);
+    setIfProvided(data, "situacaoCadastral", nullIfEmpty(payload.situacaoCadastral));
+    setIfProvided(data, "situacaoMotivo", nullIfEmpty(payload.situacaoMotivo));
+    setIfProvided(data, "rg", nullIfEmpty(payload.rg));
+    if (payload.optanteSimples != null) setIfProvided(data, "optanteSimples", parseBool(payload.optanteSimples));
+    if (payload.mei != null) setIfProvided(data, "mei", parseBool(payload.mei));
+    if (payload.empresaPublica != null) setIfProvided(data, "empresaPublica", parseBool(payload.empresaPublica));
+    if (payload.filial != null) setIfProvided(data, "filial", parseBool(payload.filial));
+    if (payload.matriz != null) setIfProvided(data, "matriz", parseBool(payload.matriz));
+    setIfProvided(data, "regimeTributario", nullIfEmpty(payload.regimeTributario));
+    setIfProvided(data, "crt", nullIfEmpty(payload.crt));
+    setIfProvided(data, "indicadorIe", nullIfEmpty(payload.indicadorIe));
+    setIfProvided(data, "inscricaoEstadual", nullIfEmpty(payload.inscricaoEstadual));
+    setIfProvided(data, "ieStatus", nullIfEmpty(payload.ieStatus));
+    setIfProvided(data, "inscricaoMunicipal", nullIfEmpty(payload.inscricaoMunicipal));
+    setIfProvided(data, "imStatus", nullIfEmpty(payload.imStatus));
+    setIfProvided(data, "tipoContribuinte", nullIfEmpty(payload.tipoContribuinte));
+    if (payload.contribuinteIcms != null) setIfProvided(data, "contribuinteIcms", parseBool(payload.contribuinteIcms));
+    if (payload.contribuinteIss != null) setIfProvided(data, "contribuinteIss", parseBool(payload.contribuinteIss));
+    if (payload.substituicaoTributaria != null) setIfProvided(data, "substituicaoTributaria", parseBool(payload.substituicaoTributaria));
+    setIfProvided(data, "retencoes", payload.retencoes != null ? parseJson(payload.retencoes) : undefined);
+    setIfProvided(data, "cnae", nullIfEmpty(payload.cnae));
+    setIfProvided(data, "atividadeEconomica", nullIfEmpty(payload.atividadeEconomica));
+    setIfProvided(data, "cnaeSecundarios", payload.cnaeSecundarios != null ? parseJson(payload.cnaeSecundarios) : undefined);
+    setIfProvided(data, "riscoFiscalCnae", nullIfEmpty(payload.riscoFiscalCnae));
+    setIfProvided(data, "cep", nullIfEmpty(payload.cep) ? String(payload.cep).replace(/\D/g, "") : undefined);
+    setIfProvided(data, "logradouro", nullIfEmpty(payload.logradouro));
+    setIfProvided(data, "numero", nullIfEmpty(payload.numero));
+    setIfProvided(data, "complemento", nullIfEmpty(payload.complemento));
+    setIfProvided(data, "bairro", nullIfEmpty(payload.bairro));
+    setIfProvided(data, "municipio", nullIfEmpty(payload.municipio || payload.cidade));
+    setIfProvided(data, "uf", nullIfEmpty(payload.uf));
+    setIfProvided(data, "codigoIbge", nullIfEmpty(payload.codigoIbge));
+    setIfProvided(data, "codigoUfIbge", nullIfEmpty(payload.codigoUfIbge));
+    setIfProvided(data, "pais", nullIfEmpty(payload.pais));
+    if (payload.latitude != null) setIfProvided(data, "latitude", parseNum(payload.latitude));
+    if (payload.longitude != null) setIfProvided(data, "longitude", parseNum(payload.longitude));
+    setIfProvided(data, "telefone", nullIfEmpty(payload.telefone) ? String(payload.telefone).replace(/\D/g, "") : undefined);
+    setIfProvided(data, "whatsapp", nullIfEmpty(payload.whatsapp));
+    setIfProvided(data, "email", nullIfEmpty(payload.email));
+    setIfProvided(data, "site", nullIfEmpty(payload.site));
+    setIfProvided(data, "contatoFinanceiro", nullIfEmpty(payload.contatoFinanceiro));
+    setIfProvided(data, "contatoFiscal", nullIfEmpty(payload.contatoFiscal));
+    setIfProvided(data, "observacoes", nullIfEmpty(payload.observacoes));
+    setIfProvided(data, "fonteDados", nullIfEmpty(payload.fonteDados));
+    setIfProvided(data, "dadosOriginaisJson", payload.dadosOriginaisJson != null ? parseJson(payload.dadosOriginaisJson) : undefined);
+    setIfProvided(data, "alertasJson", payload.alertasJson != null ? parseJson(payload.alertasJson) : undefined);
+    setIfProvided(data, "historicoJson", payload.historicoJson != null ? parseJson(payload.historicoJson) : undefined);
+    setIfProvided(data, "fiscalAi", payload.fiscalAi != null ? parseJson(payload.fiscalAi) : undefined);
+    if (payload.scoreCadastro != null) setIfProvided(data, "scoreCadastro", parseNum(payload.scoreCadastro) != null ? Math.round(Number(payload.scoreCadastro)) : undefined);
+    setIfProvided(data, "scoreDetalhes", payload.scoreDetalhes != null ? parseJson(payload.scoreDetalhes) : undefined);
+    setIfProvided(data, "reformaPrep", payload.reformaPrep != null ? parseJson(payload.reformaPrep) : undefined);
+    if (payload.validadoPorIa != null) setIfProvided(data, "validadoPorIa", parseBool(payload.validadoPorIa) ?? false);
+    setIfProvided(data, "ultimaConsulta", payload.ultimaConsulta != null ? parseDate(payload.ultimaConsulta) : undefined);
+
+    try {
+      const cleanData = stripUnknownFields(data);
+      const updated = await prisma.client.update({ where: { id: existing.id }, data: cleanData });
+      sendSuccess(response, updated);
+    } catch (error) {
+      console.error("UPDATE_CLIENT_ERROR", error.message || error);
+      if (error.code === "P2002") {
+        const target = error.meta?.target || [];
+        throw new AppError(`Dados duplicados: ${target.join(", ")}`, "DUPLICATE", 409);
+      }
+      throw new AppError("Erro ao atualizar cliente. Verifique os dados.", "UPDATE_FAILED", 400, [{ field: "general", message: error.message || "Erro desconhecido" }]);
+    }
   }),
 );
 
 clientesRouter.delete(
   "/:id",
   asyncHandler(async (request, response) => {
-    const existing = await prisma.client.findUnique({ where: { id: request.params.id } });
+    const existing = await prisma.client.findFirst({
+      where: { id: request.params.id, companyId: request.company.id },
+    });
     if (!existing) throw new AppError("Cliente não encontrado.", "NOT_FOUND", 404);
     await prisma.client.delete({ where: { id: existing.id } });
     sendSuccess(response, { message: "Cliente removido com sucesso." });
   }),
 );
 
+function normalizePorte(raw) {
+  if (!raw) return null;
+  const v = String(raw).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().trim();
+  if (!v) return null;
+  if (v.includes("MEI")) return "MEI";
+  if (v.includes("MICRO") || v === "ME") return "ME";
+  if (v.includes("PEQUENO") || v === "EPP") return "EPP";
+  if (v.includes("DEMAIS")) return "DEMAIS";
+  return raw;
+}
+
+function porteIsValid(raw) {
+  if (!raw) return false;
+  const normalized = normalizePorte(raw);
+  if (!normalized) return false;
+  const valid = ["ME", "EPP", "ME/EPP", "MEI", "DEMAIS"];
+  return valid.includes(normalized);
+}
+
 function makeSmartError(campo, titulo, explicacao, impacto, regraUtilizada, correcaoSugerida, confianca, tipo, acoes) {
   return {
-    id: campo + "_" + String(Date.now()),
+    id: `${tipo}_${campo}_${regraUtilizada}`,
     campo,
     titulo,
     explicacao,
@@ -384,6 +760,8 @@ function calcScore(cliente) {
   const isPJ = tipo === "PJ";
   const isPF = tipo === "PF";
 
+  const cidade = cliente.cidade || cliente.municipio || null;
+
   let cadastrais = 100;
   if (isPJ) {
     if (!cliente.razaoSocial) cadastrais -= 10;
@@ -402,9 +780,9 @@ function calcScore(cliente) {
   }
 
   let fiscais = 100;
-  if (!cliente.regimeTributario) fiscais -= 15;
+  if (!cliente.regimeTributario || cliente.regimeTributario === "PENDENTE_CONFIRMACAO") fiscais -= 8;
   if (!cliente.cnae) fiscais -= 15;
-  if (isPJ && !cliente.crt) fiscais -= 15;
+  if (isPJ && !cliente.crt) fiscais -= 8;
   if (isPJ && !cliente.indicadorIe) fiscais -= 10;
   if (isPJ && cliente.contribuinteIcms && !cliente.inscricaoEstadual) fiscais -= 15;
   if (isPJ && !cliente.tipoContribuinte) fiscais -= 10;
@@ -413,7 +791,7 @@ function calcScore(cliente) {
   if (!cliente.cep) endereco -= 12;
   if (!cliente.logradouro) endereco -= 12;
   if (!cliente.bairro) endereco -= 12;
-  if (!cliente.cidade) endereco -= 12;
+  if (!cidade) endereco -= 12;
   if (!cliente.uf) endereco -= 12;
   if (!cliente.numero) endereco -= 10;
   if (!cliente.codigoIbge) endereco -= 10;
@@ -450,6 +828,8 @@ clientesRouter.post(
   "/validar-ia",
   asyncHandler(async (request, response) => {
     const cliente = request.body || {};
+    if (!cliente.cidade && cliente.municipio) cliente.cidade = cliente.municipio;
+    if (!cliente.municipio && cliente.cidade) cliente.municipio = cliente.cidade;
     const tipo = (cliente.tipoPessoa || "").toUpperCase();
     const isPJ = tipo === "PJ";
     const isPF = tipo === "PF";
@@ -457,6 +837,7 @@ clientesRouter.post(
     const validation = validarClienteParaEmissao(cliente);
     const smartErros = [];
     const smartAlertas = [];
+    const smartDicas = [];
 
     for (const err of validation.erros || []) {
       smartErros.push(
@@ -614,21 +995,63 @@ clientesRouter.post(
 
     if (cliente.telefone) {
       const telDigits = String(cliente.telefone).replace(/\D/g, "");
-      if (telDigits.length < 10) {
+      if (telDigits.length > 0 && (telDigits.length < 8 || telDigits.length > 11)) {
         smartAlertas.push(
           makeSmartError(
             "telefone",
             "Telefone com formato inválido",
-            "O telefone deve conter pelo menos 10 dígitos (DDD + número)",
+            "O telefone deve ter entre 8 e 11 dígitos",
             "Contato com o cliente pode falhar",
             "VALIDACAO_FORMATO_TELEFONE",
-            "Informe o telefone com DDD (ex: 11999999999)",
+            "Informe o telefone com DDD (ex: 61999999999)",
             "BAIXA",
             "ALERTA",
             ["Editar cadastro"],
           ),
         );
+      } else if (telDigits.length === 8 || telDigits.length === 9) {
+        smartDicas.push(
+          makeSmartError(
+            "telefone",
+            "Telefone sem DDD",
+            `Número local (${telDigits}) sem DDD — confirme o DDD antes de salvar`,
+            "Telefone sem DDD pode não ser alcançável",
+            "VALIDACAO_TELEFONE_SEM_DDD",
+            `Adicione o DDD antes do número ${telDigits}`,
+            "INFORMATIVO",
+            "DICA",
+            ["Editar cadastro"],
+          ),
+        );
       }
+    } else if (!cliente.email) {
+      smartAlertas.push(
+        makeSmartError(
+          "contato",
+          "Nenhum telefone ou email informado",
+          "A empresa não possui telefone nem email cadastrado",
+          "Comunicação impossibilitada",
+          "CONTATO_AUSENTE",
+          "Informe ao menos telefone ou email",
+          "BAIXA",
+          "DICA",
+          ["Editar cadastro"],
+        ),
+      );
+    } else {
+      smartAlertas.push(
+        makeSmartError(
+          "telefone",
+          "Telefone não informado",
+          "Nenhum telefone cadastrado para este cliente",
+          "Contato com o cliente pode falhar",
+          "REQUISITO_TELEFONE",
+          "Informe um telefone com DDD",
+          "BAIXA",
+          "DICA",
+          ["Editar cadastro"],
+        ),
+      );
     }
 
     if (isPJ && !cliente.cnae) {
@@ -650,19 +1073,20 @@ clientesRouter.post(
       }
     }
 
-    if (isPJ && !cliente.regimeTributario) {
+    if (isPJ && !cliente.regimeTributario || cliente.regimeTributario === "PENDENTE_CONFIRMACAO") {
       const alreadyHasRegimeAlert = smartAlertas.some((a) => a.campo === "regimeTributario");
-      if (!alreadyHasRegimeAlert) {
-        smartAlertas.push(
+      const alreadyHasRegimeDica = smartDicas.some((d) => d.campo === "regimeTributario");
+      if (!alreadyHasRegimeAlert && !alreadyHasRegimeDica) {
+        smartDicas.push(
           makeSmartError(
             "regimeTributario",
-            "Regime tributário não informado",
-            "O regime tributário é necessário para cálculos fiscais",
-            "Cálculos de impostos podem ficar incorretos",
-            "REQUISITO_REGIME_TRIBUTARIO",
-            "Informe o regime tributário (Simples Nacional, Lucro Presumido, Lucro Real)",
-            "MEDIA",
-            "ALERTA",
+            "Regime tributário exige confirmação",
+            "Não foi possível confirmar o regime tributário pela fonte pública",
+            "Cálculos fiscais podem ficar incorretos",
+            "REGIME_PENDENTE_CONFIRMACAO",
+            "Confirme o regime tributário manualmente",
+            "INFORMATIVO",
+            "DICA",
             ["Editar cadastro"],
           ),
         );
@@ -670,80 +1094,88 @@ clientesRouter.post(
     }
 
     if (isPJ && !cliente.crt) {
-      smartAlertas.push(
+      const alreadyHasCrtAlert = smartAlertas.some((a) => a.campo === "crt");
+      const alreadyHasCrtDica = smartDicas.some((d) => d.campo === "crt");
+      if (!alreadyHasCrtAlert && !alreadyHasCrtDica) {
+        smartDicas.push(
+          makeSmartError(
+            "crt",
+            "CRT não informado — confirme manualmente",
+            "O Código de Regime Tributário será obrigatório para emissão de NF-e",
+            "Rejeição possível na emissão de documentos fiscais",
+            "REQUISITO_CRT_PJ",
+            "Informe o CRT (1=Simples, 2=Simples excesso, 3=Regime Normal, 4=MEI)",
+            "INFORMATIVO",
+            "DICA",
+            ["Editar cadastro"],
+          ),
+        );
+      }
+    }
+
+    if (isPJ && cliente.optanteSimples === false && cliente.crt && (cliente.crt === "1" || cliente.crt === "2")) {
+      smartDicas.push(
         makeSmartError(
           "crt",
-          "CRT não informado",
-          "O Código de Regime Tributário é obrigatório para PJ na emissão de NF-e",
-          "Rejeição possível na emissão de documentos fiscais",
-          "REQUISITO_CRT_PJ",
-          "Informe o CRT (1=Simples, 2=Simples excesso, 3=Regime Normal, 4=MEI)",
+          "CRT incompatível com não-optante pelo Simples",
+          "Empresa não optante pelo Simples Nacional não pode ter CRT 1 ou 2",
+          "CRT será rejeitado na emissão de NF-e",
+          "CRT_SIMPLICES_INCOMPATIVEL",
+          "Altere o CRT para 3 (Regime Normal) ou 4 (MEI)",
           "MEDIA",
-          "ALERTA",
+          "DICA",
           ["Editar cadastro"],
         ),
       );
     }
 
-    if (isPJ && cliente.crt && cliente.optanteSimples === false && (cliente.crt === "1" || cliente.crt === "2")) {
-      smartAlertas.push(
+    if (isPJ && cliente.inscricaoEstadual && cliente.indicadorIe === "9") {
+      cliente.indicadorIe = "1";
+      cliente.tipoContribuinte = "Contribuinte ICMS";
+      cliente.contribuinteIcms = true;
+      smartDicas.push(
         makeSmartError(
-          "crt",
-          "CRT incompatível com Simples Nacional",
-          "A empresa não é optante pelo Simples mas o CRT indica Simples Nacional",
-          "Tributação calculada incorretamente na emissão de NF-e",
-          "CRT_SIMPLICES_INCOMPATIVEL",
-          "Altere o CRT para 3 (Regime Normal) ou confirme a opção pelo Simples Nacional",
-          "ALTA",
-          "ALERTA",
+          "indicadorIe",
+          "Indicador IE ajustado automaticamente",
+          "IE preenchida exige indicador = 1. Ajustado automaticamente.",
+          "Indicador corrigido para Contribuinte",
+          "IE_AUTO_DERIVE",
+          "Indicador IE definido como 1",
+          "INFORMATIVO",
+          "DICA",
           ["Editar cadastro"],
         ),
       );
     }
 
     if (isPJ && cliente.mei === true && cliente.crt !== "4") {
-      smartAlertas.push(
+      cliente.crt = "4";
+      smartDicas.push(
         makeSmartError(
           "crt",
-          "CRT incompatível com MEI",
-          "MEI deve ter CRT = 4 (Simei)",
-          "Rejeição na emissão de NF-e para MEI com CRT incorreto",
-          "CRT_MEI_INCOMPATIVEL",
-          "Altere o CRT para 4 (MEI/Simei)",
-          "ALTA",
-          "ALERTA",
-          ["Corrigir automaticamente"],
-        ),
-      );
-    }
-
-    if (isPJ && cliente.inscricaoEstadual && cliente.indicadorIe === "9") {
-      smartAlertas.push(
-        makeSmartError(
-          "indicadorIe",
-          "IE inconsistente",
-          "A empresa possui Inscrição Estadual mas o indicador IE está como Não Contribuinte",
-          "Pode haver rejeição na emissão de NF-e",
-          "IE_INDICADOR_INCONSISTENTE",
-          "Altere o Indicador IE para 1 (Contribuinte) ou verifique a IE",
-          "MEDIA",
-          "ALERTA",
+          "CRT ajustado automaticamente para MEI",
+          "MEI exige CRT = 4. Ajustado automaticamente.",
+          "CRT corrigido para Simei",
+          "CRT_MEI_AUTO",
+          "CRT definido como 4",
+          "INFORMATIVO",
+          "DICA",
           ["Editar cadastro"],
         ),
       );
     }
 
     if (isPJ && !cliente.inscricaoEstadual && cliente.indicadorIe === "1") {
-      smartAlertas.push(
+      smartDicas.push(
         makeSmartError(
           "indicadorIe",
-          "Indicador IE inconsistente",
+          "Indicador IE sem IE informada",
           "O Indicador IE indica Contribuinte mas não há Inscrição Estadual informada",
-          "Pode haver rejeição na emissão de NF-e",
+          "Sem impacto se a IE ainda será buscada",
           "IE_INDICADOR_SEM_IE",
           "Informe a IE ou altere o Indicador IE para 9 (Não contribuinte)",
-          "MEDIA",
-          "ALERTA",
+          "BAIXA",
+          "DICA",
           ["Editar cadastro"],
         ),
       );
@@ -752,16 +1184,16 @@ clientesRouter.post(
     if (isPJ && cliente.capitalSocial != null) {
       const capital = Number(String(cliente.capitalSocial).replace(/[^\d.,]/g, "").replace(",", "."));
       if (capital === 0) {
-        smartAlertas.push(
+        smartDicas.push(
           makeSmartError(
             "capitalSocial",
-            "Capital social zerado",
-            "O capital social está registrado como zero",
-            "Pode indicar dado incompleto ou cadastral desatualizado",
+            "Capital social não informado pela fonte",
+            "Valor zerado retornado pela fonte pública",
+            "Sem impacto fiscal direto",
             "CAPITAL_SOCIAL_ZERADO",
-            "Verifique o capital social junto à Receita Federal",
-            "BAIXA",
-            "ALERTA",
+            "Informe o capital social se disponível",
+            "INFORMATIVO",
+            "DICA",
             ["Editar cadastro"],
           ),
         );
@@ -769,30 +1201,14 @@ clientesRouter.post(
     }
 
     if (isPJ && !cliente.naturezaJuridica) {
-      smartAlertas.push(
+      smartDicas.push(
         makeSmartError(
           "naturezaJuridica",
-          "Natureza jurídica não informada",
+          "Natureza jurídica não informada pela fonte",
           "A natureza jurídica é importante para classificação fiscal e tributária",
           "Classificação tributária pode ficar incorreta",
           "REQUISITO_NATUREZA_JURIDICA",
-          "Informe a natureza jurídica da empresa",
-          "BAIXA",
-          "ALERTA",
-          ["Editar cadastro"],
-        ),
-      );
-    }
-
-    if (isPJ && !cliente.porte) {
-      smartAlertas.push(
-        makeSmartError(
-          "porte",
-          "Porte não informado",
-          "O porte da empresa é relevante para enquadramento tributário",
-          "Benefícios fiscais de microempresa/EPP podem não ser aplicados",
-          "REQUISITO_PORTE",
-          "Informe o porte da empresa (Microempresa, EPP, Demais)",
+          "Informe a natureza jurídica da empresa se disponível",
           "BAIXA",
           "DICA",
           ["Editar cadastro"],
@@ -800,17 +1216,33 @@ clientesRouter.post(
       );
     }
 
+    if (isPJ && !porteIsValid(cliente.porte)) {
+      smartDicas.push(
+        makeSmartError(
+          "porte",
+          "Porte não retornado pela fonte pública",
+          "O porte da empresa não foi informado pela fonte consultada",
+          "Sem impacto fiscal direto — não bloqueia salvamento",
+          "PORTE_FONTE_AUSENTE",
+          "Informe o porte manualmente se disponível (ME, EPP, MEI, DEMAIS)",
+          "INFORMATIVO",
+          "DICA",
+          ["Editar cadastro"],
+        ),
+      );
+    }
+
     if (isPJ && !cliente.bairro) {
-      smartAlertas.push(
+      smartDicas.push(
         makeSmartError(
           "bairro",
-          "Bairro não informado",
-          "O bairro é parte do endereço completo necessário para emissão fiscal",
-          "Endereço incompleto pode gerar rejeição na SEFAZ",
+          "Bairro não informado pela fonte",
+          "O bairro é parte do endereço completo para emissão fiscal",
+          "Dado ausente na fonte pública",
           "ENDERECO_BAIRRO_AUSENTE",
-          "Informe o bairro ou refaça a busca com CEP para preenchimento automático",
-          "MEDIA",
-          "ALERTA",
+          "Informe o bairro ou refaça a busca com CEP",
+          "BAIXA",
+          "DICA",
           ["Editar cadastro"],
         ),
       );
@@ -848,32 +1280,16 @@ clientesRouter.post(
       );
     }
 
-    if (isPJ && !cliente.telefone && !cliente.email) {
-      smartAlertas.push(
-        makeSmartError(
-          "contato",
-          "Sem dados de contato",
-          "A empresa não possui telefone nem email cadastrado",
-          "Comunicação com o cliente impossibilitada",
-          "CONTATO_AUSENTE",
-          "Informe ao menos telefone ou email de contato",
-          "MEDIA",
-          "ALERTA",
-          ["Editar cadastro"],
-        ),
-      );
-    }
-
     if (isPJ && cliente.cnaeSecundarios && Array.isArray(cliente.cnaeSecundarios) && cliente.cnaeSecundarios.length === 0) {
-      smartAlertas.push(
+      smartDicas.push(
         makeSmartError(
           "cnaeSecundarios",
-          "Sem CNAE secundário",
-          "A empresa não possui CNAEs secundários registrados",
-          "Atividades secundárias não serão consideradas na classificação fiscal",
-          "CNAE_SECUNDARIO_AUSENTE",
-          "Verifique os CNAEs secundários e adicione se aplicável",
-          "BAIXA",
+          "Empresa sem CNAEs secundários registrados",
+          "Muitas empresas não possuem CNAEs secundários — normal se atividade é única",
+          "Sem impacto fiscal direto",
+          "CNAE_SECUNDARIO_VAZIO",
+          "Normal se a empresa tem atividade única",
+          "INFORMATIVO",
           "DICA",
           ["Editar cadastro"],
         ),
@@ -901,8 +1317,9 @@ clientesRouter.post(
       (i) => i.tipo === "ERRO" || i.confianca === "ALTA",
     );
 
+    const cidade = cliente.cidade || cliente.municipio || null;
     const podeEmitirNfe = isPJ
-      ? Boolean(cliente.cnpj && cliente.razaoSocial && cliente.uf && cliente.cidade)
+      ? Boolean(cliente.cnpj && cliente.razaoSocial && cliente.uf && cidade)
       : false;
     const podeEmitirNfce = podeEmitirNfe;
     const podeEmitirNfse = cliente.inscricaoMunicipal
@@ -922,6 +1339,7 @@ clientesRouter.post(
       normalizacoes: {},
       alertas: smartAlertas,
       pendencias: smartErros,
+      dicas: smartDicas,
       sugestoesCorrecao: allIssues.map((i) => i.correcaoSugerida),
       validadoPorIa: false,
       mensagem: "IA não configurada. Validação local executada.",

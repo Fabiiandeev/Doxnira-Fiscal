@@ -94,6 +94,8 @@ export async function apiFetch<T>(
   if (response.status === 204) return undefined as T;
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
+    console.error("API_ERROR_STATUS", response.status, "path", path);
+    console.error("API_ERROR_BODY", JSON.stringify(payload, null, 2));
     if (response.status === 401 && typeof window !== "undefined") {
       clearSession();
       if (window.location.pathname !== "/login") window.location.assign("/login");

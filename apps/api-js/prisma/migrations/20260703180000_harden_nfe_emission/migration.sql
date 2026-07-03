@@ -1,0 +1,375 @@
+-- Harden NF-e emission metadata and real numbering sequence.
+
+ALTER TABLE "nfe_documents"
+  ADD COLUMN IF NOT EXISTS "cfop" VARCHAR(10),
+  ADD COLUMN IF NOT EXISTS "id_dest" VARCHAR(1),
+  ADD COLUMN IF NOT EXISTS "additional_info" TEXT,
+  ADD COLUMN IF NOT EXISTS "fisco_info" TEXT,
+  ADD COLUMN IF NOT EXISTS "pedido_ref" VARCHAR(80),
+  ADD COLUMN IF NOT EXISTS "justificativa" TEXT;
+
+CREATE UNIQUE INDEX IF NOT EXISTS "nfe_documents_company_model_serie_ambiente_numero_key"
+  ON "nfe_documents"("company_id", "modelo", "serie", "ambiente", "numero");
+
+CREATE TABLE IF NOT EXISTS "nfe_number_sequence" (
+  "id" UUID NOT NULL DEFAULT gen_random_uuid(),
+  "company_id" UUID NOT NULL,
+  "modelo" VARCHAR(5) NOT NULL DEFAULT '55',
+  "serie" SMALLINT NOT NULL DEFAULT 1,
+  "ambiente" VARCHAR(1) NOT NULL DEFAULT '2',
+  "document_type" VARCHAR(20) NOT NULL DEFAULT 'NFE',
+  "last_number" INTEGER NOT NULL DEFAULT 0,
+  "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "nfe_number_sequence_pkey" PRIMARY KEY ("id")
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS "nfe_number_sequence_scope_key"
+  ON "nfe_number_sequence"("company_id", "modelo", "serie", "ambiente", "document_type");
+
+CREATE INDEX IF NOT EXISTS "nfe_number_sequence_company_id_idx"
+  ON "nfe_number_sequence"("company_id");
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'nfe_number_sequence_company_id_fkey'
+  ) THEN
+    ALTER TABLE "nfe_number_sequence"
+      ADD CONSTRAINT "nfe_number_sequence_company_id_fkey"
+      FOREIGN KEY ("company_id") REFERENCES "companies"("id")
+      ON DELETE RESTRICT ON UPDATE CASCADE;
+  END IF;
+END $$;
+
+ALTER TABLE "cfops"
+  ADD COLUMN IF NOT EXISTS "operation_nature" VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS "operation_type" VARCHAR(1),
+  ADD COLUMN IF NOT EXISTS "destination_type" VARCHAR(20),
+  ADD COLUMN IF NOT EXISTS "default_additional_info" TEXT,
+  ADD COLUMN IF NOT EXISTS "fiscal_rules" JSONB;
+
+CREATE INDEX IF NOT EXISTS "cfops_operation_type_idx" ON "cfops"("operation_type");
+CREATE INDEX IF NOT EXISTS "cfops_destination_type_idx" ON "cfops"("destination_type");
+
+INSERT INTO "cfops" (
+  "id",
+  "codigo",
+  "descricao",
+  "tipo",
+  "operacao",
+  "dentro_estado",
+  "interestadual",
+  "exterior",
+  "ativo",
+  "observacoes",
+  "operation_nature",
+  "operation_type",
+  "destination_type",
+  "default_additional_info",
+  "fiscal_rules",
+  "created_at",
+  "updated_at"
+) VALUES
+  (
+    gen_random_uuid(),
+    '1102',
+    'Compra para comercializacao',
+    'entrada',
+    'Compra',
+    true,
+    false,
+    false,
+    true,
+    'Entrada interna de mercadoria adquirida para comercializacao.',
+    'Compra para comercializacao',
+    '0',
+    'interna',
+    'Mercadoria adquirida para comercializacao.',
+    '{"direction":"entrada","destination":"interna"}'::jsonb,
+    CURRENT_TIMESTAMP,
+    CURRENT_TIMESTAMP
+  ),
+  (
+    gen_random_uuid(),
+    '2102',
+    'Compra para comercializacao',
+    'entrada',
+    'Compra',
+    false,
+    true,
+    false,
+    true,
+    'Entrada interestadual de mercadoria adquirida para comercializacao.',
+    'Compra para comercializacao',
+    '0',
+    'interestadual',
+    'Mercadoria adquirida em operacao interestadual para comercializacao.',
+    '{"direction":"entrada","destination":"interestadual"}'::jsonb,
+    CURRENT_TIMESTAMP,
+    CURRENT_TIMESTAMP
+  ),
+  (
+    gen_random_uuid(),
+    '3102',
+    'Compra para comercializacao',
+    'entrada',
+    'Compra',
+    false,
+    false,
+    true,
+    true,
+    'Entrada de mercadoria importada para comercializacao.',
+    'Compra para comercializacao',
+    '0',
+    'exterior',
+    'Mercadoria importada adquirida para comercializacao.',
+    '{"direction":"entrada","destination":"exterior"}'::jsonb,
+    CURRENT_TIMESTAMP,
+    CURRENT_TIMESTAMP
+  ),
+  (
+    gen_random_uuid(),
+    '5102',
+    'Venda de mercadoria adquirida ou recebida de terceiros',
+    'saida',
+    'Venda',
+    true,
+    false,
+    false,
+    true,
+    'Saida interna de mercadoria adquirida ou recebida de terceiros.',
+    'Venda de mercadoria adquirida ou recebida de terceiros',
+    '1',
+    'interna',
+    'Operacao interna de venda de mercadoria adquirida ou recebida de terceiros.',
+    '{"direction":"saida","destination":"interna"}'::jsonb,
+    CURRENT_TIMESTAMP,
+    CURRENT_TIMESTAMP
+  ),
+  (
+    gen_random_uuid(),
+    '6102',
+    'Venda de mercadoria adquirida ou recebida de terceiros',
+    'saida',
+    'Venda',
+    false,
+    true,
+    false,
+    true,
+    'Saida interestadual de mercadoria adquirida ou recebida de terceiros.',
+    'Venda de mercadoria adquirida ou recebida de terceiros',
+    '1',
+    'interestadual',
+    'Operacao interestadual de venda de mercadoria adquirida ou recebida de terceiros.',
+    '{"direction":"saida","destination":"interestadual"}'::jsonb,
+    CURRENT_TIMESTAMP,
+    CURRENT_TIMESTAMP
+  ),
+  (
+    gen_random_uuid(),
+    '7102',
+    'Venda de mercadoria adquirida ou recebida de terceiros',
+    'saida',
+    'Venda',
+    false,
+    false,
+    true,
+    true,
+    'Saida para o exterior de mercadoria adquirida ou recebida de terceiros.',
+    'Venda de mercadoria adquirida ou recebida de terceiros',
+    '1',
+    'exterior',
+    'Operacao de exportacao de mercadoria adquirida ou recebida de terceiros.',
+    '{"direction":"saida","destination":"exterior"}'::jsonb,
+    CURRENT_TIMESTAMP,
+    CURRENT_TIMESTAMP
+  ),
+  (
+    gen_random_uuid(),
+    '1202',
+    'Devolucao de venda de mercadoria adquirida ou recebida de terceiros',
+    'entrada',
+    'Devolucao',
+    true,
+    false,
+    false,
+    true,
+    'Entrada interna por devolucao de venda.',
+    'Devolucao de venda de mercadoria adquirida ou recebida de terceiros',
+    '0',
+    'interna',
+    'Operacao interna de devolucao de venda.',
+    '{"direction":"entrada","destination":"interna","finalidade":"4"}'::jsonb,
+    CURRENT_TIMESTAMP,
+    CURRENT_TIMESTAMP
+  ),
+  (
+    gen_random_uuid(),
+    '2202',
+    'Devolucao de venda de mercadoria adquirida ou recebida de terceiros',
+    'entrada',
+    'Devolucao',
+    false,
+    true,
+    false,
+    true,
+    'Entrada interestadual por devolucao de venda.',
+    'Devolucao de venda de mercadoria adquirida ou recebida de terceiros',
+    '0',
+    'interestadual',
+    'Operacao interestadual de devolucao de venda.',
+    '{"direction":"entrada","destination":"interestadual","finalidade":"4"}'::jsonb,
+    CURRENT_TIMESTAMP,
+    CURRENT_TIMESTAMP
+  ),
+  (
+    gen_random_uuid(),
+    '5202',
+    'Devolucao de compra para comercializacao',
+    'saida',
+    'Devolucao',
+    true,
+    false,
+    false,
+    true,
+    'Saida interna por devolucao de compra.',
+    'Devolucao de compra para comercializacao',
+    '1',
+    'interna',
+    'Operacao interna de devolucao de compra.',
+    '{"direction":"saida","destination":"interna","finalidade":"4"}'::jsonb,
+    CURRENT_TIMESTAMP,
+    CURRENT_TIMESTAMP
+  ),
+  (
+    gen_random_uuid(),
+    '6202',
+    'Devolucao de compra para comercializacao',
+    'saida',
+    'Devolucao',
+    false,
+    true,
+    false,
+    true,
+    'Saida interestadual por devolucao de compra.',
+    'Devolucao de compra para comercializacao',
+    '1',
+    'interestadual',
+    'Operacao interestadual de devolucao de compra.',
+    '{"direction":"saida","destination":"interestadual","finalidade":"4"}'::jsonb,
+    CURRENT_TIMESTAMP,
+    CURRENT_TIMESTAMP
+  ),
+  (
+    gen_random_uuid(),
+    '5411',
+    'Devolucao de compra para comercializacao em operacao com mercadoria sujeita ao regime de substituicao tributaria',
+    'saida',
+    'Devolucao',
+    true,
+    false,
+    false,
+    true,
+    'Saida interna por devolucao de compra com substituicao tributaria.',
+    'Devolucao de compra para comercializacao',
+    '1',
+    'interna',
+    'Operacao interna de devolucao de compra com substituicao tributaria.',
+    '{"direction":"saida","destination":"interna","finalidade":"4","st":true}'::jsonb,
+    CURRENT_TIMESTAMP,
+    CURRENT_TIMESTAMP
+  ),
+  (
+    gen_random_uuid(),
+    '6411',
+    'Devolucao de compra para comercializacao em operacao com mercadoria sujeita ao regime de substituicao tributaria',
+    'saida',
+    'Devolucao',
+    false,
+    true,
+    false,
+    true,
+    'Saida interestadual por devolucao de compra com substituicao tributaria.',
+    'Devolucao de compra para comercializacao',
+    '1',
+    'interestadual',
+    'Operacao interestadual de devolucao de compra com substituicao tributaria.',
+    '{"direction":"saida","destination":"interestadual","finalidade":"4","st":true}'::jsonb,
+    CURRENT_TIMESTAMP,
+    CURRENT_TIMESTAMP
+  ),
+  (
+    gen_random_uuid(),
+    '5949',
+    'Outra saida de mercadoria ou prestacao de servico nao especificado',
+    'saida',
+    'Outras saidas',
+    true,
+    false,
+    false,
+    true,
+    'Saida interna nao especificada.',
+    'Outra saida de mercadoria ou prestacao de servico nao especificado',
+    '1',
+    'interna',
+    'Operacao interna nao especificada. Revise a tributacao antes da transmissao.',
+    '{"direction":"saida","destination":"interna","requiresReview":true}'::jsonb,
+    CURRENT_TIMESTAMP,
+    CURRENT_TIMESTAMP
+  ),
+  (
+    gen_random_uuid(),
+    '6949',
+    'Outra saida de mercadoria ou prestacao de servico nao especificado',
+    'saida',
+    'Outras saidas',
+    false,
+    true,
+    false,
+    true,
+    'Saida interestadual nao especificada.',
+    'Outra saida de mercadoria ou prestacao de servico nao especificado',
+    '1',
+    'interestadual',
+    'Operacao interestadual nao especificada. Revise a tributacao antes da transmissao.',
+    '{"direction":"saida","destination":"interestadual","requiresReview":true}'::jsonb,
+    CURRENT_TIMESTAMP,
+    CURRENT_TIMESTAMP
+  ),
+  (
+    gen_random_uuid(),
+    '7949',
+    'Outra saida de mercadoria ou prestacao de servico nao especificado',
+    'saida',
+    'Outras saidas',
+    false,
+    false,
+    true,
+    true,
+    'Saida para o exterior nao especificada.',
+    'Outra saida de mercadoria ou prestacao de servico nao especificado',
+    '1',
+    'exterior',
+    'Operacao para o exterior nao especificada. Revise a tributacao antes da transmissao.',
+    '{"direction":"saida","destination":"exterior","requiresReview":true}'::jsonb,
+    CURRENT_TIMESTAMP,
+    CURRENT_TIMESTAMP
+  )
+ON CONFLICT ("codigo") DO UPDATE SET
+  "descricao" = EXCLUDED."descricao",
+  "tipo" = EXCLUDED."tipo",
+  "operacao" = EXCLUDED."operacao",
+  "dentro_estado" = EXCLUDED."dentro_estado",
+  "interestadual" = EXCLUDED."interestadual",
+  "exterior" = EXCLUDED."exterior",
+  "ativo" = EXCLUDED."ativo",
+  "observacoes" = EXCLUDED."observacoes",
+  "operation_nature" = EXCLUDED."operation_nature",
+  "operation_type" = EXCLUDED."operation_type",
+  "destination_type" = EXCLUDED."destination_type",
+  "default_additional_info" = EXCLUDED."default_additional_info",
+  "fiscal_rules" = EXCLUDED."fiscal_rules",
+  "updated_at" = CURRENT_TIMESTAMP;

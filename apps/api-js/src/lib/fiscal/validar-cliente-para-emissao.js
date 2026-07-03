@@ -23,8 +23,12 @@ export function validarClienteParaEmissao(cliente = {}) {
       erros.push({ campo: "razaoSocial", problema: "Razão Social ausente.", impacto: "Dados cadastrais incompletos.", correcaoSugerida: "Preencha a Razão Social.", acoes: ["Editar cadastro"] });
     }
 
-    if (!cliente.uf || !cliente.cidade) {
+    if (!cliente.uf && !cliente.municipio) {
       erros.push({ campo: "endereco", problema: "Endereço incompleto.", impacto: "Emissão pode ser rejeitada.", correcaoSugerida: "Preencha UF e cidade.", acoes: ["Editar cadastro"] });
+    } else if (!cliente.uf) {
+      erros.push({ campo: "uf", problema: "UF não informada.", impacto: "Emissão pode ser rejeitada.", correcaoSugerida: "Preencha a UF.", acoes: ["Editar cadastro"] });
+    } else if (!cliente.cidade && !cliente.municipio) {
+      erros.push({ campo: "endereco", problema: "Cidade não informada.", impacto: "Emissão pode ser rejeitada.", correcaoSugerida: "Preencha a cidade.", acoes: ["Editar cadastro"] });
     }
 
     if (!cliente.inscricaoEstadual) {
@@ -55,12 +59,15 @@ export function validarClienteParaEmissao(cliente = {}) {
   }
 
   // Common checks
-  if (!cliente.email) {
-    alertas.push({ campo: "email", problema: "Email ausente.", impacto: "Contato do cliente não disponível.", correcaoSugerida: "Informe um email.", acoes: ["Editar cadastro"] });
-  }
-
-  if (!cliente.telefone) {
-    alertas.push({ campo: "telefone", problema: "Telefone ausente.", impacto: "Contato do cliente não disponível.", correcaoSugerida: "Informe um telefone.", acoes: ["Editar cadastro"] });
+  if (!cliente.telefone && !cliente.email) {
+    alertas.push({ campo: "contato", problema: "Nenhum telefone ou email informado.", impacto: "Contato do cliente não disponível.", correcaoSugerida: "Informe ao menos telefone ou email.", acoes: ["Editar cadastro"] });
+  } else if (!cliente.telefone) {
+    alertas.push({ campo: "telefone", problema: "Telefone não informado.", impacto: "Contato do cliente não disponível.", correcaoSugerida: "Informe um telefone.", acoes: ["Editar cadastro"] });
+  } else {
+    const telDigits = String(cliente.telefone).replace(/\D/g, "");
+    if (telDigits.length > 0 && telDigits.length < 10) {
+      alertas.push({ campo: "telefone", problema: "Telefone com formato inválido.", impacto: "Contato com o cliente pode falhar.", correcaoSugerida: "Informe o telefone com DDD (ex: 11999999999).", acoes: ["Editar cadastro"] });
+    }
   }
 
   const podeEmitir = erros.length === 0;

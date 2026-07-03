@@ -9,3 +9,10 @@ coverage
 .env
 .env.local
 tmp/
+.ruflo/memory/
+
+*.exe
+*.msi
+*.dmg
+tela/
+.kilo/

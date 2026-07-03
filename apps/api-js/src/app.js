@@ -30,7 +30,12 @@ import { taxSettingsRouter } from "./modules/tax-settings/tax-settings.routes.js
 import { healthRouter } from "./routes/health.routes.js";
 import { clientesRouter, clientesPublicRouter } from "./modules/clients/clients.routes.js";
 import { productsRouter } from "./modules/products/products.routes.js";
+import { cfopsRouter } from "./modules/cfops/cfops.routes.js";
 import { accountantRouter } from "./modules/accountant/accountant.routes.js";
+import { transportadorasRouter } from "./modules/transportadoras/transportadoras.routes.js";
+import { nfeValidationRouter } from "./modules/nfe-validation/nfe-validation.routes.js";
+import { fornecedoresRouter } from "./modules/fornecedores/fornecedores.routes.js";
+import { nfeRouter } from "./modules/nfe/nfe.routes.js";
 
 export const app = express();
 const allowedOrigins = env.CORS_ORIGIN.split(",").map((origin) => origin.trim());
@@ -86,9 +91,17 @@ app.use("/api/companies", companyApiRouter);
 // Clientes public and company-scoped routes
 app.use("/api/clientes", clientesPublicRouter);
 companyApiRouter.use("/:companyId/clientes", clientesRouter);
+companyApiRouter.use("/:companyId/clients", clientesRouter);
+companyApiRouter.use("/:companyId/cfops", cfopsRouter);
 companyApiRouter.use("/:companyId/products", productsRouter);
+companyApiRouter.use("/:companyId/transportadoras", transportadorasRouter);
+companyApiRouter.use("/:companyId/fornecedores", fornecedoresRouter);
+companyApiRouter.use("/:companyId/nfe-validation", nfeValidationRouter);
+companyApiRouter.use("/:companyId/nfe", nfeRouter);
 
 app.use("/api/accountant", requireAuth, accountantRouter);
+
+app.use("/api/cfops", requireAuth, cfopsRouter);
 
 app.use(notFoundMiddleware);
 app.use(errorMiddleware);

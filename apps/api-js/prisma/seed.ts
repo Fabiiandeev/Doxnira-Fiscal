@@ -218,7 +218,7 @@ async function main() {
   const createdClients = [];
   for (const clientData of clientsData) {
     const client = await prisma.client.create({
-      data: { ...clientData, ownerId: user.id },
+      data: { ...clientData, ownerId: user.id, companyId: company.id },
     });
     createdClients.push(client);
   }
