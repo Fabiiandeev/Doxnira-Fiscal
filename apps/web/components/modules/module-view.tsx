@@ -39,7 +39,7 @@ import { getPreferences, savePreferences } from "@/lib/services/preference-servi
 import { saveTaxSettings } from "@/lib/services/tax-service";
 import { formatCurrency, formatDate, maskCnpj } from "@/lib/utils";
 
-type ModuleName =
+export type ModuleName =
   | "companies"
   | "manifestations"
   | "alerts"

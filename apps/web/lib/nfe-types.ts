@@ -24,7 +24,7 @@ export type NfeListItem = {
   updatedAt: string;
   accessKey: string | null;
   operationType: string | null;
-  canTransmit: boolean;
+  canTransmit?: boolean;
   message?: string | null;
   cfop?: string | null;
   operationNature?: string | null;
@@ -52,6 +52,8 @@ export type NfeFilters = {
   series: string;
   accessKey: string;
   value: string;
+  minValue: string;
+  maxValue: string;
   uf: string;
   operationType: string;
 };
@@ -73,6 +75,28 @@ export type NfeActionResponse = {
   message?: string;
   canTransmit?: boolean;
   ok?: boolean;
+  protocol?: string;
+  accessKey?: string;
+  validation?: NfeValidationResult;
+  financial?: {
+    receivables: NfeReceivable[];
+  };
+};
+
+export type NfeAutoFixCorrection = {
+  field: string;
+  code: string;
+  description: string;
+  oldValue: string | null;
+  newValue: string | null;
+};
+
+export type NfeAutoFixResponse = {
+  data?: NfeDocumentDetail;
+  message?: string;
+  canTransmit?: boolean;
+  validation?: NfeValidationResult;
+  corrections: NfeAutoFixCorrection[];
 };
 
 export type NfeEmitter = {
@@ -141,6 +165,120 @@ export type NfeTotal = {
   totalIpi: string | number;
   totalPis: string | number;
   totalCofins: string | number;
+  totalTributos?: string | number;
+  icmsDesonerado?: string | number;
+};
+
+export type NfeInstallment = {
+  id: string;
+  numero: string;
+  dataVencimento: string;
+  valor: string | number;
+};
+
+export type NfeBilling = {
+  id: string;
+  formaPagamento: string | null;
+  valorPagamento: string | number | null;
+  meioPagamento: string | null;
+  cartaoCnpj?: string | null;
+  cartaoNumero?: string | null;
+  installments: NfeInstallment[];
+};
+
+export type NfeTransportVolume = {
+  quantidade?: string | number | null;
+  especie?: string | null;
+  marca?: string | null;
+  numeracao?: string | null;
+  pesoLiquido?: string | number | null;
+  pesoBruto?: string | number | null;
+};
+
+export type NfeTransport = {
+  id: string;
+  modalidadeFrete: string;
+  transportadoraId: string | null;
+  cnpjTransportadora: string | null;
+  nomeTransportadora: string | null;
+  ieTransportadora: string | null;
+  enderecoTransportadora: string | null;
+  municipioTransportadora: string | null;
+  ufTransportadora: string | null;
+  placaVeiculo: string | null;
+  ufPlaca: string | null;
+  rntc: string | null;
+  volumes: NfeTransportVolume[] | null;
+};
+
+export type NfeReceivable = {
+  id: string;
+  number: string;
+  dueDate: string;
+  value: number;
+  status: "OPEN" | "PAID" | string;
+  source: "NFE" | string;
+};
+
+export type NfeBoletoMock = {
+  nossoNumero: string;
+  numeroDocumento: string;
+  vencimento: string;
+  valor: number;
+  linhaDigitavel: string;
+  codigoBarras: string;
+  url: string;
+  status: string;
+};
+
+export type NfeValidationIssue = {
+  id?: string;
+  code: string;
+  category: string;
+  severity: string;
+  field?: string | null;
+  description: string;
+  impact?: string | null;
+  howToFix?: string | null;
+  autoCorrectAvailable?: boolean;
+  autoCorrectValue?: string | null;
+  baseLegal?: string | null;
+};
+
+export type NfeValidationResult = {
+  id?: string;
+  score: number;
+  errorCount: number;
+  alertCount: number;
+  infoCount: number;
+  rejectionProbability?: string | null;
+  canTransmit: boolean;
+  validatedAt?: string;
+  durationMs?: number;
+  issues?: NfeValidationIssue[];
+};
+
+export type NfeAuthorization = {
+  cStat: string;
+  xMotivo: string;
+  protocolo: string;
+  ambiente: string;
+  dataAutorizacao: string;
+  xmlProtocolo?: string | null;
+};
+
+export type NfeSefazReturn = {
+  id: string;
+  cStat: string | null;
+  xMotivo: string | null;
+  nRec: string | null;
+  protocolo: string | null;
+  ambiente: string | null;
+  uf: string | null;
+  xmlRetorno: string | null;
+  dhRecebto: string | null;
+  tempoMedio: number | null;
+  createdAt: string;
 };
 
 export type NfeDocumentDetail = {
@@ -173,6 +311,34 @@ export type NfeDocumentDetail = {
   destinatarioUf: string | null;
   totals: NfeTotal | null;
   items: NfeItem[];
+  transport?: NfeTransport | null;
+  billing?: NfeBilling | null;
+  validations?: NfeValidationResult[];
+  sefazReturn?: NfeSefazReturn | null;
+  authorization?: NfeAuthorization | null;
+  chaveAcesso?: string | null;
+  protocolo?: string | null;
+  cStat?: string | null;
+  nRec?: string | null;
+  xmlAssinado?: string | null;
+  xmlTransmitido?: string | null;
+  xmlRetorno?: string | null;
+  xmlProtocolo?: string | null;
+  xmlDanfe?: string | null;
+  files?: Array<{
+    id: string;
+    tipo: string;
+    storageKey: string;
+    mimeType: string | null;
+    fileSize: number | null;
+    createdAt: string;
+  }>;
+  logs?: Array<{
+    id: string;
+    action: string;
+    details?: unknown;
+    createdAt: string;
+  }>;
   emitente: NfeEmitter | null;
   canTransmit: boolean;
   validationScore: number | null;

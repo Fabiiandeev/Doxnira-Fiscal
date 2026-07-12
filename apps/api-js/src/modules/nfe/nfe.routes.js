@@ -1,8 +1,12 @@
 import { Router } from "express";
 
 import { prisma } from "../../config/prisma.js";
-import { runNfeValidation } from "../../services/nfe-validation/nfe-validation-engine.js";
+import { applyAutoCorrections, runNfeValidation } from "../../services/nfe-validation/nfe-validation-engine.js";
 import { AppError } from "../../utils/app-error.js";
+import { buildMockNfeAccessKey } from "../../utils/nfe-access-key.js";
+import { lookupCompanyFiscalData, resolveIbgeCode } from "../../services/cnpj-lookup.service.js";
+import { loadCertificateSigningMaterial } from "../../services/certificate-vault.service.js";
+import { signNfeXml } from "../../services/xml-signature.service.js";
 import { asyncHandler, sendSuccess } from "../../utils/response.js";
 
 export const nfeRouter = Router();
@@ -11,7 +15,6 @@ const STATUS_MAP = {
   rascunho: "RASCUNHO",
   "em-validacao": "EM_VALIDACAO",
   em_validacao: "EM_VALIDACAO",
-  "em validacao": "EM_VALIDACAO",
   "em validacao": "EM_VALIDACAO",
   "pronta-para-transmissao": "PRONTA_TRANSMISSAO",
   pronta_para_transmissao: "PRONTA_TRANSMISSAO",
@@ -38,7 +41,7 @@ const SORT_FIELDS = {
   status: "status",
 };
 
-const LOCKED_STATUSES = new Set(["AUTORIZADA", "CANCELADA", "DENEGADA", "INUTILIZADA"]);
+const LOCKED_STATUSES = new Set(["TRANSMITINDO", "PROCESSANDO_SEFAZ", "AUTORIZADA", "CANCELADA", "DENEGADA", "INUTILIZADA"]);
 const FINALIDADE_CODES = new Set(["1", "2", "3", "4"]);
 const TPNF_CODES = new Set(["0", "1"]);
 const IND_PRES_CODES = new Set(["0", "1", "2", "3", "4", "5", "9"]);
@@ -80,6 +83,21 @@ function round2(value) {
   return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
 }
 
+function formatNfeDateTime(value) {
+  const date = new Date(value || new Date());
+  const parts = new Intl.DateTimeFormat("sv-SE", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).format(date).replace(" ", "T");
+  return `${parts}-03:00`;
+}
+
 function normalizeStatus(value) {
   if (!value) return null;
   const key = String(value).trim().toLowerCase();
@@ -96,6 +114,19 @@ function normalizeEnvironment(value) {
 
 function environmentFromCompany(company) {
   return company.environment === "production" ? "1" : "2";
+}
+
+function inferCrt(company, taxSettings = null) {
+  if (taxSettings?.crt) return String(taxSettings.crt);
+  const regime = String(taxSettings?.taxRegime || company?.taxRegime || "").toUpperCase();
+  if (regime.includes("SIMPLES") || regime === "MEI") return "1";
+  return "3";
+}
+
+function isSimpleTaxProfile(company, taxSettings = null) {
+  const crt = inferCrt(company, taxSettings);
+  const regime = String(taxSettings?.taxRegime || company?.taxRegime || "").toUpperCase();
+  return ["1", "2", "4"].includes(crt) || regime.includes("SIMPLES") || regime === "MEI";
 }
 
 function extractCfopCode(value) {
@@ -231,6 +262,16 @@ function buildWhere(companyId, query) {
       ];
     }
   }
+  if (query.minValue || query.maxValue) {
+    const minValue = query.minValue ? parseMoney(query.minValue, null) : null;
+    const maxValue = query.maxValue ? parseMoney(query.maxValue, null) : null;
+    const range = {};
+    if (Number.isFinite(minValue)) range.gte = minValue;
+    if (Number.isFinite(maxValue)) range.lte = maxValue;
+    if (Object.keys(range).length) {
+      where.AND = [...(where.AND || []), { totals: { is: { valorTotal: range } } }];
+    }
+  }
 
   return where;
 }
@@ -268,7 +309,7 @@ function toEmitter(company, taxSettings = null) {
     stateRegistrationStatus: company.stateRegistrationStatus,
     municipalRegistration: taxSettings?.municipalRegistration || null,
     cnae: taxSettings?.mainCnae || null,
-    crt: taxSettings?.crt || null,
+    crt: inferCrt(company, taxSettings),
     taxRegime: taxSettings?.taxRegime || company.taxRegime || null,
     uf: company.uf,
     city: company.city,
@@ -281,7 +322,7 @@ function buildSummary(notes) {
   const authorizedAmount = notes
     .filter((note) => note.status === "AUTORIZADA")
     .reduce((sum, note) => sum + Number(note.totals?.valorTotal || 0), 0);
-  const pendingStatuses = new Set(["RASCUNHO", "EM_VALIDACAO", "PRONTA_TRANSMISSAO", "REJEITADA"]);
+  const pendingStatuses = new Set(["RASCUNHO", "EM_VALIDACAO", "PRONTA_TRANSMISSAO", "TRANSMITINDO", "PROCESSANDO_SEFAZ", "REJEITADA"]);
 
   return {
     total: notes.length,
@@ -309,6 +350,15 @@ async function findNfeOrThrow(companyId, nfeId, includeItems = false) {
       items: includeItems
         ? { where: { deletedAt: null }, orderBy: { itemNumber: "asc" } }
         : { where: { deletedAt: null }, take: 1 },
+      transport: true,
+      billing: { include: { installments: { orderBy: { dataVencimento: "asc" } } } },
+      validations: includeItems
+        ? {
+            orderBy: { validatedAt: "desc" },
+            take: 1,
+            include: { issues: { orderBy: { createdAt: "desc" } } },
+          }
+        : false,
       _count: { select: { items: true } },
     },
   });
@@ -321,7 +371,34 @@ async function loadCompanyEmitter(companyId) {
     where: { id: companyId },
     include: { taxSettings: true },
   });
-  return company ? toEmitter(company, company.taxSettings) : null;
+  if (!company) return null;
+  const emitter = toEmitter(company, company.taxSettings);
+  emitter.codigoIbge = await resolveIbgeCode(company.city, company.uf, null);
+  emitter.address = { city: company.city, uf: company.uf };
+  try {
+    const fiscalData = await lookupCompanyFiscalData(company.cnpj);
+    const address = fiscalData?.empresa || {};
+    emitter.address = {
+      street: address.endereco,
+      number: address.numero,
+      complement: address.complemento,
+      district: address.bairro,
+      city: address.cidade || company.city,
+      uf: address.uf || company.uf,
+      cep: address.cep,
+      phone: address.telefone,
+    };
+    if (!emitter.codigoIbge) {
+      emitter.codigoIbge = await resolveIbgeCode(
+        emitter.address.city,
+        emitter.address.uf,
+        address.cep,
+      );
+    }
+  } catch {
+    // O endpoint retornará uma mensagem objetiva se o endereço fiscal estiver incompleto.
+  }
+  return emitter;
 }
 
 async function getCfopOrThrow(value) {
@@ -364,6 +441,76 @@ function validateFiscalCombination({ cfop, tipoOperacao, finalidade, referenceAc
   if (finalidade === "3" && !justificativa) {
     throw new AppError("NF-e de ajuste exige justificativa.", "FINNFE_JUSTIFICATION_REQUIRED", 400);
   }
+}
+
+function parseAutoFixItemField(field) {
+  const match = String(field || "").match(/^item\[(\d+)\]\.(.+)$/);
+  if (!match) return null;
+  return {
+    index: Number(match[1]) - 1,
+    name: match[2],
+  };
+}
+
+async function persistValidationSnapshot(tx, { request, note, validationResult, message }) {
+  const canTransmit = Boolean(validationResult.canTransmit);
+  const status = canTransmit ? "PRONTA_TRANSMISSAO" : "EM_VALIDACAO";
+
+  const validationRecord = await tx.nfeValidationResult.create({
+    data: {
+      nfeDocumentId: note.id,
+      companyId: request.company.id,
+      score: validationResult.score,
+      errorCount: validationResult.errorCount,
+      alertCount: validationResult.alertCount,
+      infoCount: validationResult.infoCount,
+      autoCorrections: validationResult.autoCorrections ?? 0,
+      rejectionProbability: validationResult.rejectionProbability,
+      canTransmit,
+      phases: validationResult.phases,
+      durationMs: validationResult.durationMs,
+      validatedAt: validationResult.validatedAt ? new Date(validationResult.validatedAt) : new Date(),
+      issues: {
+        create: validationResult.issues.slice(0, 200).map((issue) => ({
+          companyId: request.company.id,
+          code: String(issue.code || "NFE").slice(0, 20),
+          category: String(issue.category || "GERAL").slice(0, 40),
+          severity: String(issue.severity || "INFO").slice(0, 10),
+          field: issue.field ? String(issue.field).slice(0, 120) : null,
+          description: String(issue.description || "Apontamento fiscal").slice(0, 500),
+          impact: issue.impact ? String(issue.impact).slice(0, 500) : null,
+          howToFix: issue.howToFix ? String(issue.howToFix).slice(0, 500) : null,
+          autoCorrectAvailable: Boolean(issue.autoCorrectAvailable),
+          autoCorrectValue:
+            issue.autoCorrectValue === undefined || issue.autoCorrectValue === null
+              ? null
+              : String(issue.autoCorrectValue).slice(0, 255),
+          baseLegal: issue.baseLegal ? String(issue.baseLegal).slice(0, 255) : null,
+        })),
+      },
+    },
+  });
+
+  const updated = await tx.nfeDocument.update({
+    where: { id: note.id },
+    data: {
+      status,
+      canTransmit,
+      validationScore: validationResult.score,
+      xMotivo: message,
+      logs: {
+        create: {
+          companyId: request.company.id,
+          userId: request.user.id,
+          action: "nfe.validated",
+          details: { canTransmit, message, score: validationResult.score },
+        },
+      },
+    },
+    include: { totals: true },
+  });
+
+  return { validationRecord, updated, canTransmit };
 }
 
 async function reserveNumber(tx, { companyId, documentModel = "55", serie = 1, environment = "2", documentType = "NFE" }) {
@@ -520,8 +667,12 @@ async function buildUpdateData(companyId, existing, payload) {
 
 function buildValidationPayload(note, company, emitter) {
   const items = note.items || [];
+  const installments = note.billing?.installments || [];
+  const transport = note.transport || {};
+  const volumes = Array.isArray(transport.volumes) ? transport.volumes : [];
   return {
     versao: "4.00",
+    mock: true,
     modelo: "55",
     serie: note.serie,
     numero: note.numero,
@@ -550,6 +701,7 @@ function buildValidationPayload(note, company, emitter) {
     itens: items.map((item) => ({
       codigo: item.productCode,
       descricao: item.description,
+      description: item.description,
       ncm: item.ncm,
       cfop: item.cfop,
       unidade: item.unidade,
@@ -561,24 +713,59 @@ function buildValidationPayload(note, company, emitter) {
       csosn: item.csosn,
       origem: item.origem,
       icmsBase: Number(item.icmsBase || 0),
+      icmsValor: Number(item.icmsAmount || 0),
       icmsAmount: Number(item.icmsAmount || 0),
+      ipiValor: Number(item.ipiAmount || 0),
       ipiAmount: Number(item.ipiAmount || 0),
+      pisValor: Number(item.pisAmount || 0),
       pisAmount: Number(item.pisAmount || 0),
+      cofinsValor: Number(item.cofinsAmount || 0),
       cofinsAmount: Number(item.cofinsAmount || 0),
+      freteValor: Number(item.freightValue || 0),
+      seguroValor: Number(item.insuranceValue || 0),
+      outrasDespesasValor: Number(item.otherCosts || 0),
+      fcpValor: Number(item.fcpAmount || 0),
     })),
     totais: {
       valorProdutos: Number(note.totals?.valorProdutos || 0),
       valorNota: Number(note.totals?.valorTotal || 0),
       desconto: Number(note.totals?.desconto || 0),
+      descontoTotal: Number(note.totals?.desconto || 0),
       frete: Number(note.totals?.frete || 0),
+      freteTotal: Number(note.totals?.frete || 0),
       seguro: Number(note.totals?.seguro || 0),
+      seguroTotal: Number(note.totals?.seguro || 0),
       outrasDespesas: Number(note.totals?.outrasDespesas || 0),
+      outrasDespesasTotal: Number(note.totals?.outrasDespesas || 0),
+      icmsTotal: Number(note.totals?.totalIcms || 0),
+      ipiTotal: Number(note.totals?.totalIpi || 0),
+      pisTotal: Number(note.totals?.totalPis || 0),
+      cofinsTotal: Number(note.totals?.totalCofins || 0),
+      fcpTotal: Number(note.totals?.totalFcp || 0),
     },
     transporte: {
-      modalidadeFrete: note.transport?.modalidadeFrete || "9",
+      modalidadeFrete: transport.modalidadeFrete || "9",
+      transportadoraId: transport.transportadoraId || null,
+      cnpj: transport.cnpjTransportadora || null,
+      nomeTransportadora: transport.nomeTransportadora || null,
+      ie: transport.ieTransportadora || null,
+      ufPlaca: transport.ufPlaca || null,
+      placaVeiculo: transport.placaVeiculo || null,
+      rntc: transport.rntc || null,
+      volumes,
     },
-    cobranca: {},
-    pagamento: {},
+    cobranca: {
+      duplicatas: installments.map((installment) => ({
+        numero: installment.numero,
+        vencimento: installment.dataVencimento,
+        valor: Number(installment.valor || 0),
+      })),
+    },
+    pagamento: {
+      formaPagamento: note.billing?.formaPagamento || (Number(note.totals?.valorTotal || 0) > 0 ? "1" : "0"),
+      meioPagamento: note.billing?.meioPagamento || "15",
+      valorPagamento: Number(note.billing?.valorPagamento || note.totals?.valorTotal || 0),
+    },
   };
 }
 
@@ -643,6 +830,14 @@ async function recalculateTotals(tx, nfeDocumentId, companyId) {
       totals.totalIpi +
       totals.totalIcmsSt,
   );
+  const totalTributos = round2(
+    totals.totalIcms +
+      totals.totalIcmsSt +
+      totals.totalFcp +
+      totals.totalIpi +
+      totals.totalPis +
+      totals.totalCofins,
+  );
 
   return tx.nfeTotal.upsert({
     where: { nfeDocumentId },
@@ -663,6 +858,7 @@ async function recalculateTotals(tx, nfeDocumentId, companyId) {
       totalIpi: round2(totals.totalIpi),
       totalPis: round2(totals.totalPis),
       totalCofins: round2(totals.totalCofins),
+      totalTributos,
     },
     update: {
       valorProdutos: round2(totals.valorProdutos),
@@ -679,6 +875,7 @@ async function recalculateTotals(tx, nfeDocumentId, companyId) {
       totalIpi: round2(totals.totalIpi),
       totalPis: round2(totals.totalPis),
       totalCofins: round2(totals.totalCofins),
+      totalTributos,
     },
   });
 }
@@ -718,7 +915,19 @@ async function buildItemData(companyId, note, payload, existingItem = null) {
     justificativa: note.justificativa,
   });
 
+  const company = await prisma.company.findUnique({
+    where: { id: companyId },
+    include: { taxSettings: true },
+  });
+  const simpleProfile = isSimpleTaxProfile(company, company?.taxSettings);
+  const pisCofinsRegime = String(company?.taxSettings?.pisCofinsRegime || company?.taxSettings?.taxRegime || "").toUpperCase();
+  const defaultPisRate = pisCofinsRegime.includes("PRESUMIDO") ? 0.65 : 1.65;
+  const defaultCofinsRate = pisCofinsRegime.includes("PRESUMIDO") ? 3 : 7.6;
+  const productTaxCode = cleanString(product?.cstCsosnPadrao);
+  const payloadCst = cleanString(payload.cst);
+  const payloadCsosn = cleanString(payload.csosn);
   const total = round2(quantity * unitValue);
+  const taxBase = round2(Math.max(total - discountValue + freightValue + insuranceValue + otherCosts, 0));
   const itemData = {
     productId: product?.id || productId,
     productCode: cleanString(payload.productCode ?? payload.codigoProduto) || product?.code || existingItem?.productCode || null,
@@ -727,8 +936,8 @@ async function buildItemData(companyId, note, payload, existingItem = null) {
     ncm: cleanString(payload.ncm) || product?.ncm || existingItem?.ncm || null,
     cest: cleanString(payload.cest) || product?.cest || existingItem?.cest || null,
     cfop: cfop.codigo,
-    cst: cleanString(payload.cst) || existingItem?.cst || null,
-    csosn: cleanString(payload.csosn) || product?.cstCsosnPadrao || existingItem?.csosn || null,
+    cst: simpleProfile ? null : payloadCst || (productTaxCode && productTaxCode.length <= 2 ? productTaxCode : null) || existingItem?.cst || "00",
+    csosn: simpleProfile ? payloadCsosn || (productTaxCode && productTaxCode.length > 2 ? productTaxCode : null) || existingItem?.csosn || "102" : null,
     origem: parseSmallInt(payload.origem ?? payload.origin, product?.origemMercadoria ?? existingItem?.origem ?? 0),
     unidade: cleanString(payload.unit ?? payload.unidade) || product?.unit || existingItem?.unidade || "UN",
     quantidade: quantity,
@@ -739,22 +948,806 @@ async function buildItemData(companyId, note, payload, existingItem = null) {
     freightValue,
     insuranceValue,
     otherCosts,
-    icmsRate: parseMoney(payload.icmsRate, Number(product?.icmsPadrao || existingItem?.icmsRate || 0)),
+    icmsRate: simpleProfile ? 0 : parseMoney(payload.icmsRate, Number(product?.icmsPadrao || existingItem?.icmsRate || 18)),
     ipiRate: parseMoney(payload.ipiRate, Number(product?.ipiPadrao || existingItem?.ipiRate || 0)),
-    pisRate: parseMoney(payload.pisRate, Number(product?.pisPadrao || existingItem?.pisRate || 0)),
-    cofinsRate: parseMoney(payload.cofinsRate, Number(product?.cofinsPadrao || existingItem?.cofinsRate || 0)),
+    pisRate: simpleProfile ? 0 : parseMoney(payload.pisRate, Number(product?.pisPadrao || existingItem?.pisRate || defaultPisRate)),
+    cofinsRate: simpleProfile ? 0 : parseMoney(payload.cofinsRate, Number(product?.cofinsPadrao || existingItem?.cofinsRate || defaultCofinsRate)),
   };
 
-  itemData.icmsBase = total;
-  itemData.icmsAmount = round2((total * itemData.icmsRate) / 100);
-  itemData.ipiBase = total;
-  itemData.ipiAmount = round2((total * itemData.ipiRate) / 100);
-  itemData.pisBase = total;
-  itemData.pisAmount = round2((total * itemData.pisRate) / 100);
-  itemData.cofinsBase = total;
-  itemData.cofinsAmount = round2((total * itemData.cofinsRate) / 100);
+  itemData.icmsBase = simpleProfile ? 0 : taxBase;
+  itemData.icmsAmount = simpleProfile ? 0 : round2((taxBase * itemData.icmsRate) / 100);
+  itemData.ipiBase = itemData.ipiRate > 0 ? taxBase : 0;
+  itemData.ipiAmount = round2((itemData.ipiBase * itemData.ipiRate) / 100);
+  itemData.pisBase = simpleProfile ? 0 : taxBase;
+  itemData.pisAmount = simpleProfile ? 0 : round2((taxBase * itemData.pisRate) / 100);
+  itemData.cofinsBase = simpleProfile ? 0 : taxBase;
+  itemData.cofinsAmount = simpleProfile ? 0 : round2((taxBase * itemData.cofinsRate) / 100);
 
   return itemData;
+}
+
+function addDays(date, days) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function normalizePaymentCode(value, fallback) {
+  const text = cleanString(value);
+  if (!text) return fallback;
+  const code = digits(text).slice(0, 3);
+  return code || text.slice(0, 3);
+}
+
+function buildInstallmentPlan(note, payload = {}) {
+  const total = round2(parseMoney(payload.valorPagamento ?? payload.paymentValue, Number(note.totals?.valorTotal || 0)));
+  const explicit = Array.isArray(payload.installments) ? payload.installments : [];
+  if (explicit.length > 0) {
+    return explicit.map((installment, index) => ({
+      numero: cleanString(installment.numero ?? installment.number) || String(index + 1).padStart(3, "0"),
+      dataVencimento:
+        parseDateValue(installment.dataVencimento ?? installment.dueDate) || addDays(new Date(), 7 + index * 30),
+      valor: round2(parseMoney(installment.valor ?? installment.value, index === 0 ? total : 0)),
+    }));
+  }
+
+  const count = Math.max(parseSmallInt(payload.parcelas ?? payload.installmentCount, 1), 1);
+  const firstDueDate = parseDateValue(payload.primeiraParcela ?? payload.firstDueDate) || addDays(new Date(), 7);
+  const baseValue = round2(total / count);
+  let accumulated = 0;
+  return Array.from({ length: count }, (_, index) => {
+    const value = index === count - 1 ? round2(total - accumulated) : baseValue;
+    accumulated = round2(accumulated + value);
+    return {
+      numero: String(index + 1).padStart(3, "0"),
+      dataVencimento: addDays(firstDueDate, index * 30),
+      valor: value,
+    };
+  });
+}
+
+function receivablesFromBilling(billing) {
+  return (billing?.installments || []).map((installment) => ({
+    id: installment.id,
+    number: installment.numero,
+    dueDate: installment.dataVencimento,
+    value: Number(installment.valor || 0),
+    status: "OPEN",
+    source: "NFE",
+  }));
+}
+
+async function syncBilling(tx, { note, companyId, userId, payload = {} }) {
+  const installments = buildInstallmentPlan(note, payload);
+  const value = round2(installments.reduce((sum, installment) => sum + Number(installment.valor || 0), 0));
+  const billing = await tx.nfeBilling.upsert({
+    where: { nfeDocumentId: note.id },
+    create: {
+      nfeDocumentId: note.id,
+      companyId,
+      formaPagamento: normalizePaymentCode(payload.formaPagamento ?? payload.paymentForm, installments.length > 1 ? "1" : "0"),
+      meioPagamento: normalizePaymentCode(payload.meioPagamento ?? payload.paymentMethod, "15"),
+      valorPagamento: value,
+      cartaoCnpj: digits(payload.cartaoCnpj) || null,
+      cartaoNumero: cleanString(payload.cartaoNumero) || null,
+    },
+    update: {
+      formaPagamento: normalizePaymentCode(payload.formaPagamento ?? payload.paymentForm, installments.length > 1 ? "1" : "0"),
+      meioPagamento: normalizePaymentCode(payload.meioPagamento ?? payload.paymentMethod, "15"),
+      valorPagamento: value,
+      cartaoCnpj: digits(payload.cartaoCnpj) || null,
+      cartaoNumero: cleanString(payload.cartaoNumero) || null,
+    },
+  });
+
+  await tx.nfeInstallment.deleteMany({ where: { nfeBillingId: billing.id, companyId } });
+  if (installments.length > 0) {
+    await tx.nfeInstallment.createMany({
+      data: installments.map((installment) => ({
+        nfeBillingId: billing.id,
+        companyId,
+        numero: installment.numero,
+        dataVencimento: installment.dataVencimento,
+        valor: installment.valor,
+      })),
+    });
+  }
+
+  await tx.nfeLog.create({
+    data: {
+      nfeDocumentId: note.id,
+      companyId,
+      userId,
+      action: "nfe.billing.synced",
+      details: { installments: installments.length, value },
+    },
+  });
+
+  return tx.nfeBilling.findUnique({
+    where: { id: billing.id },
+    include: { installments: { orderBy: { dataVencimento: "asc" } } },
+  });
+}
+
+async function ensureBillingForNote(tx, { note, companyId, userId }) {
+  const existing = await tx.nfeBilling.findUnique({
+    where: { nfeDocumentId: note.id },
+    include: { installments: { orderBy: { dataVencimento: "asc" } } },
+  });
+  if (existing?.installments?.length) return existing;
+  return syncBilling(tx, { note, companyId, userId, payload: { parcelas: 1, meioPagamento: "15" } });
+}
+
+function normalizeTransportVolumes(volumes) {
+  if (!Array.isArray(volumes)) return [];
+  return volumes.map((volume) => ({
+    quantidade: volume?.quantidade === undefined || volume?.quantidade === null || volume?.quantidade === "" ? null : parseMoney(volume.quantidade, null),
+    especie: cleanString(volume?.especie),
+    marca: cleanString(volume?.marca),
+    numeracao: cleanString(volume?.numeracao),
+    pesoLiquido: volume?.pesoLiquido === undefined || volume?.pesoLiquido === null || volume?.pesoLiquido === "" ? null : parseMoney(volume.pesoLiquido, null),
+    pesoBruto: volume?.pesoBruto === undefined || volume?.pesoBruto === null || volume?.pesoBruto === "" ? null : parseMoney(volume.pesoBruto, null),
+  }));
+}
+
+function buildTransportSyncData(payload = {}) {
+  return {
+    modalidadeFrete: String(payload.modalidadeFrete ?? payload.frete ?? "9").trim().slice(0, 2) || "9",
+    transportadoraId: cleanString(payload.transportadoraId),
+    cnpjTransportadora: digits(payload.cpfCnpj ?? payload.cnpjTransportadora) || null,
+    nomeTransportadora: cleanString(payload.nomeTransportadora ?? payload.transportadoraNome),
+    ieTransportadora: cleanString(payload.inscricaoEstadual ?? payload.ieTransportadora),
+    enderecoTransportadora: cleanString(payload.endereco ?? payload.enderecoTransportadora),
+    municipioTransportadora: cleanString(payload.municipio ?? payload.municipioTransportadora),
+    ufTransportadora: (cleanString(payload.uf ?? payload.ufTransportadora) || "").toUpperCase().slice(0, 2) || null,
+    placaVeiculo: (cleanString(payload.placa ?? payload.placaVeiculo) || "").toUpperCase().replace(/\s+/g, "") || null,
+    ufPlaca: (cleanString(payload.ufPlaca) || "").toUpperCase().slice(0, 2) || null,
+    rntc: cleanString(payload.rntc),
+    volumes: normalizeTransportVolumes(payload.volumes),
+  };
+}
+
+async function syncTransport(tx, { note, companyId, userId, payload = {} }) {
+  const transportData = buildTransportSyncData(payload);
+  await tx.nfeTransport.upsert({
+    where: { nfeDocumentId: note.id },
+    create: {
+      nfeDocumentId: note.id,
+      companyId,
+      ...transportData,
+    },
+    update: {
+      ...transportData,
+    },
+  });
+
+  await tx.nfeDocument.update({
+    where: { id: note.id },
+    data: {
+      status: "RASCUNHO",
+      canTransmit: false,
+      logs: {
+        create: {
+          companyId,
+          userId,
+          action: "nfe.transport.synced",
+          details: {
+            modalidadeFrete: transportData.modalidadeFrete,
+            transportadoraId: transportData.transportadoraId,
+            volumes: transportData.volumes?.length || 0,
+          },
+        },
+      },
+    },
+  });
+
+  return tx.nfeDocument.findUnique({
+    where: { id: note.id },
+    include: {
+      totals: true,
+      items: { where: { deletedAt: null }, orderBy: { itemNumber: "asc" } },
+      transport: true,
+      billing: { include: { installments: { orderBy: { dataVencimento: "asc" } } } },
+      observations: true,
+      references: true,
+      files: true,
+      logs: { orderBy: { createdAt: "desc" }, take: 100 },
+    },
+  });
+}
+
+async function performMockTransmission({ request, note, emitter }) {
+  const stagedAt = new Date();
+  const accessKey = buildMockNfeAccessKey({
+    uf: request.company.uf,
+    issuerCnpj: request.company.cnpj,
+    invoiceNumber: note.numero,
+    series: note.serie,
+    model: note.modelo,
+    issuedAt: note.dataEmissao || stagedAt,
+    seed: note.id,
+  });
+  const protocol = `135${String(stagedAt.getFullYear()).slice(-2)}${String(note.numero || 0).padStart(9, "0")}${String(stagedAt.getTime()).slice(-4)}`;
+  const receipt = `REC${String(note.numero || 0).padStart(9, "0")}`;
+  const xml = buildMockNfeXml(note, accessKey, protocol, stagedAt, emitter);
+  const receiptXml = buildMockSefazReturnXml({
+    cStat: "103",
+    xMotivo: "Lote recebido com sucesso",
+    nRec: receipt,
+  });
+  const processingXml = buildMockSefazReturnXml({
+    cStat: "105",
+    xMotivo: "Lote em processamento",
+    nRec: receipt,
+  });
+  const authorizationReturnXml = buildMockSefazReturnXml({
+    cStat: "104",
+    xMotivo: "Lote processado",
+    nRec: receipt,
+    protocolo,
+  });
+
+  const stageOne = await prisma.$transaction(async (tx) => {
+    const billing = await ensureBillingForNote(tx, {
+      note,
+      companyId: request.company.id,
+      userId: request.user.id,
+    });
+
+    await tx.nfeTransmissionAttempt.create({
+      data: {
+        nfeDocumentId: note.id,
+        companyId: request.company.id,
+        userId: request.user.id,
+        status: "SENT",
+        xmlEnviado: xml,
+        cStat: "103",
+        xMotivo: "Lote recebido com sucesso",
+        nRec: receipt,
+        ambiente: note.ambiente,
+        uf: request.company.uf,
+        retornoEm: stagedAt,
+      },
+    });
+
+    await tx.nfeSefazReturn.upsert({
+      where: { nfeDocumentId: note.id },
+      create: {
+        nfeDocumentId: note.id,
+        companyId: request.company.id,
+        cStat: "103",
+        xMotivo: "Lote recebido com sucesso",
+        nRec: receipt,
+        protocolo: null,
+        ambiente: note.ambiente,
+        uf: request.company.uf,
+        xmlRetorno: receiptXml,
+        dhRecebto: stagedAt,
+        tempoMedio: 1,
+      },
+      update: {
+        cStat: "103",
+        xMotivo: "Lote recebido com sucesso",
+        nRec: receipt,
+        protocolo: null,
+        ambiente: note.ambiente,
+        uf: request.company.uf,
+        xmlRetorno: receiptXml,
+        dhRecebto: stagedAt,
+        tempoMedio: 1,
+      },
+    });
+
+    await tx.nfeDocument.update({
+      where: { id: note.id },
+      data: {
+        status: "TRANSMITINDO",
+        canTransmit: false,
+        chaveAcesso: accessKey,
+        protocolo: null,
+        xmlAssinado: xml,
+        xmlTransmitido: xml,
+        xmlRetorno: receiptXml,
+        xmlProtocolo: null,
+        xmlDanfe: null,
+        cStat: "103",
+        xMotivo: "Lote recebido com sucesso",
+        nRec: receipt,
+        logs: {
+          create: {
+            companyId: request.company.id,
+            userId: request.user.id,
+            action: "nfe.transmission.started",
+            details: {
+              accessKey,
+              receipt,
+            },
+          },
+        },
+      },
+    });
+
+    return billing;
+  });
+
+  scheduleMockSefazProcessing({
+    request,
+    noteId: note.id,
+    emitter,
+    accessKey,
+    protocol,
+    receipt,
+    xml,
+    processingXml,
+    authorizationReturnXml,
+  });
+
+  const updated = await findNfeOrThrow(request.company.id, note.id, true);
+
+  return {
+    updated,
+    billing: stageOne,
+    protocol: null,
+    accessKey,
+  };
+}
+
+async function claimTransmission(note) {
+  const claim = await prisma.nfeDocument.updateMany({
+    where: {
+      id: note.id,
+      companyId: note.companyId,
+      status: "PRONTA_TRANSMISSAO",
+      canTransmit: true,
+      deletedAt: null,
+    },
+    data: { status: "TRANSMITINDO", canTransmit: false },
+  });
+  if (claim.count !== 1) {
+    throw new AppError(
+      "A transmissão desta NF-e já foi iniciada ou o documento não está mais pronto para envio.",
+      "NFE_TRANSMISSION_ALREADY_CLAIMED",
+      409,
+    );
+  }
+}
+
+async function releaseTransmissionClaim(note) {
+  await prisma.nfeDocument.updateMany({
+    where: {
+      id: note.id,
+      companyId: note.companyId,
+      status: "TRANSMITINDO",
+      nRec: null,
+      protocolo: null,
+    },
+    data: { status: "PRONTA_TRANSMISSAO", canTransmit: true },
+  });
+}
+
+function buildMockBoleto(note, billing) {
+  const firstInstallment = billing?.installments?.[0];
+  const nossoNumero = `${String(note.numero || 0).padStart(9, "0")}${String(note.serie || 1).padStart(3, "0")}`;
+  const value = Number(firstInstallment?.valor || billing?.valorPagamento || note.totals?.valorTotal || 0);
+  return {
+    nossoNumero,
+    numeroDocumento: `${note.serie || 1}/${String(note.numero || 0).padStart(9, "0")}`,
+    vencimento: firstInstallment?.dataVencimento || addDays(new Date(), 7),
+    valor: round2(value),
+    linhaDigitavel: `34191.79001 01043.${String(note.numero || 0).padStart(5, "0")} 91020.${String(note.serie || 1).padStart(6, "0")} 8 000000${String(Math.round(value * 100)).padStart(10, "0")}`,
+    codigoBarras: `3419${String(Math.round(value * 100)).padStart(10, "0")}${nossoNumero.padEnd(30, "0").slice(0, 30)}`,
+    url: `mock://boleto/${note.id}/${nossoNumero}`,
+    status: "EMITIDO",
+  };
+}
+
+function buildMockNfeXml(note, accessKey, protocol, authorizedAt, emitter) {
+  return `<nfeProc versao="4.00"><NFe><infNFe Id="NFe${accessKey}"><ide><cNF>${String(note.numero || 0).padStart(8, "0")}</cNF><natOp>${note.naturezaOperacao || ""}</natOp><mod>55</mod><serie>${note.serie || 1}</serie><nNF>${note.numero || 0}</nNF></ide><emit><CNPJ>${digits(emitter?.cnpj)}</CNPJ><xNome>${emitter?.legalName || ""}</xNome></emit><dest><xNome>${note.destinatarioNome || ""}</xNome></dest><total><vNF>${Number(note.totals?.valorTotal || 0).toFixed(2)}</vNF></total></infNFe></NFe><protNFe versao="4.00"><infProt><chNFe>${accessKey}</chNFe><dhRecbto>${authorizedAt.toISOString()}</dhRecbto><nProt>${protocol}</nProt><cStat>100</cStat><xMotivo>Autorizado o uso da NF-e</xMotivo></infProt></protNFe></nfeProc>`;
+}
+
+function buildEmitterAddressXml(emitter) {
+  const address = emitter?.address || {};
+  return `<enderEmit><xLgr>${escapeHtml(address.street || "")}</xLgr><nro>${escapeHtml(address.number || "S/N")}</nro>${address.complement ? `<xCpl>${escapeHtml(address.complement)}</xCpl>` : ""}<xBairro>${escapeHtml(address.district || "")}</xBairro><cMun>${escapeHtml(emitter?.codigoIbge || "")}</cMun><xMun>${escapeHtml(address.city || emitter?.city || "")}</xMun><UF>${escapeHtml(address.uf || emitter?.uf || "")}</UF>${address.cep ? `<CEP>${digits(address.cep)}</CEP>` : ""}<cPais>1058</cPais><xPais>BRASIL</xPais>${address.phone ? `<fone>${digits(address.phone).slice(0, 14)}</fone>` : ""}</enderEmit>`;
+}
+
+function buildRecipientXml(note, recipient) {
+  const document = note.destinatarioCnpj ? `<CNPJ>${digits(note.destinatarioCnpj)}</CNPJ>` : note.destinatarioCpf ? `<CPF>${digits(note.destinatarioCpf)}</CPF>` : "";
+  const address = recipient ? `<enderDest><xLgr>${escapeHtml(recipient.logradouro || "")}</xLgr><nro>${escapeHtml(recipient.numero || "S/N")}</nro>${recipient.complemento ? `<xCpl>${escapeHtml(recipient.complemento)}</xCpl>` : ""}<xBairro>${escapeHtml(recipient.bairro || "")}</xBairro><cMun>${escapeHtml(recipient.codigoIbge || "")}</cMun><xMun>${escapeHtml(recipient.municipio || "")}</xMun><UF>${escapeHtml(recipient.uf || "")}</UF>${recipient.cep ? `<CEP>${digits(recipient.cep)}</CEP>` : ""}<cPais>1058</cPais><xPais>BRASIL</xPais>${recipient.telefone ? `<fone>${digits(recipient.telefone).slice(0, 14)}</fone>` : ""}</enderDest>` : "";
+  const indIe = recipient?.indicadorIe || (recipient?.inscricaoEstadual ? "1" : "9");
+  const recipientName = String(note.ambiente) === "2"
+    ? "NF-E EMITIDA EM AMBIENTE DE HOMOLOGACAO - SEM VALOR FISCAL"
+    : note.destinatarioNome || recipient?.razaoSocial || recipient?.nome || "";
+  return `<dest>${document}<xNome>${escapeHtml(recipientName)}</xNome>${address}<indIEDest>${indIe}</indIEDest>${indIe === "1" && recipient?.inscricaoEstadual ? `<IE>${digits(recipient.inscricaoEstadual)}</IE>` : ""}${recipient?.email ? `<email>${escapeHtml(recipient.email)}</email>` : ""}</dest>`;
+}
+
+function buildNfePreviewXml(note, emitter, recipient, accessKey) {
+  const itemXml = (note.items || []).map((item) => {
+    const totalTax = Number(item.icmsAmount || 0) + Number(item.ipiAmount || 0) + Number(item.pisAmount || 0) + Number(item.cofinsAmount || 0);
+    const icms = `<ICMS><ICMS00><orig>${item.origem ?? 0}</orig><CST>${escapeHtml(item.cst || "00")}</CST><modBC>3</modBC><vBC>${Number(item.icmsBase || 0).toFixed(2)}</vBC><pICMS>${Number(item.icmsRate || 0).toFixed(4)}</pICMS><vICMS>${Number(item.icmsAmount || 0).toFixed(2)}</vICMS></ICMS00></ICMS>`;
+    const pis = `<PIS><PISAliq><CST>01</CST><vBC>${Number(item.pisBase || 0).toFixed(2)}</vBC><pPIS>${Number(item.pisRate || 0).toFixed(4)}</pPIS><vPIS>${Number(item.pisAmount || 0).toFixed(2)}</vPIS></PISAliq></PIS>`;
+    const cofins = `<COFINS><COFINSAliq><CST>01</CST><vBC>${Number(item.cofinsBase || 0).toFixed(2)}</vBC><pCOFINS>${Number(item.cofinsRate || 0).toFixed(4)}</pCOFINS><vCOFINS>${Number(item.cofinsAmount || 0).toFixed(2)}</vCOFINS></COFINSAliq></COFINS>`;
+    return `<det nItem="${item.itemNumber}"><prod><cProd>${escapeHtml(item.productCode || item.productId || item.itemNumber)}</cProd><cEAN>${escapeHtml(item.ean || "SEM GTIN")}</cEAN><xProd>${escapeHtml(item.description)}</xProd><NCM>${escapeHtml(item.ncm || "")}</NCM>${item.cest ? `<CEST>${escapeHtml(item.cest)}</CEST>` : ""}<CFOP>${escapeHtml(item.cfop || note.cfop || "")}</CFOP><uCom>${escapeHtml(item.unidade || "UN")}</uCom><qCom>${Number(item.quantidade || 0).toFixed(4)}</qCom><vUnCom>${Number(item.valorUnitario || 0).toFixed(10)}</vUnCom><vProd>${Number(item.valorTotal || 0).toFixed(2)}</vProd><cEANTrib>${escapeHtml(item.ean || "SEM GTIN")}</cEANTrib><uTrib>${escapeHtml(item.unidade || "UN")}</uTrib><qTrib>${Number(item.quantidade || 0).toFixed(4)}</qTrib><vUnTrib>${Number(item.valorUnitario || 0).toFixed(10)}</vUnTrib><indTot>1</indTot></prod><imposto><vTotTrib>${totalTax.toFixed(2)}</vTotTrib>${icms}${pis}${cofins}</imposto></det>`;
+  }).join("");
+  const totals = note.totals || {};
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<!-- XML DE CONFERENCIA: rascunho sem assinatura digital e sem protocolo de autorizacao -->\n<NFe xmlns="http://www.portalfiscal.inf.br/nfe"><infNFe versao="4.00" Id="NFe${accessKey}"><ide><cUF>${accessKey.slice(0, 2)}</cUF><cNF>${accessKey.slice(35, 43)}</cNF><natOp>${escapeHtml(note.naturezaOperacao || "")}</natOp><mod>55</mod><serie>${note.serie || 1}</serie><nNF>${note.numero || 0}</nNF><dhEmi>${formatNfeDateTime(note.dataEmissao)}</dhEmi><tpNF>${escapeHtml(note.tipoOperacao || "1")}</tpNF><idDest>${escapeHtml(note.indicadorDestino || "1")}</idDest><cMunFG>${escapeHtml(emitter?.codigoIbge || "")}</cMunFG><tpImp>1</tpImp><tpEmis>1</tpEmis><cDV>${accessKey.slice(43)}</cDV><tpAmb>${escapeHtml(note.ambiente || "2")}</tpAmb><finNFe>${escapeHtml(note.finalidade || "1")}</finNFe><indFinal>${note.consumoFinal ? "1" : "0"}</indFinal><indPres>${escapeHtml(note.indicadorPresenca || "0")}</indPres><procEmi>0</procEmi><verProc>Doxnira Fiscal</verProc></ide><emit><CNPJ>${digits(emitter?.cnpj)}</CNPJ><xNome>${escapeHtml(emitter?.legalName || "")}</xNome>${emitter?.tradeName ? `<xFant>${escapeHtml(emitter.tradeName)}</xFant>` : ""}${buildEmitterAddressXml(emitter)}<IE>${digits(emitter?.stateRegistration)}</IE><CRT>${escapeHtml(emitter?.crt || "3")}</CRT></emit>${buildRecipientXml(note, recipient)}${itemXml}<total><ICMSTot><vBC>${Number(totals.totalIcmsBase || 0).toFixed(2)}</vBC><vICMS>${Number(totals.totalIcms || 0).toFixed(2)}</vICMS><vProd>${Number(totals.valorProdutos || 0).toFixed(2)}</vProd><vFrete>${Number(totals.frete || 0).toFixed(2)}</vFrete><vSeg>${Number(totals.seguro || 0).toFixed(2)}</vSeg><vDesc>${Number(totals.desconto || 0).toFixed(2)}</vDesc><vIPI>${Number(totals.totalIpi || 0).toFixed(2)}</vIPI><vPIS>${Number(totals.totalPis || 0).toFixed(2)}</vPIS><vCOFINS>${Number(totals.totalCofins || 0).toFixed(2)}</vCOFINS><vOutro>${Number(totals.outrasDespesas || 0).toFixed(2)}</vOutro><vNF>${Number(totals.valorTotal || 0).toFixed(2)}</vNF></ICMSTot></total><transp><modFrete>${escapeHtml(note.transport?.modalidadeFrete || "9")}</modFrete></transp></infNFe></NFe>`;
+}
+
+function completeNfePreviewTotals(xml, totals) {
+  const requiredBeforeProducts = `<vICMSDeson>${Number(totals?.icmsDesonerado || 0).toFixed(2)}</vICMSDeson><vFCPUFDest>0.00</vFCPUFDest><vICMSUFDest>0.00</vICMSUFDest><vICMSUFRemet>0.00</vICMSUFRemet><vFCP>${Number(totals?.totalFcp || 0).toFixed(2)}</vFCP><vBCST>${Number(totals?.totalIcmsStBase || 0).toFixed(2)}</vBCST><vST>${Number(totals?.totalIcmsSt || 0).toFixed(2)}</vST><vFCPST>0.00</vFCPST><vFCPSTRet>0.00</vFCPSTRet>`;
+  const requiredAfterDiscount = `<vII>0.00</vII>`;
+  const requiredAfterIpi = `<vIPIDevol>0.00</vIPIDevol>`;
+  return xml
+    .replace("</vICMS><vProd>", `</vICMS>${requiredBeforeProducts}<vProd>`)
+    .replace("</vDesc><vIPI>", `</vDesc>${requiredAfterDiscount}<vIPI>`)
+    .replace("</vIPI><vPIS>", `</vIPI>${requiredAfterIpi}<vPIS>`)
+    .replace("</vNF></ICMSTot>", `</vNF><vTotTrib>${Number(totals?.totalTributos || 0).toFixed(2)}</vTotTrib></ICMSTot>`);
+}
+
+function appendNfePaymentXml(xml, note) {
+  const billing = note.billing;
+  const tPag = String(billing?.meioPagamento || (Number(note.totals?.valorTotal || 0) > 0 ? "15" : "90")).padStart(2, "0");
+  const indPag = String(billing?.formaPagamento || (billing?.installments?.length > 1 ? "1" : "0"));
+  const vPag = tPag === "90" ? 0 : Number(billing?.valorPagamento ?? note.totals?.valorTotal ?? 0);
+  const paymentXml = `<pag><detPag><indPag>${indPag}</indPag><tPag>${tPag}</tPag><vPag>${vPag.toFixed(2)}</vPag></detPag></pag>`;
+  return xml.replace("</transp></infNFe>", `</transp>${paymentXml}</infNFe>`);
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function buildDanfeHtml(note, company) {
+  const accessKey = note.chaveAcesso || note.xmlDanfe || note.id;
+  const issuerName = company.tradeName || company.legalName || "Emitente";
+  const issuerDocument = company.cnpj || "-";
+  const issuerLocation = [company.city, company.uf].filter(Boolean).join(" - ") || "-";
+  const recipientName = note.destinatarioNome || "-";
+  const recipientDocument = note.destinatarioCnpj || note.destinatarioCpf || "-";
+  const emissionDate = note.dataEmissao ? new Date(note.dataEmissao).toLocaleString("pt-BR") : "-";
+  const totalAmount = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(note.totals?.valorTotal || 0));
+  const statusText = note.status === "AUTORIZADA" || Boolean(note.xmlDanfe) ? "DANFE disponível para visualização." : "DANFE aguardando autorização.";
+
+  return `<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DANFE ${escapeHtml(accessKey)}</title>
+    <style>
+      :root { color-scheme: light; }
+      body { margin: 0; background: #f4f7fb; color: #0f172a; font-family: Arial, Helvetica, sans-serif; }
+      .sheet { max-width: 960px; margin: 24px auto; background: #fff; border: 1px solid #d6dee9; border-radius: 18px; overflow: hidden; box-shadow: 0 12px 30px rgba(15, 23, 42, 0.08); }
+      .hero { padding: 24px; background: linear-gradient(135deg, #0f172a, #1d4ed8); color: #fff; }
+      .hero h1 { margin: 0; font-size: 30px; line-height: 1.1; }
+      .hero p { margin: 8px 0 0; color: rgba(255, 255, 255, 0.88); font-size: 14px; }
+      .status { display: inline-flex; margin-top: 14px; padding: 8px 12px; border-radius: 999px; background: rgba(255, 255, 255, 0.14); font-size: 12px; font-weight: 700; }
+      .content { padding: 24px; }
+      .grid { display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .field { min-height: 82px; padding: 14px; border: 1px solid #e5eaf1; border-radius: 14px; background: #f8fafc; }
+      .label { font-size: 11px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: #64748b; }
+      .value { margin-top: 8px; font-size: 14px; font-weight: 700; line-height: 1.5; word-break: break-word; }
+      .full { grid-column: 1 / -1; }
+      .footer { padding: 0 24px 24px; color: #64748b; font-size: 12px; }
+      @media (max-width: 768px) {
+        .sheet { margin: 0; border-radius: 0; min-height: 100vh; }
+        .grid { grid-template-columns: 1fr; }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="sheet">
+      <section class="hero">
+        <h1>DANFE - Documento Auxiliar da NF-e</h1>
+        <p>NF-e ${escapeHtml(note.numero || "-")} · Série ${escapeHtml(note.serie || "-")} · Chave ${escapeHtml(accessKey)}</p>
+        <div class="status">${escapeHtml(statusText)}</div>
+      </section>
+      <section class="content">
+        <div class="grid">
+          <div class="field">
+            <div class="label">Emitente</div>
+            <div class="value">${escapeHtml(issuerName)}</div>
+          </div>
+          <div class="field">
+            <div class="label">Documento / Local</div>
+            <div class="value">${escapeHtml(issuerDocument)} · ${escapeHtml(issuerLocation)}</div>
+          </div>
+          <div class="field">
+            <div class="label">Destinatário</div>
+            <div class="value">${escapeHtml(recipientName)}</div>
+          </div>
+          <div class="field">
+            <div class="label">Documento do destinatário</div>
+            <div class="value">${escapeHtml(recipientDocument)}</div>
+          </div>
+          <div class="field">
+            <div class="label">Data de emissão</div>
+            <div class="value">${escapeHtml(emissionDate)}</div>
+          </div>
+          <div class="field">
+            <div class="label">Total da NF-e</div>
+            <div class="value">${escapeHtml(totalAmount)}</div>
+          </div>
+          <div class="field">
+            <div class="label">Protocolo</div>
+            <div class="value">${escapeHtml(note.protocolo || "-")}</div>
+          </div>
+          <div class="field">
+            <div class="label">cStat / Recibo</div>
+            <div class="value">${escapeHtml(note.cStat || "-")} · ${escapeHtml(note.nRec || "-")}</div>
+          </div>
+          <div class="field full">
+            <div class="label">Chave de acesso</div>
+            <div class="value">${escapeHtml(accessKey)}</div>
+          </div>
+          <div class="field full">
+            <div class="label">Mensagem</div>
+            <div class="value">${escapeHtml(note.xMotivo || statusText)}</div>
+          </div>
+        </div>
+      </section>
+      <div class="footer">DANFE gerado pela API de NF-e em formato HTML para visualização, download e impressão.</div>
+    </main>
+  </body>
+</html>`;
+}
+
+async function upsertNfeFile(tx, { note, companyId, tipo, storageKey, mimeType, content }) {
+  const existing = await tx.nfeFile.findFirst({ where: { nfeDocumentId: note.id, companyId, tipo } });
+  const data = {
+    storageKey,
+    mimeType,
+    fileSize: content ? Buffer.byteLength(String(content), "utf8") : 0,
+  };
+  if (existing) {
+    return tx.nfeFile.update({ where: { id: existing.id }, data });
+  }
+  return tx.nfeFile.create({
+    data: {
+      nfeDocumentId: note.id,
+      companyId,
+      tipo,
+      ...data,
+    },
+  });
+}
+
+const MOCK_SEFAZ_PROCESSING_DELAY_MS = 1_500;
+const MOCK_SEFAZ_AUTHORIZATION_DELAY_MS = 3_500;
+
+function buildMockSefazReturnXml({ cStat, xMotivo, nRec, protocolo = null }) {
+  return `<retConsReciNFe versao="4.00"><cStat>${cStat}</cStat><xMotivo>${xMotivo}</xMotivo><nRec>${nRec}</nRec>${protocolo ? `<nProt>${protocolo}</nProt>` : ""}</retConsReciNFe>`;
+}
+
+function scheduleMockSefazProcessing({
+  request,
+  noteId,
+  emitter,
+  accessKey,
+  protocol,
+  receipt,
+  xml,
+  processingXml,
+  authorizationReturnXml,
+}) {
+  const processingTimer = setTimeout(() => {
+    void updateMockProcessingStage({
+      request,
+      noteId,
+      receipt,
+      processingXml,
+    }).catch((error) => {
+      console.error({ err: error, noteId }, "Mock SEFAZ processing stage failed");
+    });
+  }, MOCK_SEFAZ_PROCESSING_DELAY_MS);
+  processingTimer.unref?.();
+
+  const authorizationTimer = setTimeout(() => {
+    void updateMockAuthorizationStage({
+      request,
+      noteId,
+      emitter,
+      accessKey,
+      protocol,
+      receipt,
+      xml,
+      authorizationReturnXml,
+    }).catch((error) => {
+      console.error({ err: error, noteId }, "Mock SEFAZ authorization stage failed");
+    });
+  }, MOCK_SEFAZ_AUTHORIZATION_DELAY_MS);
+  authorizationTimer.unref?.();
+}
+
+async function updateMockProcessingStage({ request, noteId, receipt, processingXml }) {
+  const note = await findNfeOrThrow(request.company.id, noteId, true);
+  if (!["TRANSMITINDO", "PROCESSANDO_SEFAZ"].includes(note.status)) return null;
+
+  await prisma.$transaction(async (tx) => {
+    await tx.nfeSefazReturn.upsert({
+      where: { nfeDocumentId: note.id },
+      create: {
+        nfeDocumentId: note.id,
+        companyId: request.company.id,
+        cStat: "105",
+        xMotivo: "Lote em processamento",
+        nRec: receipt,
+        protocolo: null,
+        ambiente: note.ambiente,
+        uf: request.company.uf,
+        xmlRetorno: processingXml,
+        dhRecebto: new Date(),
+        tempoMedio: 2,
+      },
+      update: {
+        cStat: "105",
+        xMotivo: "Lote em processamento",
+        nRec: receipt,
+        protocolo: null,
+        ambiente: note.ambiente,
+        uf: request.company.uf,
+        xmlRetorno: processingXml,
+        dhRecebto: new Date(),
+        tempoMedio: 2,
+      },
+    });
+
+    await tx.nfeDocument.update({
+      where: { id: note.id },
+      data: {
+        status: "PROCESSANDO_SEFAZ",
+        canTransmit: false,
+        cStat: "105",
+        xMotivo: "Lote em processamento",
+        nRec: receipt,
+        logs: {
+          create: {
+            companyId: request.company.id,
+            userId: request.user.id,
+            action: "nfe.sefaz.processing",
+            details: {
+              receipt,
+            },
+          },
+        },
+      },
+    });
+  });
+
+  return findNfeOrThrow(request.company.id, noteId, true);
+}
+
+async function updateMockAuthorizationStage({ request, noteId, emitter, accessKey, protocol, receipt, xml, authorizationReturnXml }) {
+  const note = await findNfeOrThrow(request.company.id, noteId, true);
+  if (!["TRANSMITINDO", "PROCESSANDO_SEFAZ"].includes(note.status)) return null;
+
+  const authorizedAt = new Date();
+  const billing = await prisma.$transaction(async (tx) => {
+    const nextBilling = await ensureBillingForNote(tx, {
+      note,
+      companyId: request.company.id,
+      userId: request.user.id,
+    });
+
+    await tx.nfeSefazReturn.upsert({
+      where: { nfeDocumentId: note.id },
+      create: {
+        nfeDocumentId: note.id,
+        companyId: request.company.id,
+        cStat: "104",
+        xMotivo: "Lote processado",
+        nRec: receipt,
+        protocolo: protocol,
+        ambiente: note.ambiente,
+        uf: request.company.uf,
+        xmlRetorno: authorizationReturnXml,
+        dhRecebto: authorizedAt,
+        tempoMedio: 2,
+      },
+      update: {
+        cStat: "104",
+        xMotivo: "Lote processado",
+        nRec: receipt,
+        protocolo: protocol,
+        ambiente: note.ambiente,
+        uf: request.company.uf,
+        xmlRetorno: authorizationReturnXml,
+        dhRecebto: authorizedAt,
+        tempoMedio: 2,
+      },
+    });
+
+    await tx.nfeAuthorization.upsert({
+      where: { nfeDocumentId: note.id },
+      create: {
+        nfeDocumentId: note.id,
+        companyId: request.company.id,
+        cStat: "100",
+        xMotivo: "Autorizado o uso da NF-e",
+        protocolo,
+        ambiente: note.ambiente,
+        dataAutorizacao: authorizedAt,
+        xmlProtocolo: xml,
+      },
+      update: {
+        cStat: "100",
+        xMotivo: "Autorizado o uso da NF-e",
+        protocolo,
+        ambiente: note.ambiente,
+        dataAutorizacao: authorizedAt,
+        xmlProtocolo: xml,
+      },
+    });
+
+    await upsertNfeFile(tx, {
+      note,
+      companyId: request.company.id,
+      tipo: "XML_AUTORIZADO",
+      storageKey: `mock://nfe/${note.id}/xml-autorizado`,
+      mimeType: "application/xml",
+      content: xml,
+    });
+    await upsertNfeFile(tx, {
+      note,
+      companyId: request.company.id,
+      tipo: "DANFE_MOCK",
+      storageKey: `mock://nfe/${note.id}/danfe`,
+      mimeType: "application/pdf",
+      content: `DANFE MOCK ${accessKey}`,
+    });
+
+    await tx.nfeLog.create({
+      data: {
+        nfeDocumentId: note.id,
+        companyId: request.company.id,
+        userId: request.user.id,
+        action: "nfe.danfe.mock.generated",
+        details: {
+          accessKey,
+          protocol,
+          storageKey: `mock://nfe/${note.id}/danfe`,
+        },
+      },
+    });
+
+    await tx.nfeDocument.update({
+      where: { id: note.id },
+      data: {
+        status: "AUTORIZADA",
+        canTransmit: false,
+        chaveAcesso: accessKey,
+        protocolo,
+        xmlAssinado: xml,
+        xmlTransmitido: xml,
+        xmlRetorno: authorizationReturnXml,
+        xmlProtocolo: xml,
+        xmlDanfe: `mock://nfe/${note.id}/danfe`,
+        cStat: "100",
+        xMotivo: "Autorizado o uso da NF-e",
+        nRec: receipt,
+        logs: {
+          create: {
+            companyId: request.company.id,
+            userId: request.user.id,
+            action: "nfe.mock.authorized",
+            details: {
+              protocol,
+              accessKey,
+              receivables: receivablesFromBilling(nextBilling),
+            },
+          },
+        },
+      },
+    });
+
+    return nextBilling;
+  });
+
+  return { note: await findNfeOrThrow(request.company.id, noteId, true), billing };
 }
 
 nfeRouter.get(
@@ -878,6 +1871,162 @@ nfeRouter.get(
   }),
 );
 
+nfeRouter.get(
+  "/:nfeId/events",
+  asyncHandler(async (request, response) => {
+    const note = await findNfeOrThrow(request.company.id, request.params.nfeId);
+    const logs = await prisma.nfeLog.findMany({
+      where: { nfeDocumentId: note.id, companyId: request.company.id },
+      orderBy: { createdAt: "desc" },
+      take: 100,
+    });
+
+    sendSuccess(response, {
+      data: logs.map((log) => ({
+        id: log.id,
+        action: log.action,
+        details: log.details,
+        createdAt: log.createdAt,
+      })),
+    });
+  }),
+);
+
+nfeRouter.get(
+  "/:nfeId/xml-preview",
+  asyncHandler(async (request, response) => {
+    const note = await findNfeOrThrow(request.company.id, request.params.nfeId, true);
+    const emitter = await loadCompanyEmitter(request.company.id);
+    const recipient = note.destinatarioId
+      ? await prisma.client.findFirst({ where: { id: note.destinatarioId, companyId: request.company.id } })
+      : null;
+    if (!/^\d{7}$/.test(String(emitter?.codigoIbge || ""))) {
+      throw new AppError(
+        "Código IBGE do município do emitente não encontrado. Revise cidade e UF no cadastro da empresa.",
+        "NFE_EMITTER_IBGE_REQUIRED",
+        422,
+      );
+    }
+    if (!emitter?.address?.street || !emitter?.address?.district || !emitter?.address?.city || !emitter?.address?.uf) {
+      throw new AppError(
+        "Endereço fiscal do emitente incompleto. Revise logradouro, bairro, município e UF no cadastro da empresa.",
+        "NFE_EMITTER_ADDRESS_REQUIRED",
+        422,
+      );
+    }
+    const accessKey = buildMockNfeAccessKey({
+      uf: request.company.uf,
+      issuerCnpj: request.company.cnpj,
+      invoiceNumber: note.numero,
+      series: note.serie,
+      model: note.modelo,
+      issuedAt: note.dataEmissao || new Date(),
+      seed: `preview:${note.id}`,
+    });
+    const unsignedXml = appendNfePaymentXml(
+      completeNfePreviewTotals(
+        buildNfePreviewXml(note, emitter, recipient, accessKey),
+        note.totals,
+      ),
+      note,
+    );
+    const signingMaterial = await loadCertificateSigningMaterial(request.company.id);
+    const xml = signNfeXml(unsignedXml, signingMaterial.privateKeyPem, signingMaterial.certificatePem);
+    sendSuccess(response, {
+      data: {
+        xml,
+        authorized: false,
+        fileName: `nfe-conferencia-${note.numero || note.id}.xml`,
+        mimeType: "application/xml;charset=utf-8",
+        message: "XML de conferência gerado sem assinatura e sem protocolo SEFAZ.",
+      },
+    });
+  }),
+);
+
+nfeRouter.get(
+  "/:nfeId/danfe",
+  asyncHandler(async (request, response) => {
+    const note = await findNfeOrThrow(request.company.id, request.params.nfeId, true);
+    const danfeFile = await prisma.nfeFile.findFirst({
+      where: { nfeDocumentId: note.id, companyId: request.company.id, tipo: "DANFE_MOCK" },
+      orderBy: { createdAt: "desc" },
+    });
+    const storageKey = danfeFile?.storageKey || note.xmlDanfe || null;
+    const hasRealUrl = Boolean(storageKey && !String(storageKey).startsWith("mock://"));
+    const isReady = note.status === "AUTORIZADA" || Boolean(danfeFile);
+    const common = {
+      title: "DANFE - Documento Auxiliar da NF-e",
+      accessKey: note.chaveAcesso || null,
+      number: note.numero ?? null,
+      series: note.serie ?? null,
+      issuerName: request.company.tradeName || request.company.legalName || null,
+      recipientCnpj: note.destinatarioCnpj || note.destinatarioCpf || null,
+      totalAmount: Number(note.totals?.valorTotal || 0),
+      status: isReady ? "READY" : "PENDING",
+      message: isReady ? "DANFE de saída disponível." : "DANFE aguardando autorização.",
+    };
+
+    sendSuccess(response, {
+      data: hasRealUrl
+        ? {
+            kind: "link",
+            ...common,
+            url: storageKey,
+            storageKey,
+            fileName: `danfe-nfe-saida-${note.chaveAcesso || note.id}.pdf`,
+            mimeType: danfeFile?.mimeType || "application/pdf",
+          }
+        : {
+            kind: "html",
+            ...common,
+            html: buildDanfeHtml(note, request.company),
+            fileName: `danfe-nfe-saida-${note.chaveAcesso || note.id}.html`,
+            mimeType: "text/html;charset=utf-8",
+          },
+    });
+  }),
+);
+
+nfeRouter.post(
+  "/:nfeId/recalculate",
+  asyncHandler(async (request, response) => {
+    const note = await findNfeOrThrow(request.company.id, request.params.nfeId, true);
+    assertEditable(note);
+
+    const updated = await prisma.$transaction(async (tx) => {
+      await recalculateTotals(tx, note.id, request.company.id);
+      await tx.nfeLog.create({
+        data: {
+          nfeDocumentId: note.id,
+          companyId: request.company.id,
+          userId: request.user.id,
+          action: "nfe.totals.recalculated",
+          details: { source: "manual" },
+        },
+      });
+      return tx.nfeDocument.findUnique({
+        where: { id: note.id },
+        include: {
+          totals: true,
+          items: { where: { deletedAt: null }, orderBy: { itemNumber: "asc" } },
+          transport: true,
+          billing: { include: { installments: { orderBy: { dataVencimento: "asc" } } } },
+          observations: true,
+          references: true,
+          files: true,
+          logs: { orderBy: { createdAt: "desc" }, take: 100 },
+        },
+      });
+    });
+
+    sendSuccess(response, {
+      data: { ...updated, emitente: await loadCompanyEmitter(request.company.id) },
+      message: "Totais recalculados.",
+    });
+  }),
+);
+
 nfeRouter.post(
   "/:nfeId/validate",
   asyncHandler(async (request, response) => {
@@ -897,41 +2046,275 @@ nfeRouter.post(
       ? "NF-e pronta para transmissao."
       : "Complete destinatario, emitente, itens e tributacao antes de transmitir.";
 
-    const updated = await prisma.nfeDocument.update({
-      where: { id: note.id },
-      data: {
-        status,
-        canTransmit,
-        validationScore: validationResult.score,
-        xMotivo: message,
-        validations: {
-          create: {
-            companyId: request.company.id,
-            score: validationResult.score,
-            errorCount: validationResult.errorCount,
-            alertCount: validationResult.alertCount,
-            infoCount: validationResult.infoCount,
-            autoCorrections: validationResult.autoCorrections,
-            rejectionProbability: validationResult.rejectionProbability,
-            canTransmit,
-            phases: validationResult.phases,
-            durationMs: validationResult.durationMs,
-            validatedAt: validationResult.validatedAt ? new Date(validationResult.validatedAt) : new Date(),
-          },
-        },
-        logs: {
-          create: {
-            companyId: request.company.id,
-            userId: request.user.id,
-            action: "nfe.validated",
-            details: { canTransmit, message, score: validationResult.score },
-          },
-        },
-      },
-      include: { totals: true },
+    const { updated } = await persistValidationSnapshot(prisma, {
+      request,
+      note,
+      validationResult,
+      message,
     });
 
     sendSuccess(response, { data: toListItem(updated), message, canTransmit, validation: validationResult });
+  }),
+);
+
+nfeRouter.post(
+  "/:nfeId/auto-fix",
+  asyncHandler(async (request, response) => {
+    const note = await findNfeOrThrow(request.company.id, request.params.nfeId, true);
+    if (LOCKED_STATUSES.has(note.status)) {
+      throw new AppError("Esta NF-e nao pode receber correcoes neste status.", "NFE_STATUS_LOCKED", 409);
+    }
+
+    const emitter = await loadCompanyEmitter(request.company.id);
+    assertEmitterReady(request.company, emitter);
+
+    const validationPayload = buildValidationPayload(note, request.company, emitter);
+    const validationResult = await runNfeValidation(validationPayload, request.company);
+    const issuesForFix = validationResult.issues.map((issue) => ({ ...issue }));
+    const { corrected, corrections } = applyAutoCorrections(issuesForFix, validationPayload);
+    const itemCorrections = corrections
+      .map((correction) => ({ correction, itemRef: parseAutoFixItemField(correction.field) }))
+      .filter((entry) => entry.itemRef);
+    const transportCorrections = corrections.some((correction) => correction.field.startsWith("transporte."));
+    const noteCorrections = corrections.some((correction) => [
+      "finalidadeEmissao",
+      "ambiente",
+      "destinatario.cnpj",
+      "destinatario.cpf",
+      "destinatario.ie",
+      "destinatario.uf",
+      "destinatario.nome",
+      "destinatario.razaoSocial",
+      "pedidoRef",
+      "justificativa",
+      "additionalInfo",
+      "fiscoInfo",
+      "naturezaOperacao",
+      "tipoOperacao",
+      "tpNF",
+      "indicadorPresenca",
+      "indPres",
+      "consumoFinal",
+      "indFinal",
+    ].includes(correction.field));
+
+    const validationMessage = corrections.length > 0
+      ? "Correcoes seguras aplicadas. Revalide a NF-e."
+      : "Nenhuma correcao segura encontrada.";
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const { validationRecord } = await persistValidationSnapshot(tx, {
+        request,
+        note,
+        validationResult: {
+          ...validationResult,
+          autoCorrections: corrections.length,
+        },
+        message: validationMessage,
+      });
+
+      if (corrections.length === 0) {
+        await tx.nfeLog.create({
+          data: {
+            nfeDocumentId: note.id,
+            companyId: request.company.id,
+            userId: request.user.id,
+            action: "nfe.auto_fix.none",
+            details: {
+              score: validationResult.score,
+              canTransmit: validationResult.canTransmit,
+            },
+          },
+        });
+      } else {
+        const notePatch = {};
+        if (noteCorrections) {
+          if (corrections.some((correction) => correction.field === "finalidadeEmissao")) {
+            notePatch.finalidade = String(corrected.finalidadeEmissao || note.finalidade || "1");
+          }
+          if (corrections.some((correction) => correction.field === "ambiente")) {
+            notePatch.ambiente = environmentFromCompany(request.company);
+          }
+          if (corrections.some((correction) => correction.field === "destinatario.cnpj")) {
+            notePatch.destinatarioCnpj = digits(corrected.destinatario?.cnpj) || null;
+          }
+          if (corrections.some((correction) => correction.field === "destinatario.cpf")) {
+            notePatch.destinatarioCpf = digits(corrected.destinatario?.cpf) || null;
+          }
+          if (corrections.some((correction) => correction.field === "destinatario.ie")) {
+            notePatch.destinatarioIe = cleanString(corrected.destinatario?.ie);
+          }
+          if (corrections.some((correction) => correction.field === "destinatario.uf")) {
+            notePatch.destinatarioUf = cleanString(corrected.destinatario?.uf)?.toUpperCase() || null;
+          }
+          if (corrections.some((correction) => correction.field === "destinatario.nome" || correction.field === "destinatario.razaoSocial")) {
+            notePatch.destinatarioNome = cleanString(corrected.destinatario?.razaoSocial || corrected.destinatario?.nome);
+          }
+          if (corrections.some((correction) => correction.field === "pedidoRef")) {
+            notePatch.pedidoRef = cleanString(corrected.pedidoRef);
+          }
+          if (corrections.some((correction) => correction.field === "justificativa")) {
+            notePatch.justificativa = cleanString(corrected.justificativa);
+          }
+          if (corrections.some((correction) => correction.field === "additionalInfo")) {
+            notePatch.additionalInfo = cleanString(corrected.additionalInfo);
+          }
+          if (corrections.some((correction) => correction.field === "fiscoInfo")) {
+            notePatch.fiscoInfo = cleanString(corrected.fiscoInfo);
+          }
+          if (corrections.some((correction) => correction.field === "naturezaOperacao")) {
+            notePatch.naturezaOperacao = cleanString(corrected.naturezaOperacao);
+          }
+          if (corrections.some((correction) => correction.field === "tipoOperacao" || correction.field === "tpNF")) {
+            notePatch.tipoOperacao = cleanString(corrected.tipoOperacao);
+          }
+          if (corrections.some((correction) => correction.field === "indicadorPresenca" || correction.field === "indPres")) {
+            notePatch.indicadorPresenca = cleanString(corrected.indicadorPresenca);
+          }
+          if (corrections.some((correction) => correction.field === "consumoFinal" || correction.field === "indFinal")) {
+            notePatch.consumoFinal = Boolean(corrected.consumoFinal === true || String(corrected.consumoFinal) === "1");
+          }
+        }
+
+        await tx.nfeDocument.update({
+          where: { id: note.id },
+          data: {
+            ...notePatch,
+            status: "RASCUNHO",
+            canTransmit: false,
+            validationScore: null,
+            xMotivo: "Correcoes seguras aplicadas. Revalide a NF-e.",
+            logs: {
+              create: {
+                companyId: request.company.id,
+                userId: request.user.id,
+                action: "nfe.auto_fix.applied",
+                details: {
+                  corrections: corrections.length,
+                  fields: corrections.map((correction) => correction.field).slice(0, 20),
+                  validationResultId: validationRecord.id,
+                },
+              },
+            },
+          },
+        });
+
+        const itemIndexes = [...new Set(itemCorrections.map((entry) => entry.itemRef.index))];
+        for (const index of itemIndexes) {
+          const originalItem = note.items[index];
+          const correctedItem = corrected.itens?.[index];
+          if (!originalItem || !correctedItem) continue;
+
+          await tx.nfeItem.update({
+            where: { id: originalItem.id },
+            data: {
+              cfop: correctedItem.cfop ? String(correctedItem.cfop) : originalItem.cfop,
+              unidade: cleanString(correctedItem.unidade) || originalItem.unidade,
+              quantidade:
+                correctedItem.quantidade === undefined || correctedItem.quantidade === null || correctedItem.quantidade === ""
+                  ? originalItem.quantidade
+                  : parseMoney(correctedItem.quantidade, Number(originalItem.quantidade || 0)),
+              valorUnitario:
+                correctedItem.valorUnitario === undefined || correctedItem.valorUnitario === null || correctedItem.valorUnitario === ""
+                  ? originalItem.valorUnitario
+                  : parseMoney(correctedItem.valorUnitario, Number(originalItem.valorUnitario || 0)),
+              valorTotal:
+                correctedItem.valorTotal === undefined || correctedItem.valorTotal === null || correctedItem.valorTotal === ""
+                  ? originalItem.valorTotal
+                  : parseMoney(correctedItem.valorTotal, Number(originalItem.valorTotal || 0)),
+              descontoValor:
+                correctedItem.desconto === undefined || correctedItem.desconto === null || correctedItem.desconto === ""
+                  ? originalItem.descontoValor
+                  : parseMoney(correctedItem.desconto, Number(originalItem.descontoValor || 0)),
+              cst: correctedItem.cst ? String(correctedItem.cst) : originalItem.cst,
+              csosn: correctedItem.csosn ? String(correctedItem.csosn) : originalItem.csosn,
+              origem:
+                correctedItem.origem === undefined || correctedItem.origem === null || correctedItem.origem === ""
+                  ? originalItem.origem
+                  : parseSmallInt(correctedItem.origem, originalItem.origem ?? null),
+              ncm: correctedItem.ncm ? String(correctedItem.ncm) : originalItem.ncm,
+              cest: correctedItem.cest ? String(correctedItem.cest) : originalItem.cest,
+            },
+          });
+        }
+
+        if (itemIndexes.length > 0) {
+          await recalculateTotals(tx, note.id, request.company.id);
+        }
+
+        if (transportCorrections) {
+          await syncTransport(tx, {
+            note,
+            companyId: request.company.id,
+            userId: request.user.id,
+            payload: corrected.transporte || {},
+          });
+        }
+
+        await tx.nfeAutoFix.createMany({
+          data: corrections.map((correction) => ({
+            validationResultId: validationRecord.id,
+            companyId: request.company.id,
+            userId: request.user.id,
+            issueCode: String(correction.code || "NFE").slice(0, 20),
+            field: String(correction.field || "").slice(0, 120),
+            oldValue:
+              correction.oldValue === undefined || correction.oldValue === null
+                ? null
+                : String(correction.oldValue).slice(0, 500),
+            newValue:
+              correction.newValue === undefined || correction.newValue === null
+                ? null
+                : String(correction.newValue).slice(0, 500),
+            reason: String(correction.description || "Correção segura aplicada.").slice(0, 500),
+            ruleApplied: `AUTO_FIX_${String(correction.code || "NFE").slice(0, 100)}`,
+          })),
+        });
+
+        await tx.nfeLog.create({
+          data: {
+            nfeDocumentId: note.id,
+            companyId: request.company.id,
+            userId: request.user.id,
+            action: "nfe.auto_fix.applied",
+            details: {
+              corrections: corrections.length,
+              fields: corrections.map((correction) => correction.field).slice(0, 20),
+              validationResultId: validationRecord.id,
+            },
+          },
+        });
+      }
+
+      return tx.nfeDocument.findFirst({
+        where: { id: note.id, companyId: request.company.id, deletedAt: null, modelo: "55" },
+        include: {
+          totals: true,
+          items: { where: { deletedAt: null }, orderBy: { itemNumber: "asc" } },
+          transport: true,
+          billing: { include: { installments: { orderBy: { dataVencimento: "asc" } } } },
+          observations: true,
+          references: true,
+          validations: {
+            orderBy: { validatedAt: "desc" },
+            take: 1,
+            include: { issues: { orderBy: { createdAt: "desc" } } },
+          },
+          sefazReturn: true,
+          authorization: true,
+          files: true,
+          logs: { orderBy: { createdAt: "desc" }, take: 100 },
+        },
+      });
+    });
+
+    sendSuccess(response, {
+      data: { ...updated, emitente: await loadCompanyEmitter(request.company.id) },
+      message: corrections.length > 0 ? `Aplicadas ${corrections.length} correções seguras.` : "Nenhuma correção segura disponível.",
+      corrections,
+      validation: validationResult,
+      canTransmit: corrections.length === 0 ? validationResult.canTransmit : false,
+    });
   }),
 );
 
@@ -943,6 +2326,20 @@ nfeRouter.post(
     assertEmitterReady(request.company, emitter);
 
     if (!note.canTransmit || note.status !== "PRONTA_TRANSMISSAO") {
+      await prisma.nfeLog.create({
+        data: {
+          nfeDocumentId: note.id,
+          companyId: request.company.id,
+          userId: request.user.id,
+          action: "nfe.transmission.blocked",
+          details: {
+            status: note.status,
+            canTransmit: note.canTransmit,
+            validationScore: note.validationScore,
+            issues: note.validations?.[0]?.issues?.length || 0,
+          },
+        },
+      });
       throw new AppError(
         "Nao e possivel transmitir rascunho incompleto. Valide e corrija a NF-e antes.",
         "NFE_NOT_READY",
@@ -950,23 +2347,278 @@ nfeRouter.post(
       );
     }
 
-    const updated = await prisma.nfeDocument.update({
-      where: { id: note.id },
-      data: {
-        status: "TRANSMITINDO",
-        logs: {
-          create: {
-            companyId: request.company.id,
-            userId: request.user.id,
-            action: "nfe.transmission.started",
-            details: { source: "nfe-list" },
+    await claimTransmission(note);
+    let result;
+    try {
+      result = await performMockTransmission({ request, note, emitter });
+    } catch (error) {
+      await releaseTransmissionClaim(note);
+      throw error;
+    }
+
+    sendSuccess(response, {
+      data: toListItem(result.updated),
+      message: "Lote recebido pela SEFAZ. Processamento assíncrono iniciado.",
+      protocol: result.protocol || undefined,
+      accessKey: result.accessKey,
+      financial: {
+        receivables: receivablesFromBilling(result.billing),
+      },
+    });
+  }),
+);
+
+nfeRouter.post(
+  "/:nfeId/transmit-mock",
+  asyncHandler(async (request, response) => {
+    const note = await findNfeOrThrow(request.company.id, request.params.nfeId, true);
+    const emitter = await loadCompanyEmitter(request.company.id);
+    assertEmitterReady(request.company, emitter);
+
+    if (!note.canTransmit || note.status !== "PRONTA_TRANSMISSAO") {
+      await prisma.nfeLog.create({
+        data: {
+          nfeDocumentId: note.id,
+          companyId: request.company.id,
+          userId: request.user.id,
+          action: "nfe.transmission.blocked",
+          details: {
+            status: note.status,
+            canTransmit: note.canTransmit,
+            validationScore: note.validationScore,
+            issues: note.validations?.[0]?.issues?.length || 0,
           },
         },
+      });
+      throw new AppError(
+        "Nao e possivel transmitir rascunho incompleto. Valide e corrija a NF-e antes.",
+        "NFE_NOT_READY",
+        409,
+      );
+    }
+
+    await claimTransmission(note);
+    let result;
+    try {
+      result = await performMockTransmission({ request, note, emitter });
+    } catch (error) {
+      await releaseTransmissionClaim(note);
+      throw error;
+    }
+
+    sendSuccess(response, {
+      data: toListItem(result.updated),
+      message: "Lote recebido pela SEFAZ. Processamento assíncrono iniciado.",
+      protocol: result.protocol || undefined,
+      accessKey: result.accessKey,
+      financial: {
+        receivables: receivablesFromBilling(result.billing),
       },
-      include: { totals: true },
+    });
+  }),
+);
+
+nfeRouter.put(
+  "/:nfeId/transport",
+  asyncHandler(async (request, response) => {
+    const note = await findNfeOrThrow(request.company.id, request.params.nfeId, true);
+    assertEditable(note);
+
+    const updated = await prisma.$transaction(async (tx) => syncTransport(tx, {
+      note,
+      companyId: request.company.id,
+      userId: request.user.id,
+      payload: request.body || {},
+    }));
+
+    sendSuccess(response, {
+      data: { ...updated, emitente: await loadCompanyEmitter(request.company.id) },
+      message: "Transporte atualizado.",
+    });
+  }),
+);
+
+nfeRouter.post(
+  "/:nfeId/generate-financial",
+  asyncHandler(async (request, response) => {
+    const note = await findNfeOrThrow(request.company.id, request.params.nfeId, true);
+    const payload = request.body || {};
+
+    const billing = await prisma.$transaction(async (tx) => {
+      const nextBilling = Object.keys(payload).length
+        ? await syncBilling(tx, {
+            note,
+            companyId: request.company.id,
+            userId: request.user.id,
+            payload,
+          })
+        : await ensureBillingForNote(tx, {
+            note,
+            companyId: request.company.id,
+            userId: request.user.id,
+          });
+
+      await tx.nfeDocument.update({
+        where: { id: note.id },
+        data: {
+          logs: {
+            create: {
+              companyId: request.company.id,
+              userId: request.user.id,
+              action: "nfe.financial.generated",
+              details: {
+                receivables: nextBilling.installments.length,
+                value: Number(nextBilling.valorPagamento || note.totals?.valorTotal || 0),
+              },
+            },
+          },
+        },
+      });
+
+      return nextBilling;
     });
 
-    sendSuccess(response, { data: toListItem(updated), message: "Transmissao iniciada." });
+    sendSuccess(response, {
+      financial: {
+        receivables: receivablesFromBilling(billing),
+      },
+      message: "Financeiro gerado.",
+    });
+  }),
+);
+
+nfeRouter.put(
+  "/:nfeId/billing",
+  asyncHandler(async (request, response) => {
+    const note = await findNfeOrThrow(request.company.id, request.params.nfeId, true);
+    if (note.status === "CANCELADA" || note.status === "DENEGADA" || note.status === "INUTILIZADA") {
+      throw new AppError("Esta NF-e nao permite alteracao de cobranca.", "NFE_BILLING_LOCKED", 409);
+    }
+
+    const updated = await prisma.$transaction(async (tx) => {
+      await syncBilling(tx, {
+        note,
+        companyId: request.company.id,
+        userId: request.user.id,
+        payload: request.body || {},
+      });
+      return tx.nfeDocument.findUnique({
+        where: { id: note.id },
+        include: {
+          totals: true,
+          items: { where: { deletedAt: null }, orderBy: { itemNumber: "asc" } },
+          transport: true,
+          billing: { include: { installments: { orderBy: { dataVencimento: "asc" } } } },
+          observations: true,
+          references: true,
+          files: true,
+          logs: { orderBy: { createdAt: "desc" }, take: 100 },
+        },
+      });
+    });
+
+    sendSuccess(response, {
+      data: { ...updated, emitente: await loadCompanyEmitter(request.company.id) },
+      message: "Cobranca e contas a receber atualizadas.",
+    });
+  }),
+);
+
+nfeRouter.post(
+  "/:nfeId/boleto",
+  asyncHandler(async (request, response) => {
+    const note = await findNfeOrThrow(request.company.id, request.params.nfeId, true);
+    const result = await prisma.$transaction(async (tx) => {
+      const billing = await ensureBillingForNote(tx, {
+        note,
+        companyId: request.company.id,
+        userId: request.user.id,
+      });
+      const boleto = buildMockBoleto(note, billing);
+      await upsertNfeFile(tx, {
+        note,
+        companyId: request.company.id,
+        tipo: "BOLETO_MOCK",
+        storageKey: boleto.url,
+        mimeType: "application/pdf",
+        content: JSON.stringify(boleto),
+      });
+      await tx.nfeLog.create({
+        data: {
+          nfeDocumentId: note.id,
+          companyId: request.company.id,
+          userId: request.user.id,
+          action: "nfe.boleto.mock.generated",
+          details: boleto,
+        },
+      });
+      return { boleto, billing };
+    });
+
+    sendSuccess(response, {
+      boleto: result.boleto,
+      financial: { receivables: receivablesFromBilling(result.billing) },
+      message: "Boleto mock gerado.",
+    });
+  }),
+);
+
+nfeRouter.post(
+  "/webhooks/mock",
+  asyncHandler(async (request, response) => {
+    const payload = request.body || {};
+    const nfeId = cleanString(payload.nfeId ?? payload.nfeDocumentId ?? payload.documentId);
+    if (!nfeId) throw new AppError("Informe nfeId para processar o webhook mock.", "NFE_WEBHOOK_ID_REQUIRED", 400);
+
+    const note = await findNfeOrThrow(request.company.id, nfeId, true);
+    const idempotencyKey =
+      cleanString(request.headers["idempotency-key"]) ||
+      cleanString(payload.eventId ?? payload.idempotencyKey) ||
+      `${note.id}:${payload.status || payload.event || "mock"}`;
+    const action = `nfe.webhook.mock.${String(idempotencyKey).replace(/[^a-zA-Z0-9_.:-]/g, "").slice(0, 80)}`;
+    const existing = await prisma.nfeLog.findFirst({
+      where: {
+        companyId: request.company.id,
+        nfeDocumentId: note.id,
+        action,
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    if (existing) {
+      sendSuccess(response, {
+        processed: true,
+        idempotent: true,
+        eventId: idempotencyKey,
+        status: note.status,
+        message: "Webhook mock ja processado anteriormente.",
+      });
+      return;
+    }
+
+    const status = String(payload.status || payload.event || "paid").toUpperCase();
+    await prisma.nfeLog.create({
+      data: {
+        nfeDocumentId: note.id,
+        companyId: request.company.id,
+        userId: request.user?.id || null,
+        action,
+        details: {
+          status,
+          idempotencyKey,
+          receivedAt: new Date().toISOString(),
+          payload,
+        },
+      },
+    });
+
+    sendSuccess(response, {
+      processed: true,
+      idempotent: false,
+      eventId: idempotencyKey,
+      status,
+      message: "Webhook mock processado com idempotencia.",
+    });
   }),
 );
 
@@ -1119,7 +2771,7 @@ nfeRouter.put(
         items: { where: { deletedAt: null }, orderBy: { itemNumber: "asc" } },
         references: true,
         observations: true,
-        logs: { orderBy: { createdAt: "desc" }, take: 20 },
+        logs: { orderBy: { createdAt: "desc" }, take: 100 },
       },
     });
 
@@ -1149,6 +2801,15 @@ nfeRouter.post(
         },
       });
       await recalculateTotals(tx, note.id, request.company.id);
+      await tx.nfeLog.create({
+        data: {
+          nfeDocumentId: note.id,
+          companyId: request.company.id,
+          userId: request.user.id,
+          action: "nfe.totals.recalculated",
+          details: { source: "item", reason: "created", productId: itemData.productId },
+        },
+      });
       return tx.nfeDocument.update({
         where: { id: note.id },
         data: {
@@ -1191,6 +2852,15 @@ nfeRouter.put(
         data: itemData,
       });
       await recalculateTotals(tx, note.id, request.company.id);
+      await tx.nfeLog.create({
+        data: {
+          nfeDocumentId: note.id,
+          companyId: request.company.id,
+          userId: request.user.id,
+          action: "nfe.totals.recalculated",
+          details: { source: "item", reason: "updated", itemId: item.id },
+        },
+      });
       return tx.nfeDocument.update({
         where: { id: note.id },
         data: {
@@ -1232,6 +2902,15 @@ nfeRouter.delete(
         data: { deletedAt: new Date() },
       });
       await recalculateTotals(tx, note.id, request.company.id);
+      await tx.nfeLog.create({
+        data: {
+          nfeDocumentId: note.id,
+          companyId: request.company.id,
+          userId: request.user.id,
+          action: "nfe.totals.recalculated",
+          details: { source: "item", reason: "deleted", itemId: item.id },
+        },
+      });
       return tx.nfeDocument.update({
         where: { id: note.id },
         data: {
@@ -1269,8 +2948,15 @@ nfeRouter.get(
         billing: { include: { installments: true } },
         observations: true,
         references: true,
+        validations: {
+          orderBy: { validatedAt: "desc" },
+          take: 1,
+          include: { issues: { orderBy: { createdAt: "desc" } } },
+        },
+        sefazReturn: true,
+        authorization: true,
         files: true,
-        logs: { orderBy: { createdAt: "desc" }, take: 20 },
+        logs: { orderBy: { createdAt: "desc" }, take: 100 },
       },
     });
     if (!note) throw new AppError("NF-e nao encontrada.", "NFE_NOT_FOUND", 404);

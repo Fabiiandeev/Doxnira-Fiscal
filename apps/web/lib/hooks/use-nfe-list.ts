@@ -1,6 +1,6 @@
 "use client";
 
-import { keepPreviousData, useMutation, useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
 import { useDebouncedValue } from "@/lib/hooks/use-debounced-value";
@@ -22,6 +22,8 @@ export const initialNfeFilters: NfeFilters = {
   series: "",
   accessKey: "",
   value: "",
+  minValue: "",
+  maxValue: "",
   uf: "",
   operationType: "",
 };
@@ -59,13 +61,22 @@ export function useNfeList(input: {
         sortOrder: input.sortOrder,
       }),
     placeholderData: keepPreviousData,
+    refetchOnMount: "always",
   });
 }
 
 export function useCreateNfeDraft() {
-  return useMutation({ mutationFn: createNfeDraft });
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: createNfeDraft,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["nfe-list"] }),
+  });
 }
 
 export function useDeleteNfeDraft() {
-  return useMutation({ mutationFn: deleteNfeDraft });
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: deleteNfeDraft,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["nfe-list"] }),
+  });
 }

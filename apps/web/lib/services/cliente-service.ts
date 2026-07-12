@@ -2,6 +2,7 @@ import { apiFetch, getCompanyId } from "@/lib/api";
 import type { IntelligentClient, ClientLookupResult, ClientValidationResult } from "@/lib/client-types";
 
 type ClientListResponse = { data: IntelligentClient[] };
+type ClientDocumentsResponse = { data: CustomerFiscalDocument[]; total: number };
 
 const viacepCache = new Map<string, ViaCepResult>();
 
@@ -14,6 +15,28 @@ interface ViaCepResult {
   uf: string | null;
   codigoIbge: string | null;
   ddd: string | null;
+}
+
+export interface CustomerFiscalDocument {
+  id: string;
+  documentType: string;
+  invoiceNumber: string | null;
+  series: string | null;
+  accessKey: string | null;
+  status: string | null;
+  issuerName: string | null;
+  issuerCnpj: string | null;
+  recipientName: string | null;
+  recipientCnpj: string | null;
+  emissionDate: string | null;
+  totalAmount: number | null;
+  createdAt: string;
+}
+
+function customerPath(path = "") {
+  const companyId = getCompanyId();
+  const suffix = path.startsWith("?") ? path : path.startsWith("/") ? path : path ? `/${path}` : "";
+  return `/customers${suffix}${companyId ? `${suffix.includes("?") ? "&" : "?"}companyId=${encodeURIComponent(companyId)}` : ""}`;
 }
 
 export async function lookupViaCep(cep: string): Promise<ViaCepResult | null> {
@@ -43,46 +66,47 @@ export async function lookupViaCep(cep: string): Promise<ViaCepResult | null> {
 }
 
 export async function listClients(q?: string): Promise<IntelligentClient[]> {
-  const companyId = getCompanyId();
   const params = new URLSearchParams();
   if (q) params.set("q", q);
   const qs = params.toString();
-  const res = await apiFetch<ClientListResponse>(`/companies/${companyId}/clientes${qs ? `?${qs}` : ""}`);
+  const res = await apiFetch<ClientListResponse>(customerPath(qs ? `?${qs}` : ""));
   return res.data;
 }
 
 export async function getClient(id: string): Promise<IntelligentClient> {
-  const companyId = getCompanyId();
-  return apiFetch<IntelligentClient>(`/companies/${companyId}/clientes/${id}`);
+  return apiFetch<IntelligentClient>(customerPath(`/${id}`));
 }
 
 export async function createClient(payload: Record<string, unknown>): Promise<IntelligentClient> {
-  const companyId = getCompanyId();
-  return apiFetch<IntelligentClient>(`/companies/${companyId}/clientes`, {
+  return apiFetch<IntelligentClient>(customerPath(), {
     method: "POST",
     body: JSON.stringify(payload),
   });
 }
 
 export async function updateClient(id: string, payload: Record<string, unknown>): Promise<IntelligentClient> {
-  const companyId = getCompanyId();
-  return apiFetch<IntelligentClient>(`/companies/${companyId}/clientes/${id}`, {
-    method: "PUT",
+  return apiFetch<IntelligentClient>(customerPath(`/${id}`), {
+    method: "PATCH",
     body: JSON.stringify(payload),
   });
 }
 
 export async function deleteClient(id: string): Promise<void> {
-  const companyId = getCompanyId();
-  await apiFetch(`/companies/${companyId}/clientes/${id}`, { method: "DELETE" });
+  await apiFetch(customerPath(`/${id}`), { method: "DELETE" });
 }
 
 export async function buscarCnpj(cnpj: string): Promise<ClientLookupResult> {
-  return apiFetch<ClientLookupResult>(`/clientes/buscar-cnpj?cnpj=${encodeURIComponent(cnpj)}`);
+  return apiFetch<ClientLookupResult>(customerPath("/lookup-document"), {
+    method: "POST",
+    body: JSON.stringify({ document: cnpj }),
+  });
 }
 
 export async function buscarCpf(cpf: string): Promise<ClientLookupResult> {
-  return apiFetch<ClientLookupResult>(`/clientes/buscar-cpf?cpf=${encodeURIComponent(cpf)}`);
+  return apiFetch<ClientLookupResult>(customerPath("/lookup-document"), {
+    method: "POST",
+    body: JSON.stringify({ document: cpf }),
+  });
 }
 
 export interface SintegraResult {
@@ -106,11 +130,28 @@ export async function validarSintegra(cnpj: string, uf?: string): Promise<Sinteg
 }
 
 export async function validarCliente(cliente: Record<string, unknown>): Promise<ClientValidationResult> {
-  const companyId = getCompanyId();
-  return apiFetch<ClientValidationResult>(`/companies/${companyId}/clientes/validar-ia`, {
+  return apiFetch<ClientValidationResult>(customerPath("/validar-ia"), {
     method: "POST",
     body: JSON.stringify(cliente),
   });
+}
+
+export async function validateSavedClient(id: string): Promise<ClientValidationResult> {
+  return apiFetch<ClientValidationResult>(customerPath(`/${id}/validate`), { method: "POST" });
+}
+
+export async function autoFixClient(id: string): Promise<{
+  corrected: boolean;
+  corrections: Array<{ field: string; label: string; previous: unknown; next: unknown }>;
+  client: IntelligentClient;
+  validation: ClientValidationResult;
+}> {
+  return apiFetch(customerPath(`/${id}/auto-fix`), { method: "POST" });
+}
+
+export async function listClientDocuments(id: string): Promise<CustomerFiscalDocument[]> {
+  const res = await apiFetch<ClientDocumentsResponse>(customerPath(`/${id}/documents`));
+  return res.data;
 }
 
 export type { IntelligentClient, ClientLookupResult, ClientValidationResult };

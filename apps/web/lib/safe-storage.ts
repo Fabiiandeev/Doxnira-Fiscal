@@ -1,25 +1,30 @@
-export function safeParseStorage<T>(key: string, fallback: T): T {
-  if (typeof window === "undefined") return fallback;
+import { getBrowserLocalStorage } from "@/lib/browser-storage";
 
-  const raw = localStorage.getItem(key);
+function getSafeStorage() {
+  return getBrowserLocalStorage();
+}
+
+export function safeParseStorage<T>(key: string, fallback: T): T {
+  const storage = getSafeStorage();
+  if (!storage) return fallback;
+
+  const raw = storage.getItem(key);
 
   if (!raw || raw === "undefined" || raw === "null") {
-    localStorage.setItem(key, JSON.stringify(fallback));
+    storage.setItem(key, JSON.stringify(fallback));
     return fallback;
   }
 
   try {
     return JSON.parse(raw) as T;
   } catch {
-    localStorage.setItem(key, JSON.stringify(fallback));
+    storage.setItem(key, JSON.stringify(fallback));
     return fallback;
   }
 }
 
 export function setStorage<T>(key: string, data: T): void {
-  if (typeof window !== "undefined") {
-    localStorage.setItem(key, JSON.stringify(data));
-  }
+  getSafeStorage()?.setItem(key, JSON.stringify(data));
 }
 
 const MOCK_KEYS = [
@@ -37,17 +42,18 @@ const MOCK_KEYS = [
 ];
 
 export function cleanStaleMockStorage(): void {
-  if (typeof window === "undefined") return;
+  const storage = getSafeStorage();
+  if (!storage) return;
   for (const key of MOCK_KEYS) {
-    const raw = localStorage.getItem(key);
+    const raw = storage.getItem(key);
     if (!raw) continue;
     try {
       const parsed = JSON.parse(raw);
       if (!parsed || (typeof parsed === "object" && Object.keys(parsed).length === 0)) {
-        localStorage.removeItem(key);
+        storage.removeItem(key);
       }
     } catch {
-      localStorage.removeItem(key);
+      storage.removeItem(key);
     }
   }
 }

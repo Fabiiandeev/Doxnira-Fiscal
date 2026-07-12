@@ -28,17 +28,27 @@ import { reportsRouter } from "./modules/reports/reports.routes.js";
 import { syncRouter } from "./modules/sync/sync.routes.js";
 import { taxSettingsRouter } from "./modules/tax-settings/tax-settings.routes.js";
 import { healthRouter } from "./routes/health.routes.js";
-import { clientesRouter, clientesPublicRouter } from "./modules/clients/clients.routes.js";
-import { productsRouter } from "./modules/products/products.routes.js";
+import { clientesRouter, clientesPublicRouter, customersRouter } from "./modules/clients/clients.routes.js";
+import { productsRouter, productsStandaloneRouter } from "./modules/products/products.routes.js";
 import { cfopsRouter } from "./modules/cfops/cfops.routes.js";
 import { accountantRouter } from "./modules/accountant/accountant.routes.js";
 import { transportadorasRouter } from "./modules/transportadoras/transportadoras.routes.js";
 import { nfeValidationRouter } from "./modules/nfe-validation/nfe-validation.routes.js";
 import { fornecedoresRouter } from "./modules/fornecedores/fornecedores.routes.js";
 import { nfeRouter } from "./modules/nfe/nfe.routes.js";
+import { cteEntryRouter, nfeEntryRouter } from "./modules/nfe-entry/nfe-entry.routes.js";
 
 export const app = express();
 const allowedOrigins = env.CORS_ORIGIN.split(",").map((origin) => origin.trim());
+const localDevOriginPattern = /^http:\/\/(localhost|127\.0\.0\.1):30\d{2}$/;
+const configuredForLocalhost = allowedOrigins.some((origin) => /^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin));
+
+function isAllowedOrigin(origin) {
+  if (!origin || allowedOrigins.includes(origin)) return true;
+  if (allowedOrigins.includes("*")) return true;
+  if (configuredForLocalhost && localDevOriginPattern.test(origin)) return true;
+  return env.NODE_ENV !== "production" && localDevOriginPattern.test(origin);
+}
 
 app.disable("x-powered-by");
 
@@ -55,7 +65,7 @@ app.use(compression());
 app.use(
   cors({
     origin(origin, callback) {
-      if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+      if (isAllowedOrigin(origin)) return callback(null, true);
       return callback(new Error("Origin not allowed by CORS."));
     },
     credentials: true,
@@ -90,6 +100,8 @@ app.use("/api/companies", companyApiRouter);
 
 // Clientes public and company-scoped routes
 app.use("/api/clientes", clientesPublicRouter);
+app.use("/api/customers", customersRouter);
+app.use("/api/products", productsStandaloneRouter);
 companyApiRouter.use("/:companyId/clientes", clientesRouter);
 companyApiRouter.use("/:companyId/clients", clientesRouter);
 companyApiRouter.use("/:companyId/cfops", cfopsRouter);
@@ -98,6 +110,8 @@ companyApiRouter.use("/:companyId/transportadoras", transportadorasRouter);
 companyApiRouter.use("/:companyId/fornecedores", fornecedoresRouter);
 companyApiRouter.use("/:companyId/nfe-validation", nfeValidationRouter);
 companyApiRouter.use("/:companyId/nfe", nfeRouter);
+companyApiRouter.use("/:companyId/nfe-entry", nfeEntryRouter);
+companyApiRouter.use("/:companyId/cte-entry", cteEntryRouter);
 
 app.use("/api/accountant", requireAuth, accountantRouter);
 

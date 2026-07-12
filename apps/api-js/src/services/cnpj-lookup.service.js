@@ -214,7 +214,7 @@ function buildCnpjWsResult(data, originalCnpj) {
       cnpj: originalCnpj,
       razaoSocial: data.razao_social || null,
       nomeFantasia: est.nome_fantasia || null,
-      endereco: est.endereco || null,
+      endereco: est.logradouro || est.endereco || null,
       numero: est.numero || null,
       complemento: est.complemento || null,
       bairro: est.bairro || null,

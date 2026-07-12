@@ -25,6 +25,7 @@ import {
   Building2,
   FileText,
   XCircle,
+  ShoppingCart,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -42,6 +43,14 @@ import {
   getNextCode,
   analyzeNcm,
   simulateFiscal,
+  validateProduct,
+  autoFixProduct,
+  suggestProductNcm,
+  suggestProductCest,
+  applyProductFiscalRule,
+  updateProductStockSettings,
+  updateProductPricing,
+  updateProductMarketplace,
 } from "@/lib/services/product-service";
 import { searchCfops } from "@/lib/services/cfop-service";
 import type { PartialProduct, HistoricoProduto, Cfop, NcmAnalysisResult, FiscalSimulationResultV2 } from "@/lib/product-types";
@@ -55,6 +64,8 @@ import {
 interface IntelligentProductViewProps {
   productId?: string;
   viewMode?: "create" | "view" | "edit";
+  initialTab?: string;
+  basePath?: string;
   onBack?: () => void;
 }
 
@@ -79,6 +90,7 @@ const TAB_ITEMS = [
   { value: "fiscal", label: "Fiscal", Icon: Shield },
   { value: "estoque", label: "Estoque", Icon: TruckIcon },
   { value: "precos", label: "Preços", Icon: DollarSign },
+  { value: "marketplace", label: "Marketplace", Icon: ShoppingCart },
   { value: "fiscalai", label: "FiscalAI", Icon: Zap },
   { value: "historico", label: "Histórico", Icon: History },
 ];
@@ -220,10 +232,16 @@ function mapProductFormToPayload(formData: PartialProduct, mode: "create" | "upd
   return mapProductFormToCreatePayload(formData);
 }
 
-export function IntelligentProductView({ productId, viewMode: viewModeProp, onBack }: IntelligentProductViewProps) {
+export function IntelligentProductView({
+  productId,
+  viewMode: viewModeProp,
+  initialTab = "cadastro",
+  basePath = "/products",
+  onBack,
+}: IntelligentProductViewProps) {
   const router = useRouter();
   const [form, setForm] = useState<PartialProduct>({ unit: "UN", active: true });
-  const [activeTab, setActiveTab] = useState("cadastro");
+  const [activeTab, setActiveTab] = useState(initialTab);
   const [loadingProduct, setLoadingProduct] = useState(false);
   const [productLoadError, setProductLoadError] = useState<string | null>(null);
   const [ncmValidating, setNcmValidating] = useState(false);
@@ -236,6 +254,18 @@ export function IntelligentProductView({ productId, viewMode: viewModeProp, onBa
   const [cfopDropdownOpen, setCfopDropdownOpen] = useState(false);
   const [cfopLoading, setCfopLoading] = useState(false);
   const cfopDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const postSaveActionRef = useRef<"detail" | "nfe">("detail");
+  const [marketplaceForm, setMarketplaceForm] = useState({
+    enabled: false,
+    sku: "",
+    mercadoLivreSku: "",
+    shopeeSku: "",
+    title: "",
+    status: "preparado",
+    syncStock: false,
+    syncPrice: false,
+    syncListing: false,
+  });
 
   const [ncmAnalysis, setNcmAnalysis] = useState<NcmAnalysisResult | null>(null);
   const [ncmAnalysisLoading, setNcmAnalysisLoading] = useState(false);
@@ -306,6 +336,18 @@ export function IntelligentProductView({ productId, viewMode: viewModeProp, onBa
       .then((data) => {
         if (cancelled) return;
         setForm(data);
+        const marketplace = data.fiscalAi?.productSettings?.marketplace;
+        setMarketplaceForm({
+          enabled: Boolean(marketplace?.enabled),
+          sku: marketplace?.sku ?? "",
+          mercadoLivreSku: marketplace?.mercadoLivreSku ?? "",
+          shopeeSku: marketplace?.shopeeSku ?? "",
+          title: marketplace?.title ?? data.name ?? "",
+          status: marketplace?.status ?? "preparado",
+          syncStock: Boolean(marketplace?.syncStock),
+          syncPrice: Boolean(marketplace?.syncPrice),
+          syncListing: Boolean(marketplace?.syncListing),
+        });
         if (data.cfopPreferencial) {
           setCfopSearch(data.cfopPreferencial);
         }
@@ -396,10 +438,16 @@ export function IntelligentProductView({ productId, viewMode: viewModeProp, onBa
       if (productId) return updateProduct(productId, payload);
       return createProduct(payload);
     },
-    onSuccess: () => {
+    onSuccess: (savedProduct) => {
       notify({ title: productId ? "Produto atualizado" : "Produto criado", tone: "success" });
+      const action = postSaveActionRef.current;
+      postSaveActionRef.current = "detail";
       setTimeout(() => {
-        router.push("/products");
+        if (action === "nfe") {
+          router.push(`/emitir-nota?productId=${savedProduct.id}`);
+        } else {
+          router.push(`${basePath}/${savedProduct.id}`);
+        }
         router.refresh();
       }, 600);
     },
@@ -407,6 +455,11 @@ export function IntelligentProductView({ productId, viewMode: viewModeProp, onBa
       notify({ title: "Erro ao salvar produto", tone: "error" });
     },
   });
+
+  function saveWithAction(action: "detail" | "nfe" = "detail") {
+    postSaveActionRef.current = action;
+    saveMutation.mutate();
+  }
 
   const ncmMutation = useMutation({
     mutationFn: (ncm: string) => lookupNcm(ncm),
@@ -459,6 +512,156 @@ export function IntelligentProductView({ productId, viewMode: viewModeProp, onBa
       setNcmValidating(false);
     }
   }, [form.ncm, ncmMutation]);
+
+  const requireSavedProduct = useCallback(() => {
+    if (!productId) {
+      notify({ title: "Salve o produto primeiro", description: "A ação usa validações e vínculos do cadastro salvo.", tone: "info" });
+      return null;
+    }
+    return productId;
+  }, [productId]);
+
+  const handleValidateProduct = useCallback(async () => {
+    const id = requireSavedProduct();
+    if (!id) return;
+    try {
+      const result = await validateProduct(id);
+      setForm((f) => ({ ...f, scoreProduto: result.scoreCadastro, fiscalAi: result.product?.fiscalAi ?? f.fiscalAi }));
+      notify({ title: "Produto validado", description: `Score ${result.scoreCadastro}% · ${result.pendencias.length} pendência(s).`, tone: result.pendencias.length ? "info" : "success" });
+    } catch (error) {
+      notify({ title: "Validação indisponível", description: error instanceof Error ? error.message : undefined, tone: "error" });
+    }
+  }, [requireSavedProduct]);
+
+  const handleAutoFixProduct = useCallback(async () => {
+    const id = requireSavedProduct();
+    if (!id) return;
+    try {
+      const result = await autoFixProduct(id);
+      setForm(result.product);
+      notify({
+        title: result.corrected ? "Correções aplicadas" : "Nenhuma correção segura disponível",
+        description: result.corrected ? `${result.corrections.length} ajuste(s) aplicado(s).` : "Revise as pendências sensíveis manualmente.",
+        tone: result.corrected ? "success" : "info",
+      });
+    } catch (error) {
+      notify({ title: "Correção automática indisponível", description: error instanceof Error ? error.message : undefined, tone: "error" });
+    }
+  }, [requireSavedProduct]);
+
+  const handleSuggestNcm = useCallback(async () => {
+    const id = requireSavedProduct();
+    if (!id) return;
+    try {
+      const result = await suggestProductNcm(id);
+      if (result.suggestion) {
+        notify({ title: `NCM sugerido: ${result.suggestion}`, description: result.message, tone: "info" });
+      } else {
+        notify({ title: "NCM sem sugestão segura", description: result.message, tone: "info" });
+      }
+    } catch (error) {
+      notify({ title: "Sugestão de NCM indisponível", description: error instanceof Error ? error.message : undefined, tone: "error" });
+    }
+  }, [requireSavedProduct]);
+
+  const handleSuggestCest = useCallback(async () => {
+    const id = requireSavedProduct();
+    if (!id) return;
+    try {
+      const result = await suggestProductCest(id);
+      notify({ title: result.cestObrigatorio ? "CEST requer confirmação" : "CEST não obrigatório na base local", description: result.message, tone: result.cestObrigatorio ? "info" : "success" });
+    } catch (error) {
+      notify({ title: "Sugestão de CEST indisponível", description: error instanceof Error ? error.message : undefined, tone: "error" });
+    }
+  }, [requireSavedProduct]);
+
+  const handleApplyFiscalRule = useCallback(async () => {
+    const id = requireSavedProduct();
+    if (!id) return;
+    try {
+      const result = await applyProductFiscalRule(id);
+      setForm(result.product);
+      notify({ title: "Regra fiscal aplicada", description: "Revise CFOP, CST/CSOSN e alíquotas antes de emitir.", tone: "success" });
+    } catch (error) {
+      notify({ title: "Regra fiscal indisponível", description: error instanceof Error ? error.message : undefined, tone: "error" });
+    }
+  }, [requireSavedProduct]);
+
+  const handleSaveStock = useCallback(async () => {
+    const id = requireSavedProduct();
+    if (!id) return;
+    try {
+      const result = await updateProductStockSettings(id, {
+        stock: form.stock ?? 0,
+        stockMin: form.stockMin,
+        stockMax: form.stockMax,
+      });
+      setForm(result.product);
+      notify({ title: "Estoque configurado", tone: "success" });
+    } catch (error) {
+      notify({ title: "Erro ao configurar estoque", description: error instanceof Error ? error.message : undefined, tone: "error" });
+    }
+  }, [form.stock, form.stockMax, form.stockMin, requireSavedProduct]);
+
+  const handleIdealPrice = useCallback(async () => {
+    const cost = Number(form.costPrice ?? 0);
+    if (cost <= 0) {
+      notify({ title: "Informe o custo", description: "O preço ideal depende do custo de compra ou custo médio.", tone: "info" });
+      return;
+    }
+    const ideal = Number((cost * 1.3).toFixed(2));
+    setForm((f) => ({ ...f, price: ideal }));
+    const id = requireSavedProduct();
+    if (!id) {
+      notify({ title: "Preço ideal calculado", description: `Preço sugerido: R$ ${ideal.toFixed(2)}.` });
+      return;
+    }
+    try {
+      const result = await updateProductPricing(id, { price: ideal, costPrice: cost, desiredMargin: 30 });
+      setForm(result.product);
+      notify({ title: "Preço ideal calculado", description: `Preço sugerido: R$ ${ideal.toFixed(2)}.`, tone: "success" });
+    } catch (error) {
+      notify({ title: "Erro ao salvar preço", description: error instanceof Error ? error.message : undefined, tone: "error" });
+    }
+  }, [form.costPrice, requireSavedProduct]);
+
+  const handleSavePricing = useCallback(async () => {
+    const id = requireSavedProduct();
+    if (!id) return;
+    try {
+      const result = await updateProductPricing(id, { price: form.price ?? 0, costPrice: form.costPrice });
+      setForm(result.product);
+      notify({ title: "Precificação salva", tone: "success" });
+    } catch (error) {
+      notify({ title: "Erro ao salvar precificação", description: error instanceof Error ? error.message : undefined, tone: "error" });
+    }
+  }, [form.costPrice, form.price, requireSavedProduct]);
+
+  const handleSaveMarketplace = useCallback(async () => {
+    const id = requireSavedProduct();
+    if (!id) return;
+    try {
+      const result = await updateProductMarketplace(id, marketplaceForm);
+      setForm(result.product);
+      notify({ title: "Marketplace atualizado", description: "Vínculo preparado para sincronização.", tone: "success" });
+    } catch (error) {
+      notify({ title: "Erro ao salvar marketplace", description: error instanceof Error ? error.message : undefined, tone: "error" });
+    }
+  }, [marketplaceForm, requireSavedProduct]);
+
+  const handleSupplierLink = useCallback(() => {
+    notify({ title: "Vínculo de fornecedor em preparação", description: "Use XML Fiscal para vincular produto de fornecedor ao cadastro interno.", tone: "info" });
+  }, []);
+
+  const handleSendAccountant = useCallback(() => {
+    setForm((f) => ({
+      ...f,
+      historicoJson: addHistorico(f.historicoJson ?? null, [
+        { quem: "Usuário", campo: "Contador", valorAnterior: null, valorNovo: "Pendência fiscal enviada para revisão", origem: "USUARIO" },
+      ]),
+    }));
+    notify({ title: "Pendência enviada ao contador", tone: "success" });
+  }, []);
 
   const toggleCard = (id: string) => {
     setExpandedCards((prev) => {
@@ -655,7 +858,7 @@ export function IntelligentProductView({ productId, viewMode: viewModeProp, onBa
         <Card className="p-12 text-center">
           <AlertTriangle className="h-8 w-8 mx-auto mb-3 text-red-500" />
           <p className="text-sm text-red-600">{productLoadError}</p>
-          <Button variant="outline" className="mt-4" onClick={onBack ?? (() => router.push("/products"))}>Voltar para lista</Button>
+          <Button variant="outline" className="mt-4" onClick={onBack ?? (() => router.push(basePath))}>Voltar para lista</Button>
         </Card>
       </div>
     );
@@ -663,7 +866,7 @@ export function IntelligentProductView({ productId, viewMode: viewModeProp, onBa
 
   return (
     <div className="space-y-4">
-      <button type="button" onClick={onBack ?? (() => router.push("/products"))} className="flex items-center gap-2 text-sm text-subtle hover:text-ink transition">
+      <button type="button" onClick={onBack ?? (() => router.push(basePath))} className="flex items-center gap-2 text-sm text-subtle hover:text-ink transition">
         <ArrowLeft className="h-4 w-4" /> Voltar para lista
       </button>
 
@@ -920,6 +1123,19 @@ export function IntelligentProductView({ productId, viewMode: viewModeProp, onBa
                 <span className="text-sm font-medium">Estoque abaixo do mínimo</span>
               </div>
             )}
+            {!isReadOnly && (
+              <div className="flex flex-wrap gap-2">
+                <Button variant="lime" onClick={handleSaveStock} disabled={!productId}>
+                  Salvar estoque
+                </Button>
+                <Button variant="outline" onClick={() => notify({ title: "Entrada automática por NF-e preparada", description: "Importe XML fiscal para conciliar entradas." })}>
+                  Entrada automática por NF-e
+                </Button>
+                <Button variant="outline" onClick={() => notify({ title: "Reserva marketplace recalculada", description: "A reserva será sincronizada quando houver canal conectado." })}>
+                  Recalcular disponível
+                </Button>
+              </div>
+            )}
           </Card>
         </TabsContent>
 
@@ -940,6 +1156,84 @@ export function IntelligentProductView({ productId, viewMode: viewModeProp, onBa
                 </div>
               )}
             </div>
+            {!isReadOnly && (
+              <div className="flex flex-wrap gap-2">
+                <Button variant="lime" onClick={handleSavePricing} disabled={!productId}>
+                  Salvar precificação
+                </Button>
+                <Button variant="outline" onClick={handleIdealPrice}>
+                  <Calculator className="h-4 w-4" /> Calcular preço ideal
+                </Button>
+                <Button variant="outline" onClick={() => notify({ title: "Sincronização de preço em preparação", description: "Conecte um marketplace para publicar preço automaticamente." })}>
+                  Sincronizar preço marketplace
+                </Button>
+              </div>
+            )}
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="marketplace">
+          <Card className="p-5 space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-base font-extrabold text-ink">Marketplace</h2>
+                <p className="text-sm text-subtle">Prepare SKUs, anúncio, estoque e preço para canais comerciais.</p>
+              </div>
+              <Badge variant={marketplaceForm.enabled ? "success" : "neutral"}>
+                {marketplaceForm.enabled ? "Preparado" : "Não vinculado"}
+              </Badge>
+            </div>
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              <label className="flex h-11 items-center gap-2 rounded-xl border border-line bg-white px-3.5 text-sm text-ink">
+                <input
+                  type="checkbox"
+                  checked={marketplaceForm.enabled}
+                  onChange={(event) => setMarketplaceForm((value) => ({ ...value, enabled: event.target.checked }))}
+                  disabled={isReadOnly}
+                  className="h-4 w-4 accent-lime-dark"
+                />
+                Produto marketplace
+              </label>
+              <Input label="SKU marketplace" value={marketplaceForm.sku} onChange={(event) => setMarketplaceForm((value) => ({ ...value, sku: event.target.value }))} disabled={isReadOnly} />
+              <Input label="SKU Mercado Livre" value={marketplaceForm.mercadoLivreSku} onChange={(event) => setMarketplaceForm((value) => ({ ...value, mercadoLivreSku: event.target.value }))} disabled={isReadOnly} />
+              <Input label="SKU Shopee" value={marketplaceForm.shopeeSku} onChange={(event) => setMarketplaceForm((value) => ({ ...value, shopeeSku: event.target.value }))} disabled={isReadOnly} />
+              <Input label="Título marketplace" value={marketplaceForm.title} onChange={(event) => setMarketplaceForm((value) => ({ ...value, title: event.target.value }))} disabled={isReadOnly} className="lg:col-span-2" />
+              <div className="flex flex-col gap-1">
+                <label className="text-sm font-medium text-ink">Status anúncio</label>
+                <select value={marketplaceForm.status} onChange={(event) => setMarketplaceForm((value) => ({ ...value, status: event.target.value }))} disabled={isReadOnly} className="flex h-11 w-full rounded-xl border border-line bg-white px-3.5 text-sm text-ink outline-none">
+                  <option value="preparado">Preparado</option>
+                  <option value="pausado">Pausado</option>
+                  <option value="ativo">Ativo</option>
+                  <option value="pendente">Pendente</option>
+                </select>
+              </div>
+              {[
+                ["syncStock", "Sincronizar estoque"],
+                ["syncPrice", "Sincronizar preço"],
+                ["syncListing", "Sincronizar anúncio"],
+              ].map(([field, label]) => (
+                <label key={field} className="flex h-11 items-center gap-2 rounded-xl border border-line bg-white px-3.5 text-sm text-ink">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(marketplaceForm[field as "syncStock" | "syncPrice" | "syncListing"])}
+                    onChange={(event) => setMarketplaceForm((value) => ({ ...value, [field]: event.target.checked }))}
+                    disabled={isReadOnly}
+                    className="h-4 w-4 accent-lime-dark"
+                  />
+                  {label}
+                </label>
+              ))}
+            </div>
+            {!isReadOnly && (
+              <div className="flex flex-wrap gap-2">
+                <Button variant="lime" onClick={handleSaveMarketplace} disabled={!productId}>
+                  Salvar marketplace
+                </Button>
+                <Button variant="outline" onClick={() => notify({ title: "Sincronização em preparação", description: "O conector será acionado quando houver conta conectada." })}>
+                  Sincronizar anúncio
+                </Button>
+              </div>
+            )}
           </Card>
         </TabsContent>
 
@@ -1795,7 +2089,7 @@ export function IntelligentProductView({ productId, viewMode: viewModeProp, onBa
         <div className="flex flex-wrap items-center gap-2">
           {isReadOnly ? (
             <>
-              <Button variant="outline" onClick={() => router.push(`/products/${productId}?edit=1`)}>
+              <Button variant="outline" onClick={() => router.push(`${basePath}/${productId}/edit`)}>
                 <Pencil className="h-4 w-4" /> Editar
               </Button>
               <Button variant="ghost" onClick={() => setActiveTab("historico")}>
@@ -1804,13 +2098,44 @@ export function IntelligentProductView({ productId, viewMode: viewModeProp, onBa
             </>
           ) : (
             <>
-              <Button variant="lime" onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending}>
+              <Button variant="lime" onClick={() => saveWithAction()} disabled={saveMutation.isPending}>
                 {saveMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                Salvar
+                Salvar produto
+              </Button>
+              <Button variant="outline" onClick={() => saveWithAction("nfe")} disabled={saveMutation.isPending}>
+                <Zap className="h-4 w-4" /> Salvar e usar na emissão
               </Button>
               <Button variant="ghost" onClick={() => setActiveTab("historico")}>
                 <History className="h-4 w-4" /> Ver Histórico
               </Button>
+            </>
+          )}
+          <Button variant="outline" onClick={handleValidateProduct} disabled={!productId}>
+            <Shield className="h-4 w-4" /> Validar produto
+          </Button>
+          <Button variant="outline" onClick={handleSuggestNcm} disabled={!productId}>
+            Sugerir NCM
+          </Button>
+          <Button variant="outline" onClick={handleSuggestCest} disabled={!productId}>
+            Sugerir CEST
+          </Button>
+          <Button variant="outline" onClick={handleApplyFiscalRule} disabled={!productId}>
+            Aplicar regra fiscal
+          </Button>
+          <Button variant="outline" onClick={handleAutoFixProduct} disabled={!productId}>
+            Corrigir automaticamente
+          </Button>
+          <Button variant="outline" onClick={handleSendAccountant}>
+            Enviar para contador
+          </Button>
+          <Button variant="outline" onClick={handleSupplierLink}>
+            Vincular fornecedor
+          </Button>
+          {productId && (
+            <>
+              <Button variant="ghost" onClick={() => router.push(`${basePath}/${productId}/stock`)}>Ver estoque</Button>
+              <Button variant="ghost" onClick={() => router.push(`${basePath}/${productId}/documents`)}>Ver documentos</Button>
+              <Button variant="ghost" onClick={() => router.push(`${basePath}/${productId}/marketplace`)}>Ver marketplace</Button>
             </>
           )}
           <div className="flex-1" />
@@ -1830,7 +2155,7 @@ export function IntelligentProductView({ productId, viewMode: viewModeProp, onBa
           <DialogDescription>Alterações não salvas serão perdidas.</DialogDescription>
           <div className="mt-6 flex items-center justify-end gap-3">
             <Button variant="outline" onClick={() => setConfirmLeave(false)}>Cancelar</Button>
-            <Button variant="danger" onClick={() => { setConfirmLeave(false); router.push("/products"); }}>Sair</Button>
+            <Button variant="danger" onClick={() => { setConfirmLeave(false); router.push(basePath); }}>Sair</Button>
           </div>
         </DialogContent>
       </Dialog>

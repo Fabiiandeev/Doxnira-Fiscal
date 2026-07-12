@@ -1,4 +1,4 @@
-import { CompanyDetailView } from "@/components/companies/company-detail-view";
+import { CompanyFormView } from "@/components/companies/company-form-view";
 
 export default async function CompanyEditPage({
   params,
@@ -6,5 +6,5 @@ export default async function CompanyEditPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  return <CompanyDetailView id={id} />;
+  return <CompanyFormView companyId={id} />;
 }

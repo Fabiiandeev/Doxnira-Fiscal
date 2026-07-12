@@ -7,10 +7,12 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { CompanyCertificateSection } from "@/components/companies/company-certificate-section";
+import { CompanyValidationPanel } from "@/components/companies/company-validation-panel";
 import { CnpjLookupForm } from "@/components/companies/cnpj-lookup-form";
 import { CompanyTaxSettingsSection } from "@/components/companies/company-tax-settings-section";
 import { RemoveCompanyDialog } from "@/components/companies/remove-company-dialog";
 import { PageHeader } from "@/components/page-header";
+import { useConfirmDialog } from "@/components/providers/confirm-dialog-provider";
 import { notify } from "@/components/toast-viewport";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -25,6 +27,7 @@ import { formatDate, maskCnpj } from "@/lib/utils";
 
 export function CompanyDetailView({ id }: { id: string }) {
   const router = useRouter();
+  const { confirm } = useConfirmDialog();
   const queryClient = useQueryClient();
   const [form, setForm] = useState({
     legalName: "",
@@ -112,6 +115,19 @@ export function CompanyDetailView({ id }: { id: string }) {
   });
   if (!query.data) return <div className="h-96 animate-pulse rounded-3xl bg-white/50" />;
   const company = query.data;
+  async function confirmToggleStatus() {
+    const nextStatus = company.status === "active" ? "inactive" : "active";
+    const confirmed = await confirm({
+      title: nextStatus === "inactive" ? "Inativar empresa" : "Ativar empresa",
+      description:
+        nextStatus === "inactive"
+          ? "A empresa ficará indisponível para novas operações até ser ativada novamente."
+          : "A empresa voltará a ficar disponível para operações do sistema.",
+      confirmLabel: nextStatus === "inactive" ? "Inativar" : "Ativar",
+      tone: nextStatus === "inactive" ? "danger" : "default",
+    });
+    if (confirmed) toggle.mutate();
+  }
   return (
     <>
       <Link href="/companies" className="mb-5 inline-flex items-center gap-2 text-[11px] font-extrabold text-subtle">
@@ -122,8 +138,11 @@ export function CompanyDetailView({ id }: { id: string }) {
         title={company.legalName}
         description={`${maskCnpj(company.cnpj)} · Ambiente de ${company.environment}`}
         icon={Building2}
-        action={<div className="flex gap-2"><Button variant="outline" onClick={() => toggle.mutate()}>{company.status === "active" ? "Desativar empresa" : "Ativar empresa"}</Button><RemoveCompanyDialog company={company} onRemoved={() => router.push("/companies")} /></div>}
+        action={<div className="flex flex-wrap gap-2"><Button asChild variant="outline"><Link href={`/companies/${company.id}/edit`}>Editar</Link></Button><Button asChild variant="outline"><Link href={`/companies/${company.id}/fiscal`}>Configuração fiscal</Link></Button><Button asChild variant="outline"><Link href={`/companies/${company.id}/settings`}>Certificado</Link></Button><Button variant="outline" onClick={confirmToggleStatus} disabled={toggle.isPending}>{company.status === "active" ? "Desativar empresa" : "Ativar empresa"}</Button><RemoveCompanyDialog company={company} onRemoved={() => router.push("/companies")} /></div>}
       />
+      <div className="mb-4">
+        <CompanyValidationPanel companyId={company.id} initialValidation={company.validation} />
+      </div>
       <Card className="mb-4 p-5 md:p-6">
         <h2 className="text-sm font-extrabold">1. Dados da empresa</h2>
         <div className="mt-5 rounded-2xl border border-line p-4">

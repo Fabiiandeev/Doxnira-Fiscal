@@ -61,6 +61,8 @@ import { ApiError } from "@/lib/api";
 interface IntelligentClientViewProps {
   clientId?: string;
   viewMode?: "create" | "view" | "edit";
+  initialTab?: string;
+  basePath?: string;
   onBack?: () => void;
 }
 
@@ -363,7 +365,13 @@ function addHistorico(
   return [...(existing ?? []), ...entries.map((e) => ({ ...e, quando: now }))];
 }
 
-export function IntelligentClientView({ clientId, viewMode: viewModeProp, onBack }: IntelligentClientViewProps) {
+export function IntelligentClientView({
+  clientId,
+  viewMode: viewModeProp,
+  initialTab = "cadastro",
+  basePath = "/customers",
+  onBack,
+}: IntelligentClientViewProps) {
   const router = useRouter();
   const [tab, setTab] = useState<"PJ" | "PF">("PJ");
   const [docValue, setDocValue] = useState("");
@@ -376,9 +384,10 @@ export function IntelligentClientView({ clientId, viewMode: viewModeProp, onBack
   const [clientIssues, setClientIssues] = useState<ClientIssues>({ pendencias: [], alertas: [], dicas: [] });
   const [fiscalAi, setFiscalAi] = useState<FiscalAiResult | null>(null);
   const [score, setScore] = useState<{ overall: number; detalhes: ScoreDetalhes } | null>(null);
-  const [activeTab, setActiveTab] = useState("cadastro");
+  const [activeTab, setActiveTab] = useState(initialTab);
   const [expandedErrors, setExpandedErrors] = useState<Set<string>>(new Set());
   const debounceRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const postSaveActionRef = useRef<"detail" | "nfe" | "nfse">("detail");
   const [loadingClient, setLoadingClient] = useState(false);
   const [clientLoadError, setClientLoadError] = useState<string | null>(null);
 
@@ -689,10 +698,18 @@ export function IntelligentClientView({ clientId, viewMode: viewModeProp, onBack
       if (clientId) return updateClient(clientId, payload);
       return createClient(payload);
     },
-    onSuccess: () => {
+    onSuccess: (savedClient) => {
       notify({ title: clientId ? "Cliente atualizado com sucesso" : "Cliente salvo com sucesso", tone: "success" });
+      const action = postSaveActionRef.current;
+      postSaveActionRef.current = "detail";
       setTimeout(() => {
-        router.push("/clients");
+        if (action === "nfe") {
+          router.push(`/emitir-nota?customerId=${savedClient.id}`);
+        } else if (action === "nfse") {
+          router.push(`/nfse-national?customerId=${savedClient.id}`);
+        } else {
+          router.push(`${basePath}/${savedClient.id}`);
+        }
         router.refresh();
       }, 600);
     },
@@ -708,6 +725,11 @@ export function IntelligentClientView({ clientId, viewMode: viewModeProp, onBack
       }
     },
   });
+
+  function saveWithAction(action: "detail" | "nfe" | "nfse" = "detail") {
+    postSaveActionRef.current = action;
+    saveMutation.mutate();
+  }
 
   const sintegraMutation = useMutation({
     mutationFn: async () => {
@@ -908,6 +930,17 @@ export function IntelligentClientView({ clientId, viewMode: viewModeProp, onBack
 
   const handleIgnorar = (err: SmartError) => {
     setSmartErrors((prev) => prev.filter((e) => e.id !== err.id));
+    notify({ title: "Pendência ignorada com justificativa", description: err.titulo, tone: "info" });
+  };
+
+  const handleEnviarContador = (err: SmartError) => {
+    setForm((f) => ({
+      ...f,
+      historicoJson: addHistorico(f.historicoJson ?? null, [
+        { quem: "Usuário", campo: "Contador", valorAnterior: null, valorNovo: err.titulo, origem: "USUARIO" },
+      ]),
+    }));
+    notify({ title: "Pendência enviada ao contador", description: err.titulo, tone: "success" });
   };
 
   const maskedDocument = tab === "PJ" ? maskCnpj(normalizeCnpj(docValue)) : maskCpf(normalizeCpf(docValue));
@@ -966,15 +999,18 @@ export function IntelligentClientView({ clientId, viewMode: viewModeProp, onBack
             {err.correcaoSugerida && (
               <p className="text-xs text-subtle"><span className="font-bold text-ink">Sugestão:</span> {err.correcaoSugerida}</p>
             )}
-            <div className="flex gap-2 pt-1">
+            <div className="flex flex-wrap gap-2 pt-1">
               <Button variant="lime" size="sm" onClick={() => handleCorrigir(err)} disabled={err.corrigido}>
                 Corrigir
               </Button>
-              <Button variant="outline" size="sm" onClick={() => handleIgnorar(err)}>
-                Ignorar
+              <Button variant="outline" size="sm" onClick={() => handleCorrigir(err)} disabled={err.corrigido}>
+                Corrigir automaticamente
               </Button>
-              <Button variant="outline" size="sm">
-                <Send className="h-3 w-3" /> Contador
+              <Button variant="outline" size="sm" onClick={() => handleIgnorar(err)}>
+                Ignorar com justificativa
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => handleEnviarContador(err)}>
+                <Send className="h-3 w-3" /> Enviar para contador
               </Button>
             </div>
           </div>
@@ -1052,7 +1088,7 @@ export function IntelligentClientView({ clientId, viewMode: viewModeProp, onBack
 
   return (
     <div className="mx-auto max-w-[1400px] space-y-6 px-4 py-4 sm:px-6 lg:px-8">
-      <button type="button" onClick={onBack ?? (() => router.push("/clients"))} className="flex items-center gap-2 text-sm text-subtle hover:text-ink transition">
+      <button type="button" onClick={onBack ?? (() => router.push(basePath))} className="flex items-center gap-2 text-sm text-subtle hover:text-ink transition">
         <ArrowLeft className="h-4 w-4" /> Voltar para lista
       </button>
 
@@ -1067,7 +1103,7 @@ export function IntelligentClientView({ clientId, viewMode: viewModeProp, onBack
         <Card className="p-12 text-center">
           <AlertTriangle className="h-8 w-8 mx-auto mb-3 text-red-500" />
           <p className="text-sm text-red-600">{clientLoadError}</p>
-          <Button variant="outline" className="mt-4" onClick={onBack ?? (() => router.push("/clients"))}>Voltar para lista</Button>
+          <Button variant="outline" className="mt-4" onClick={onBack ?? (() => router.push(basePath))}>Voltar para lista</Button>
         </Card>
       )}
 
@@ -1658,7 +1694,7 @@ export function IntelligentClientView({ clientId, viewMode: viewModeProp, onBack
                   variant="lime"
                   size="sm"
                   className="w-full justify-start"
-                  onClick={() => saveMutation.mutate()}
+                  onClick={() => saveWithAction()}
                   disabled={saveMutation.isPending}
                 >
                   {saveMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
@@ -1676,7 +1712,7 @@ export function IntelligentClientView({ clientId, viewMode: viewModeProp, onBack
           <div className="flex flex-wrap items-center gap-2">
             {isReadOnly ? (
               <>
-                <Button variant="outline" onClick={() => router.push(`/clients/${clientId}?edit=1`)}>
+                <Button variant="outline" onClick={() => router.push(`${basePath}/${clientId}/edit`)}>
                   <Pencil className="h-4 w-4" /> Editar
                 </Button>
                 <Button variant="ghost" onClick={() => setActiveTab("historico")}>
@@ -1687,7 +1723,7 @@ export function IntelligentClientView({ clientId, viewMode: viewModeProp, onBack
               <>
                 <Button
                   variant="lime"
-                  onClick={() => saveMutation.mutate()}
+                  onClick={() => saveWithAction()}
                   disabled={saveMutation.isPending}
                 >
                   {saveMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
@@ -1696,7 +1732,7 @@ export function IntelligentClientView({ clientId, viewMode: viewModeProp, onBack
                 <Button
                   variant="outline"
                   onClick={() => {
-                    saveMutation.mutate();
+                    saveWithAction("nfe");
                   }}
                   disabled={saveMutation.isPending}
                 >
@@ -1705,7 +1741,7 @@ export function IntelligentClientView({ clientId, viewMode: viewModeProp, onBack
                 <Button
                   variant="outline"
                   onClick={() => {
-                    saveMutation.mutate();
+                    saveWithAction("nfse");
                   }}
                   disabled={saveMutation.isPending}
                 >

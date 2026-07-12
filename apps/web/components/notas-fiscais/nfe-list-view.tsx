@@ -23,7 +23,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { type ComponentType, type ReactNode, useState } from "react";
+import { type ComponentType, type ReactNode, useEffect, useRef, useState } from "react";
 
 import { PageHeader } from "@/components/page-header";
 import { notify } from "@/components/toast-viewport";
@@ -31,6 +31,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import {
   initialNfeFilters,
@@ -41,6 +42,7 @@ import {
 } from "@/lib/hooks/use-nfe-list";
 import type { NfeFilters, NfeListItem, NfeListResponse, NfeStatus } from "@/lib/nfe-types";
 import {
+  applyNfeAutoFix,
   duplicateNfe,
   getNfeStatus,
   transmitNfe,
@@ -80,16 +82,17 @@ const statusMeta: Record<NfeStatus, { label: string; variant: "neutral" | "warni
 
 const lockedStatuses = new Set<NfeStatus>(["AUTORIZADA", "CANCELADA", "DENEGADA", "INUTILIZADA"]);
 
-export function NfeListView() {
+export function NfeListView({ initialProductId }: { initialProductId?: string }) {
   const router = useRouter();
   const [page, setPage] = useState(1);
-  const [sortBy, setSortBy] = useState("updatedAt");
+  const [sortBy, setSortBy] = useState("emissionDate");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
   const [deleteTarget, setDeleteTarget] = useState<NfeListItem | null>(null);
   const { filters, setFilters, activeFilterCount, resetFilters } = useNfeFilters();
   const query = useNfeList({ page, limit: pageSize, filters, sortBy, sortOrder });
   const createDraft = useCreateNfeDraft();
   const deleteDraft = useDeleteNfeDraft();
+  const productDraftStartedRef = useRef<string | null>(null);
 
   const response = query.data ?? emptyResponse;
   const hasFilters = activeFilterCount > 0 || Boolean(filters.search);
@@ -123,6 +126,30 @@ export function NfeListView() {
       },
     });
   }
+
+  useEffect(() => {
+    if (!initialProductId) return;
+    if (productDraftStartedRef.current === initialProductId) return;
+    productDraftStartedRef.current = initialProductId;
+    notify({
+      title: "Preparando NF-e do produto",
+      description: "Criando rascunho com o produto selecionado.",
+      tone: "info",
+    });
+    createDraft.mutate(undefined, {
+      onSuccess: (result) => {
+        if (!result.id) {
+          notify({ title: "Rascunho não criado", description: "A API não retornou o identificador da NF-e.", tone: "error" });
+          return;
+        }
+        router.push(`/emitir-nota?id=${result.id}&productId=${encodeURIComponent(initialProductId)}`);
+      },
+      onError: (error) => {
+        notify({ title: "Não foi possível criar a NF-e", description: (error as Error).message, tone: "error" });
+      },
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialProductId]);
 
   function exportCsv() {
     if (response.data.length === 0) {
@@ -176,7 +203,6 @@ export function NfeListView() {
         creating={createDraft.isPending}
         onCreate={handleCreateDraft}
         onExport={exportCsv}
-        onSync={() => router.push("/sync")}
       />
 
       <NfeSummaryCards data={response} loading={query.isLoading} />
@@ -262,12 +288,10 @@ function NfeListHeader({
   creating,
   onCreate,
   onExport,
-  onSync,
 }: {
   creating: boolean;
   onCreate: () => void;
   onExport: () => void;
-  onSync: () => void;
 }) {
   return (
     <PageHeader
@@ -281,7 +305,7 @@ function NfeListHeader({
             <Plus className="h-4 w-4" />
             Nova NF-e
           </Button>
-          <Button variant="outline" onClick={() => notify({ title: "Importação XML", description: "Use o centro XML para importar documentos recebidos; emissão própria usa rascunho de NF-e." })}>
+          <Button variant="outline" onClick={() => window.location.assign("/xml-center")}>
             <Upload className="h-4 w-4" />
             Importar XML
           </Button>
@@ -289,13 +313,7 @@ function NfeListHeader({
             <Download className="h-4 w-4" />
             Exportar
           </Button>
-          <Button variant="outline" onClick={onSync}>
-            <RefreshCw className="h-4 w-4" />
-            Sincronizar SEFAZ
-          </Button>
-          <Button variant="outline" size="icon" title="Mais opções" onClick={() => notify({ title: "Mais opções", description: "Nenhuma ação adicional configurada para a lista de NF-e." })}>
-            <MoreHorizontal className="h-4 w-4" />
-          </Button>
+          <details className="relative"><summary title="Mais ações" className="grid h-10 w-10 cursor-pointer list-none place-items-center rounded-xl border border-line bg-white"><MoreHorizontal className="h-4 w-4" /></summary><div className="absolute right-0 z-20 mt-2 w-48 rounded-xl border border-line bg-white p-2 shadow-xl"><button className="w-full rounded-lg px-3 py-2 text-left text-xs font-bold hover:bg-muted" onClick={() => window.location.assign("/sync")}>Sincronizar SEFAZ</button></div></details>
         </div>
       }
     />
@@ -309,13 +327,11 @@ function NfeSummaryCards({ data, loading }: { data: NfeListResponse; loading: bo
     { label: "Em Validação", value: data.summary.validating, icon: ShieldCheck },
     { label: "Rejeitadas", value: data.summary.rejected, icon: AlertTriangle },
     { label: "Autorizadas", value: data.summary.authorized, icon: CheckCircle2 },
-    { label: "Canceladas", value: data.summary.cancelled, icon: XCircle },
     { label: "Valor Total Autorizado", value: formatCurrency(Number(data.summary.authorizedValue || 0)), icon: FileDown },
-    { label: "Pendências", value: data.summary.pending, icon: Clock },
   ];
 
   return (
-    <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+    <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
       {cards.map((card) => {
         const Icon = card.icon;
         return (
@@ -354,6 +370,7 @@ function NfeFilters({
   onChange: (filters: Partial<NfeFilters>) => void;
   onReset: () => void;
 }) {
+  const [expanded, setExpanded] = useState(false);
   return (
     <div className="border-b border-line p-4 md:p-5">
       <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center">
@@ -366,13 +383,13 @@ function NfeFilters({
             placeholder="Buscar por número, série, chave, cliente, CNPJ/CPF, protocolo ou natureza..."
           />
         </div>
-        <Button variant="outline" onClick={onReset}>
+        <Button variant="outline" onClick={() => setExpanded((current) => !current)}>
           <Filter className="h-4 w-4" />
-          {activeFilterCount} filtros
+          Filtros{activeFilterCount ? ` (${activeFilterCount})` : ""}
         </Button>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+      {expanded && <div className="grid gap-3 border-t border-line pt-4 md:grid-cols-2 xl:grid-cols-5">
         <FilterField label="Período inicial">
           <input className={filterInputClass} type="date" value={filters.startDate} onChange={(event) => onChange({ startDate: event.target.value })} />
         </FilterField>
@@ -404,8 +421,11 @@ function NfeFilters({
         <FilterField label="Chave de acesso">
           <input className={filterInputClass} value={filters.accessKey} onChange={(event) => onChange({ accessKey: event.target.value })} placeholder="44 dígitos" />
         </FilterField>
-        <FilterField label="Valor">
-          <input className={filterInputClass} value={filters.value} onChange={(event) => onChange({ value: event.target.value })} placeholder="10300,00" />
+        <FilterField label="Valor mínimo">
+          <input className={filterInputClass} value={filters.minValue} onChange={(event) => onChange({ minValue: event.target.value })} placeholder="R$ 0,00" />
+        </FilterField>
+        <FilterField label="Valor máximo">
+          <input className={filterInputClass} value={filters.maxValue} onChange={(event) => onChange({ maxValue: event.target.value })} placeholder="R$ 0,00" />
         </FilterField>
         <FilterField label="UF">
           <input className={filterInputClass} value={filters.uf} onChange={(event) => onChange({ uf: event.target.value.toUpperCase().slice(0, 2) })} placeholder="SP" />
@@ -417,7 +437,11 @@ function NfeFilters({
             <option value="0">0 - Entrada</option>
           </select>
         </FilterField>
-      </div>
+        <div className="flex items-end gap-2 xl:col-span-5 xl:justify-end">
+          <Button variant="outline" onClick={onReset}>Limpar filtros</Button>
+          <Button variant="lime" onClick={() => setExpanded(false)}><Search className="h-4 w-4" />Buscar</Button>
+        </div>
+      </div>}
     </div>
   );
 }
@@ -457,10 +481,8 @@ function NfeTable({
   onChanged: () => void;
 }) {
   const headers = [
-    ["number", "Número"],
-    ["series", "Série"],
+    ["number", "Número / Série"],
     ["customer", "Cliente"],
-    ["document", "CNPJ/CPF"],
     ["emissionDate", "Emissão"],
     ["value", "Valor"],
     ["status", "Status"],
@@ -472,7 +494,7 @@ function NfeTable({
   return (
     <>
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[1280px] text-left">
+        <table className="w-full min-w-[1120px] text-left">
           <thead className="bg-muted/50">
             <tr className="text-[11px] font-extrabold uppercase tracking-[0.08em] text-subtle">
               {headers.map(([column, label]) => (
@@ -489,13 +511,11 @@ function NfeTable({
           <tbody className="divide-y divide-line">
             {data.map((note) => (
               <tr key={note.id} className="bg-white transition hover:bg-muted/30">
-                <td className="px-4 py-3 font-mono text-sm font-bold">{note.number ? String(note.number).padStart(9, "0") : "—"}</td>
-                <td className="px-4 py-3 text-sm">{note.series || "—"}</td>
+                <td className="px-4 py-3"><p className="font-mono text-sm font-bold">{note.number ? String(note.number).padStart(9, "0") : "—"} / {note.series || "—"}</p><p className="mt-1 text-[10px] text-subtle">Modelo 55</p></td>
                 <td className="max-w-[220px] px-4 py-3">
                   <p className="truncate text-sm font-bold text-ink">{note.customerName || "Destinatário não informado"}</p>
-                  {note.accessKey && <p className="mt-1 truncate font-mono text-[10px] text-subtle">{note.accessKey}</p>}
+                  <p className="mt-1 font-mono text-[10px] text-subtle">{formatDocument(note.customerDocument)}</p>
                 </td>
-                <td className="px-4 py-3 font-mono text-xs">{formatDocument(note.customerDocument)}</td>
                 <td className="px-4 py-3 text-sm">{note.emissionDate ? formatDate(note.emissionDate, true) : "—"}</td>
                 <td className="px-4 py-3 text-sm font-bold">{formatCurrency(Number(note.value || 0))}</td>
                 <td className="px-4 py-3"><NfeStatusBadge status={note.status} /></td>
@@ -552,7 +572,7 @@ function NfeRowActions({
   const canOpenDanfe = note.status === "AUTORIZADA";
 
   return (
-    <div className="flex flex-wrap items-center justify-center gap-1">
+    <div className="flex items-center justify-center gap-1">
       <ActionIcon title="Abrir detalhes" icon={Eye} onClick={() => router.push(`/emitir-nota?id=${note.id}`)} />
       <ActionIcon
         title="Editar rascunho"
@@ -565,6 +585,14 @@ function NfeRowActions({
           router.push(`/emitir-nota?id=${note.id}`);
         }}
       />
+      <ActionIcon title="Duplicar nota" icon={Copy} onClick={() => runAction(async () => {
+        const result = await duplicateNfe(note.id);
+        notify({ title: "NF-e duplicada", description: "Novo rascunho criado com base na nota selecionada.", tone: "success" });
+        if (result.id) router.push(`/emitir-nota?id=${result.id}`);
+      })} />
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild><button title="Mais ações" className="grid h-8 w-8 place-items-center rounded-lg text-ink transition hover:bg-muted"><MoreHorizontal className="h-4 w-4" /><span className="sr-only">Mais ações</span></button></DropdownMenuTrigger>
+        <DropdownMenuContent avoidCollisions sticky="always" className="grid gap-1 [&_button]:!flex [&_button]:!w-full [&_button]:!justify-start [&_button]:!gap-2 [&_button]:!px-3 [&_button]:after:text-xs [&_button]:after:font-semibold [&_button]:after:content-[attr(title)]">
       <ActionIcon
         title="Continuar emissão"
         icon={FileText}
@@ -588,12 +616,34 @@ function NfeRowActions({
       <ActionIcon
         title="Corrigir automaticamente"
         icon={RefreshCw}
-        onClick={() => notify({ title: "Correção automática", description: "Execute a validação para identificar pendências corrigíveis nesta NF-e.", tone: "info" })}
+        onClick={() => runAction(async () => {
+          const fixResult = await applyNfeAutoFix(note.id);
+          const fixMessage = fixResult.corrections.length > 0
+            ? `${fixResult.corrections.length} correção(ões) aplicada(s).`
+            : fixResult.message || "Nenhuma correção segura disponível.";
+          const validation = await validateNfe(note.id);
+          notify({
+            title: validation.canTransmit ? "NF-e revisada" : "NF-e revisada com pendências",
+            description: `${fixMessage} ${validation.message || ""}`.trim(),
+            tone: validation.canTransmit ? "success" : "info",
+          });
+          onChanged();
+        })}
       />
       <ActionIcon
         title="Transmitir"
         icon={Send}
         onClick={() => runAction(async () => {
+          const validation = await validateNfe(note.id);
+          if (!validation.canTransmit) {
+            notify({
+              title: "NF-e com pendências",
+              description: validation.message || "Corrija os pontos críticos antes de transmitir.",
+              tone: "info",
+            });
+            onChanged();
+            return;
+          }
           const result = await transmitNfe(note.id);
           notify({ title: "Transmissão iniciada", description: result.message, tone: "success" });
           onChanged();
@@ -639,15 +689,7 @@ function NfeRowActions({
         icon={FileDown}
         onClick={() => notify({ title: "Download DANFE", description: canOpenDanfe ? "DANFE será baixado quando o gerador PDF estiver conectado." : "DANFE disponível somente para NF-e autorizada.", tone: canOpenDanfe ? "success" : "info" })}
       />
-      <ActionIcon
-        title="Duplicar nota"
-        icon={Copy}
-        onClick={() => runAction(async () => {
-          const result = await duplicateNfe(note.id);
-          notify({ title: "NF-e duplicada", description: "Novo rascunho criado com base na nota selecionada.", tone: "success" });
-          if (result.id) router.push(`/emitir-nota?id=${result.id}`);
-        })}
-      />
+      <DropdownMenuSeparator className="my-1 h-px bg-line" />
       <ActionIcon
         title="Cancelar NF-e"
         icon={XCircle}
@@ -671,6 +713,8 @@ function NfeRowActions({
           onDelete(note);
         }}
       />
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   );
 }

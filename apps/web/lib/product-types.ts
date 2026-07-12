@@ -47,6 +47,89 @@ export interface Product {
 
 export type PartialProduct = Partial<Product>;
 
+export interface ProductIssueAction {
+  label: string;
+  acao: string;
+}
+
+export interface ProductIssue {
+  id: string;
+  campo: string;
+  titulo: string;
+  explicacao: string;
+  impacto: string;
+  regraUtilizada: string;
+  correcaoSugerida: string;
+  confianca: string;
+  severidade: "error" | "warning" | "info";
+  tipo: "ERRO" | "ALERTA" | "DICA";
+  safeAutoFix?: boolean;
+  enviarContador?: boolean;
+  corrigido: boolean;
+  acoes: ProductIssueAction[];
+}
+
+export interface ProductValidationResult {
+  success: boolean;
+  status: "complete" | "attention" | "blocked";
+  scoreCadastro: number;
+  scoreDetalhes: Record<string, number>;
+  pendencias: ProductIssue[];
+  alertas: ProductIssue[];
+  dicas: ProductIssue[];
+  sugestoesCorrecao: string[];
+  podeEmitirNfe: boolean;
+  prontoSped: boolean;
+  prontoMarketplace: boolean;
+  validationSource: string;
+  ncmAnalysis: NcmAnalysisResult | null;
+  product?: Product;
+}
+
+export interface ProductSettings {
+  stock?: {
+    controlsStock?: boolean;
+    location?: string | null;
+    autoEntryByNfe?: boolean;
+    autoExitBySale?: boolean;
+    reserved?: number;
+    available?: number;
+  };
+  pricing?: {
+    desiredMargin?: number;
+    freightCost?: number;
+    packagingCost?: number;
+    marketplaceCommission?: number;
+    idealPrice?: number;
+    minimumPrice?: number;
+    margin?: number | null;
+    negativeMargin?: boolean;
+    netProfit?: number | null;
+  };
+  marketplace?: {
+    enabled?: boolean;
+    sku?: string | null;
+    mercadoLivreSku?: string | null;
+    shopeeSku?: string | null;
+    title?: string | null;
+    status?: string | null;
+    syncStock?: boolean;
+    syncPrice?: boolean;
+    syncListing?: boolean;
+  };
+  supplier?: {
+    fromXml?: boolean;
+    code?: string | null;
+    name?: string | null;
+    description?: string | null;
+    unit?: string | null;
+    conversionFactor?: number | null;
+    lastPurchasePrice?: number | null;
+    lastXmlKey?: string | null;
+    status?: string | null;
+  };
+}
+
 export const ORIGEM_MERCADORIA: Record<number, string> = {
   0: "Nacional, exceto as indicadas nos códigos 3 a 5",
   1: "Estrangeira - Importação direta, exceto a indicada no código 6",
@@ -131,6 +214,64 @@ export interface FiscalAiProduct {
   cofinsPadrao: number | null;
   ipiPadrao: number | null;
   cstCsosnSugerido: string | null;
+  validation?: ProductValidationResult;
+  productSettings?: ProductSettings;
+  lastFiscalRuleAppliedAt?: string;
+}
+
+export interface ProductAutoFixResult {
+  corrected: boolean;
+  corrections: Array<{ field: string; label: string; previous: unknown; next: unknown }>;
+  product: Product;
+  validation: ProductValidationResult;
+}
+
+export interface ProductSuggestionResult {
+  suggestion: string | null;
+  confidence?: string;
+  requiresConfirmation: boolean;
+  source: string;
+  analysis?: NcmAnalysisResult | null;
+  cestObrigatorio?: boolean;
+  message: string;
+}
+
+export interface ProductStockResult {
+  stock: number;
+  stockMin: number | null;
+  stockMax: number | null;
+  critical: boolean;
+  available: number;
+  committed: number;
+  settings: ProductSettings["stock"];
+}
+
+export interface ProductFiscalDocumentItem {
+  id: string;
+  itemNumber: number;
+  productCode: string | null;
+  ean: string | null;
+  description: string | null;
+  ncm: string | null;
+  cfop: string | null;
+  quantity: number | null;
+  unit: string | null;
+  unitValue: number | null;
+  totalValue: number | null;
+  document: {
+    id: string;
+    documentType: string;
+    invoiceNumber: string | null;
+    series: string | null;
+    accessKey: string | null;
+    status: string | null;
+    issuerName: string | null;
+    issuerCnpj: string | null;
+    recipientName: string | null;
+    recipientCnpj: string | null;
+    emissionDate: string | null;
+    totalAmount: number | null;
+  } | null;
 }
 
 export interface NcmClassification {

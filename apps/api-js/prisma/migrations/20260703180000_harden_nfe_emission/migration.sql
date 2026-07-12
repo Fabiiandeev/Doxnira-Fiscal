@@ -1,5 +1,25 @@
 -- Harden NF-e emission metadata and real numbering sequence.
 
+CREATE TABLE IF NOT EXISTS "cfops" (
+  "id" UUID NOT NULL DEFAULT gen_random_uuid(),
+  "codigo" VARCHAR(4) NOT NULL,
+  "descricao" VARCHAR(500) NOT NULL,
+  "tipo" VARCHAR(10) NOT NULL,
+  "operacao" VARCHAR(80),
+  "dentro_estado" BOOLEAN NOT NULL DEFAULT false,
+  "interestadual" BOOLEAN NOT NULL DEFAULT false,
+  "exterior" BOOLEAN NOT NULL DEFAULT false,
+  "ativo" BOOLEAN NOT NULL DEFAULT true,
+  "observacoes" VARCHAR(500),
+  "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updated_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "cfops_pkey" PRIMARY KEY ("id")
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS "cfops_codigo_idx" ON "cfops"("codigo");
+CREATE INDEX IF NOT EXISTS "cfops_descricao_idx" ON "cfops"("descricao");
+CREATE INDEX IF NOT EXISTS "cfops_operacao_idx" ON "cfops"("operacao");
+
 ALTER TABLE "nfe_documents"
   ADD COLUMN IF NOT EXISTS "cfop" VARCHAR(10),
   ADD COLUMN IF NOT EXISTS "id_dest" VARCHAR(1),

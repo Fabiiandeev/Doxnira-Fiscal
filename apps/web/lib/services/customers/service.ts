@@ -1,0 +1,15 @@
+export {
+  buscarCnpj,
+  buscarCpf,
+  createClient,
+  autoFixClient,
+  deleteClient,
+  getClient,
+  listClientDocuments,
+  listClients,
+  lookupViaCep,
+  updateClient,
+  validarCliente,
+  validarSintegra,
+  validateSavedClient,
+} from "@/lib/services/cliente-service";

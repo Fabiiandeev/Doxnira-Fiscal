@@ -8,6 +8,7 @@ export interface CertificateInfo {
   validFrom: string | null;
   validUntil: string | null;
   holderCnpj: string | null;
+  validatedAt?: string | null;
   status: string;
   daysRemaining: number | null;
   expired: boolean;

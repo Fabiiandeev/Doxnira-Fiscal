@@ -1,3 +1,5 @@
+import { getBrowserLocalStorage } from "@/lib/browser-storage";
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3333/api";
 
 export const storageKeys = {
@@ -5,6 +7,36 @@ export const storageKeys = {
   companyId: "ns-fiscal-company-id",
   user: "ns-fiscal-user",
 } as const;
+
+export type SessionUser = { id: string; name: string; email: string; role: string };
+
+type SessionState = {
+  token: string | null;
+  companyId: string | null;
+  user: SessionUser | null;
+};
+
+const sessionState: SessionState = {
+  token: null,
+  companyId: null,
+  user: null,
+};
+
+export function primeSession(input: Partial<SessionState>) {
+  if (Object.prototype.hasOwnProperty.call(input, "token")) {
+    sessionState.token = input.token ?? null;
+  }
+  if (Object.prototype.hasOwnProperty.call(input, "companyId")) {
+    sessionState.companyId = input.companyId ?? null;
+  }
+  if (Object.prototype.hasOwnProperty.call(input, "user")) {
+    sessionState.user = input.user ?? null;
+  }
+}
+
+export function getSessionUser() {
+  return sessionState.user;
+}
 
 export class ApiError extends Error {
   code: string;
@@ -37,18 +69,59 @@ export class ApiError extends Error {
   }
 }
 
+function getSafeLocalStorage() {
+  return getBrowserLocalStorage();
+}
+
+function getCookie(name: string) {
+  if (typeof document === "undefined") return null;
+  const rawCookie = typeof document.cookie === "string" ? document.cookie : "";
+  const match = rawCookie
+    .split("; ")
+    .find((entry) => entry.startsWith(`${name}=`));
+  if (!match) return null;
+  return decodeURIComponent(match.slice(name.length + 1));
+}
+
+function setCookie(name: string, value: string, maxAgeSeconds = 60 * 60 * 24 * 7) {
+  if (typeof document === "undefined") return;
+  try {
+    document.cookie = `${name}=${encodeURIComponent(value)};path=/;max-age=${maxAgeSeconds};samesite=lax`;
+  } catch {
+    // Ignore browsers that do not expose writable cookies in this context.
+  }
+}
+
+function clearCookie(name: string) {
+  if (typeof document === "undefined") return;
+  try {
+    document.cookie = `${name}=;path=/;max-age=0;samesite=lax`;
+  } catch {
+    // Ignore browsers that do not expose writable cookies in this context.
+  }
+}
+
 export function getToken() {
-  if (typeof window === "undefined") return null;
-  return window.localStorage.getItem(storageKeys.token);
+  if (sessionState.token) return sessionState.token;
+  const storage = getSafeLocalStorage();
+  const token = storage?.getItem(storageKeys.token);
+  if (token) return token;
+  return getCookie(storageKeys.token);
 }
 
 export function getCompanyId() {
-  if (typeof window === "undefined") return null;
-  return window.localStorage.getItem(storageKeys.companyId);
+  if (sessionState.companyId) return sessionState.companyId;
+  const storage = getSafeLocalStorage();
+  const companyId = storage?.getItem(storageKeys.companyId);
+  if (companyId) return companyId;
+  return getCookie(storageKeys.companyId);
 }
 
 export function setCompanyId(companyId: string) {
-  window.localStorage.setItem(storageKeys.companyId, companyId);
+  sessionState.companyId = companyId;
+  const storage = getSafeLocalStorage();
+  storage?.setItem(storageKeys.companyId, companyId);
+  setCookie(storageKeys.companyId, companyId);
   window.dispatchEvent(new CustomEvent("ns-fiscal-company-changed", { detail: companyId }));
 }
 
@@ -57,15 +130,26 @@ export function saveSession(input: {
   user: { id: string; name: string; email: string; role: string };
   companyId?: string;
 }) {
-  window.localStorage.setItem(storageKeys.token, input.token);
-  window.localStorage.setItem(storageKeys.user, JSON.stringify(input.user));
-  document.cookie = `${storageKeys.token}=${input.token};path=/;max-age=604800;samesite=lax`;
+  sessionState.token = input.token;
+  sessionState.user = input.user;
+  sessionState.companyId = input.companyId ?? null;
+  const storage = getSafeLocalStorage();
+  storage?.setItem(storageKeys.token, input.token);
+  storage?.setItem(storageKeys.user, JSON.stringify(input.user));
+  setCookie(storageKeys.token, input.token);
+  setCookie(storageKeys.user, JSON.stringify(input.user));
   if (input.companyId) setCompanyId(input.companyId);
 }
 
 export function clearSession() {
-  Object.values(storageKeys).forEach((key) => window.localStorage.removeItem(key));
-  document.cookie = `${storageKeys.token}=;path=/;max-age=0`;
+  sessionState.token = null;
+  sessionState.user = null;
+  sessionState.companyId = null;
+  const storage = getSafeLocalStorage();
+  Object.values(storageKeys).forEach((key) => storage?.removeItem(key));
+  clearCookie(storageKeys.token);
+  clearCookie(storageKeys.user);
+  clearCookie(storageKeys.companyId);
 }
 
 export async function apiFetch<T>(
@@ -94,8 +178,6 @@ export async function apiFetch<T>(
   if (response.status === 204) return undefined as T;
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    console.error("API_ERROR_STATUS", response.status, "path", path);
-    console.error("API_ERROR_BODY", JSON.stringify(payload, null, 2));
     if (response.status === 401 && typeof window !== "undefined") {
       clearSession();
       if (window.location.pathname !== "/login") window.location.assign("/login");

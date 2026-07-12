@@ -25,6 +25,25 @@ export const maskCnpj = (value: string) =>
 export const normalizeCnpj = (value: string) =>
   String(value || "").replace(/\D/g, "");
 
+export function isValidCnpj(value: string) {
+  const cnpj = normalizeCnpj(value);
+  if (cnpj.length !== 14 || /^(\d)\1+$/.test(cnpj)) return false;
+
+  const calculateDigit = (length: number) => {
+    let sum = 0;
+    let weight = length - 7;
+    for (let index = 0; index < length; index += 1) {
+      sum += Number(cnpj[index]) * weight;
+      weight -= 1;
+      if (weight < 2) weight = 9;
+    }
+    const mod = sum % 11;
+    return mod < 2 ? 0 : 11 - mod;
+  };
+
+  return calculateDigit(12) === Number(cnpj[12]) && calculateDigit(13) === Number(cnpj[13]);
+}
+
 export const normalizeCpf = (value: string) => String(value || "").replace(/\D/g, "");
 export const maskCpf = (value: string) => String(value || "").replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, "$1.$2.$3-$4");
 

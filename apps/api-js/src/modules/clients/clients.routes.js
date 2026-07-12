@@ -93,8 +93,6 @@ function stripUnknownFields(data) {
   for (const [key, value] of Object.entries(data)) {
     if (CLIENT_PRISMA_FIELDS.has(key)) {
       clean[key] = value;
-    } else {
-      console.warn("STRIP_UNKNOWN_FIELD", key, "value_type", typeof value);
     }
   }
   return clean;
@@ -121,6 +119,92 @@ export const clientesRouter = Router();
 clientesRouter.use(requireAuth);
 
 export const clientesPublicRouter = Router();
+export const customersRouter = Router();
+
+const customerCompanySelect = {
+  id: true,
+  ownerId: true,
+  legalName: true,
+  tradeName: true,
+  cnpj: true,
+  stateRegistration: true,
+  stateRegistrationStatus: true,
+  stateRegistrationSource: true,
+  stateRegistrationFormatted: true,
+  icmsContributorStatus: true,
+  uf: true,
+  city: true,
+  taxRegime: true,
+  status: true,
+  environment: true,
+  nfeLastNsu: true,
+  nfeMaxNsu: true,
+  nfeNextAllowedSyncAt: true,
+  lastSyncAt: true,
+};
+
+async function resolveCustomerCompany(request, _response, next) {
+  if (request.company) {
+    next();
+    return;
+  }
+
+  const requestedCompanyId =
+    request.query.companyId ||
+    request.get("x-company-id") ||
+    null;
+
+  let company = null;
+  if (requestedCompanyId) {
+    company = await prisma.company.findFirst({
+      where: {
+        id: String(requestedCompanyId),
+        ownerId: request.user.id,
+        status: { not: "deleted" },
+      },
+      select: customerCompanySelect,
+    });
+  }
+
+  if (!company) {
+    const preferences = await prisma.userPreference.findUnique({
+      where: { userId: request.user.id },
+      select: { defaultCompanyId: true },
+    });
+    if (preferences?.defaultCompanyId) {
+      company = await prisma.company.findFirst({
+        where: {
+          id: preferences.defaultCompanyId,
+          ownerId: request.user.id,
+          status: { not: "deleted" },
+        },
+        select: customerCompanySelect,
+      });
+    }
+  }
+
+  if (!company) {
+    company = await prisma.company.findFirst({
+      where: { ownerId: request.user.id, status: { not: "deleted" } },
+      orderBy: { createdAt: "asc" },
+      select: customerCompanySelect,
+    });
+  }
+
+  if (!company) {
+    throw new AppError("Nenhuma empresa ativa encontrada para clientes.", "COMPANY_NOT_FOUND", 404);
+  }
+
+  request.company = company;
+  next();
+}
+
+function validateDocumentLookupPayload(raw) {
+  const document = String(raw.document || raw.cpfCnpj || raw.cnpj || raw.cpf || "").replace(/\D/g, "");
+  if (document.length === 14) return { kind: "PJ", document };
+  if (document.length === 11) return { kind: "PF", document };
+  throw new AppError("Informe um CPF ou CNPJ válido.", "INVALID_DOCUMENT", 400);
+}
 
 let ddlInitialized = false;
 
@@ -332,6 +416,121 @@ clientesPublicRouter.get(
   }),
 );
 
+customersRouter.use(requireAuth);
+customersRouter.use(asyncHandler(resolveCustomerCompany));
+
+customersRouter.post(
+  "/lookup-document",
+  asyncHandler(async (request, response) => {
+    const { kind, document } = validateDocumentLookupPayload(request.body || {});
+    if (kind === "PF") {
+      if (!isValidCpf(document)) {
+        throw new AppError("CPF inválido.", "INVALID_CPF_FORMAT", 400);
+      }
+      sendSuccess(response, {
+        success: true,
+        tipoPessoa: "PF",
+        cpf: document,
+        nome: null,
+        telefone: null,
+        email: null,
+        cep: null,
+        logradouro: null,
+        numero: null,
+        complemento: null,
+        bairro: null,
+        cidade: null,
+        uf: null,
+        codigoIbge: null,
+        fonte: "VALIDACAO_LOCAL",
+        dadosOriginais: null,
+        alertas: [
+          {
+            code: "CPF_PROVIDER_NOT_CONFIGURED",
+            message: "Provider de CPF não configurado. CPF validado localmente.",
+          },
+        ],
+      });
+      return;
+    }
+
+    if (!isValidCnpj(document)) {
+      throw new AppError("CNPJ inválido.", "INVALID_CNPJ_FORMAT", 400);
+    }
+
+    try {
+      const data = await resolveCnpjData(document);
+      const emp = data.empresa || {};
+      const ie = data.inscricaoEstadual || {};
+      const enrichment = data._enrichment || {};
+      const derived = enrichment.derived || {};
+      const optanteSimples = emp.optanteSimples === true ? true : emp.optanteSimples === false ? false : null;
+      const mei = emp.mei === true ? true : emp.mei === false ? false : null;
+      const ieFound = Boolean(ie.numero);
+      const regimeTributario = derived.regimeTributario || (mei === true ? "MEI" : optanteSimples === true ? "Simples Nacional" : "PENDENTE_CONFIRMACAO");
+      const indicadorIe = derived.indicadorIe || computeIndicadorIe(ie.numero);
+      const contribuinteIcms = derived.contribuinteIcms ?? (ieFound ? true : null);
+      const mapped = {
+        success: true,
+        tipoPessoa: "PJ",
+        cnpj: emp.cnpj ?? document,
+        razaoSocial: emp.razaoSocial || null,
+        nomeFantasia: emp.nomeFantasia || null,
+        inscricaoEstadual: ie.numero || null,
+        inscricaoMunicipal: emp.inscricaoMunicipal || null,
+        regimeTributario,
+        cnae: emp.cnaePrincipal?.codigo || null,
+        atividadeEconomica: emp.cnaePrincipal?.descricao || null,
+        situacaoCadastral: emp.situacaoCadastral || null,
+        telefone: emp.telefone || null,
+        email: emp.email || null,
+        cep: emp.cep || null,
+        logradouro: emp.endereco || null,
+        numero: emp.numero || null,
+        complemento: emp.complemento || null,
+        bairro: emp.bairro || null,
+        cidade: emp.cidade || null,
+        uf: emp.uf || null,
+        codigoIbge: enrichment.codigoIbge || null,
+        codigoUfIbge: enrichment.codigoUfIbge || null,
+        ddd: enrichment.ddd || null,
+        pais: "BRASIL",
+        fonte: ie.fonte || "PROVEDOR_CNPJ",
+        dadosOriginais: data,
+        alertas: [],
+        naturezaJuridica: emp.naturezaJuridica || null,
+        porte: emp.porte || null,
+        capitalSocial: emp.capitalSocial || null,
+        dataAbertura: emp.dataAbertura || null,
+        optanteSimples,
+        mei,
+        filial: emp.filial != null ? emp.filial : null,
+        matriz: emp.matriz != null ? emp.matriz : null,
+        crt: derived.crt || computeCrt(optanteSimples, mei),
+        descricaoCrt: derived.descricaoCrt || null,
+        indicadorIe,
+        ieStatus: derived.ieStatus || (ieFound ? "ENCONTRADA" : "NAO_ENCONTRADA"),
+        imStatus: emp.inscricaoMunicipal ? "ATIVA" : null,
+        tipoContribuinte: derived.tipoContribuinte || computeTipoContribuinte(contribuinteIcms, null),
+        contribuinteIcms,
+        contribuinteIss: null,
+        retencoes: { irrf: false, csll: false, pis: false, cofins: false, iss: false },
+        cnaeSecundarios: emp.cnaeSecundarios || null,
+      };
+      if (!mapped.inscricaoEstadual) {
+        mapped.alertas.push({
+          code: "IE_NOT_FOUND",
+          message: "IE não encontrada automaticamente. Confirme manualmente antes de emitir NF-e.",
+        });
+      }
+      sendSuccess(response, mapped);
+    } catch (error) {
+      if (error instanceof AppError) throw error;
+      throw new AppError("Não foi possível consultar o CNPJ agora.", "CNPJ_LOOKUP_FAILED", 503);
+    }
+  }),
+);
+
 clientesRouter.post(
   "/",
   asyncHandler(async (request, response) => {
@@ -467,7 +666,6 @@ clientesRouter.post(
       const client = await prisma.client.create({ data: cleanData });
       sendSuccess(response, client, 201);
     } catch (error) {
-      console.error("CREATE_CLIENT_ERROR", error.code, error.message, JSON.stringify(error.meta || {}));
       if (error.code === "P2002") {
         const target = error.meta?.target || [];
         throw new AppError(`Dados duplicados: ${target.join(", ")}`, "DUPLICATE", 409);
@@ -579,9 +777,7 @@ clientesRouter.get(
   }),
 );
 
-clientesRouter.put(
-  "/:id",
-  asyncHandler(async (request, response) => {
+const updateClientHandler = asyncHandler(async (request, response) => {
     const existing = await prisma.client.findFirst({
       where: { id: request.params.id, companyId: request.company.id },
     });
@@ -695,15 +891,16 @@ clientesRouter.put(
       const updated = await prisma.client.update({ where: { id: existing.id }, data: cleanData });
       sendSuccess(response, updated);
     } catch (error) {
-      console.error("UPDATE_CLIENT_ERROR", error.message || error);
       if (error.code === "P2002") {
         const target = error.meta?.target || [];
         throw new AppError(`Dados duplicados: ${target.join(", ")}`, "DUPLICATE", 409);
       }
       throw new AppError("Erro ao atualizar cliente. Verifique os dados.", "UPDATE_FAILED", 400, [{ field: "general", message: error.message || "Erro desconhecido" }]);
     }
-  }),
-);
+  });
+
+clientesRouter.put("/:id", updateClientHandler);
+clientesRouter.patch("/:id", updateClientHandler);
 
 clientesRouter.delete(
   "/:id",
@@ -823,6 +1020,229 @@ function calcScore(cliente) {
   const overall = Math.min(100, Math.max(0, Math.round(values.reduce((a, b) => a + b, 0) / values.length)));
   return { overall, detalhes: scores };
 }
+
+function buildSavedClientValidation(cliente) {
+  const draft = { ...cliente };
+  if (!draft.cidade && draft.municipio) draft.cidade = draft.municipio;
+  if (!draft.municipio && draft.cidade) draft.municipio = draft.cidade;
+
+  const validation = validarClienteParaEmissao(draft);
+  const pendencias = (validation.erros || []).map((err) =>
+    makeSmartError(
+      err.campo,
+      err.problema,
+      err.problema,
+      err.impacto,
+      "VALIDACAO_LOCAL",
+      err.correcaoSugerida,
+      "ALTA",
+      "ERRO",
+      err.acoes,
+    ),
+  );
+  const alertas = (validation.alertas || []).map((alert) =>
+    makeSmartError(
+      alert.campo,
+      alert.problema,
+      alert.problema,
+      alert.impacto,
+      "VALIDACAO_LOCAL",
+      alert.correcaoSugerida,
+      "MEDIA",
+      "ALERTA",
+      alert.acoes,
+    ),
+  );
+  const { overall, detalhes } = calcScore(draft);
+  const status = pendencias.length > 0
+    ? "blocked"
+    : alertas.length > 0
+      ? "attention"
+      : "ready";
+  const sugestoesCorrecao = [...pendencias, ...alertas]
+    .map((issue) => issue.correcaoSugerida)
+    .filter(Boolean);
+  const isPessoaJuridica = draft.tipoPessoa === "PJ";
+  const necessitaIe = isPessoaJuridica && Boolean(draft.contribuinteIcms) && !draft.inscricaoEstadual;
+  const necessitaIm = isPessoaJuridica && Boolean(draft.contribuinteIss) && !draft.inscricaoMunicipal;
+  return {
+    success: true,
+    status,
+    podeEmitir: status !== "blocked",
+    normalizacoes: {},
+    pendencias,
+    alertas,
+    dicas: [],
+    sugestoesCorrecao,
+    validadoPorIa: false,
+    mensagem: status === "ready"
+      ? "Cliente apto para operação fiscal."
+      : "Cliente validado com pendências fiscais ou cadastrais.",
+    scoreCadastro: overall,
+    scoreDetalhes: detalhes,
+    podeEmitirNfe: status !== "blocked" && isPessoaJuridica,
+    podeEmitirNfse: status !== "blocked" && Boolean(draft.inscricaoMunicipal),
+    podeEmitirNfce: status !== "blocked" && isPessoaJuridica,
+    podeReceberCte: status !== "blocked" && isPessoaJuridica,
+    necessitaIe,
+    necessitaIm,
+    necessitaContador: status === "blocked",
+    necessitaCertificado: isPessoaJuridica,
+    necessitaCadastroComplementar: status !== "ready",
+  };
+}
+
+clientesRouter.post(
+  "/:id/validate",
+  asyncHandler(async (request, response) => {
+    const client = await prisma.client.findFirst({
+      where: { id: request.params.id, companyId: request.company.id },
+    });
+    if (!client) throw new AppError("Cliente não encontrado.", "NOT_FOUND", 404);
+    const validation = buildSavedClientValidation(client);
+    const updated = await prisma.client.update({
+      where: { id: client.id },
+      data: {
+        fiscalAi: validation,
+        scoreCadastro: validation.scoreCadastro,
+        scoreDetalhes: validation.scoreDetalhes,
+        validadoPorIa: false,
+      },
+    });
+    sendSuccess(response, { ...validation, client: updated });
+  }),
+);
+
+clientesRouter.post(
+  "/:id/auto-fix",
+  asyncHandler(async (request, response) => {
+    const client = await prisma.client.findFirst({
+      where: { id: request.params.id, companyId: request.company.id },
+    });
+    if (!client) throw new AppError("Cliente não encontrado.", "NOT_FOUND", 404);
+
+    const data = {};
+    const corrections = [];
+    const setCorrection = (field, value, label) => {
+      if (value === undefined || value === client[field]) return;
+      data[field] = value;
+      corrections.push({
+        field,
+        label,
+        previous: client[field] ?? null,
+        next: value ?? null,
+      });
+    };
+
+    if (client.uf) setCorrection("uf", String(client.uf).toUpperCase(), "Normalizar UF");
+    if (client.cnpj) setCorrection("cnpj", normalizeCnpj(client.cnpj), "Formatar CNPJ");
+    if (client.cpf) setCorrection("cpf", normalizeCpf(client.cpf), "Formatar CPF");
+    if (client.cep) setCorrection("cep", String(client.cep).replace(/\D/g, ""), "Formatar CEP");
+    if (client.telefone) setCorrection("telefone", String(client.telefone).replace(/\D/g, ""), "Normalizar telefone");
+    if (client.whatsapp) setCorrection("whatsapp", String(client.whatsapp).replace(/\D/g, ""), "Normalizar WhatsApp");
+    if (!client.pais) setCorrection("pais", "BRASIL", "Preencher país padrão");
+    if (client.inscricaoEstadual && client.indicadorIe !== "1") {
+      setCorrection("indicadorIe", "1", "Ajustar indicador IE para contribuinte");
+      setCorrection("tipoContribuinte", "Contribuinte ICMS", "Ajustar tipo de contribuinte");
+      setCorrection("contribuinteIcms", true, "Marcar contribuinte ICMS");
+    }
+    if (!client.inscricaoEstadual && client.indicadorIe !== "9") {
+      setCorrection("indicadorIe", "9", "Ajustar indicador IE para não contribuinte");
+      setCorrection("contribuinteIcms", false, "Desmarcar contribuinte ICMS");
+    }
+    if (client.mei === true && client.crt !== "4") {
+      setCorrection("crt", "4", "Ajustar CRT para MEI");
+      setCorrection("regimeTributario", "MEI", "Ajustar regime para MEI");
+    }
+
+    if (corrections.length === 0) {
+      sendSuccess(response, {
+        corrected: false,
+        corrections,
+        client,
+        validation: buildSavedClientValidation(client),
+      });
+      return;
+    }
+
+    const historico = Array.isArray(client.historicoJson) ? client.historicoJson : [];
+    const updated = await prisma.client.update({
+      where: { id: client.id },
+      data: {
+        ...data,
+        historicoJson: [
+          ...historico,
+          ...corrections.map((correction) => ({
+            quem: "FiscalAI",
+            quando: new Date().toISOString(),
+            campo: correction.label,
+            valorAnterior: correction.previous == null ? null : String(correction.previous),
+            valorNovo: correction.next == null ? null : String(correction.next),
+            origem: "FISCAL_AI",
+          })),
+        ],
+      },
+    });
+
+    sendSuccess(response, {
+      corrected: true,
+      corrections,
+      client: updated,
+      validation: buildSavedClientValidation(updated),
+    });
+  }),
+);
+
+clientesRouter.get(
+  "/:id/documents",
+  asyncHandler(async (request, response) => {
+    const client = await prisma.client.findFirst({
+      where: { id: request.params.id, companyId: request.company.id },
+    });
+    if (!client) throw new AppError("Cliente não encontrado.", "NOT_FOUND", 404);
+
+    const document = client.cnpj || client.cpf || null;
+    if (!document || document.length !== 14) {
+      sendSuccess(response, { data: [], total: 0 });
+      return;
+    }
+
+    const items = await prisma.fiscalDocument.findMany({
+      where: {
+        companyId: request.company.id,
+        OR: [
+          { recipientCnpj: document },
+          { issuerCnpj: document },
+        ],
+      },
+      select: {
+        id: true,
+        documentType: true,
+        invoiceNumber: true,
+        series: true,
+        accessKey: true,
+        status: true,
+        issuerName: true,
+        issuerCnpj: true,
+        recipientName: true,
+        recipientCnpj: true,
+        emissionDate: true,
+        totalAmount: true,
+        createdAt: true,
+      },
+      orderBy: { emissionDate: "desc" },
+      take: 100,
+    });
+
+    sendSuccess(response, {
+      data: items.map((item) => ({
+        ...item,
+        totalAmount: item.totalAmount == null ? null : Number(item.totalAmount),
+      })),
+      total: items.length,
+    });
+  }),
+);
 
 clientesRouter.post(
   "/validar-ia",
@@ -1359,3 +1779,5 @@ clientesRouter.post(
     sendSuccess(response, result);
   }),
 );
+
+customersRouter.use(clientesRouter);

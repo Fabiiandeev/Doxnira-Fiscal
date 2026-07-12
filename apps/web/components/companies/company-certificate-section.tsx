@@ -5,6 +5,7 @@ import { FileKey2, Trash2, Upload } from "lucide-react";
 import { useRef, useState } from "react";
 
 import { RemoveCompanyDialog } from "@/components/companies/remove-company-dialog";
+import { useConfirmDialog } from "@/components/providers/confirm-dialog-provider";
 import { notify } from "@/components/toast-viewport";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -21,6 +22,7 @@ import { formatDate } from "@/lib/utils";
 
 export function CompanyCertificateSection({ company }: { company: Company }) {
   const queryClient = useQueryClient();
+  const { confirm } = useConfirmDialog();
   const fileRef = useRef<HTMLInputElement>(null);
   const [password, setPassword] = useState("");
   const [mismatch, setMismatch] = useState<{
@@ -76,6 +78,16 @@ export function CompanyCertificateSection({ company }: { company: Company }) {
   });
 
   const data = certificate.data?.certificate;
+  async function confirmRemoveCertificate() {
+    const confirmed = await confirm({
+      title: "Remover certificado",
+      description: "Remover o certificado atual bloqueará emissão e sincronização fiscal real até novo envio.",
+      confirmLabel: "Remover",
+      tone: "danger",
+    });
+    if (confirmed) remove.mutate();
+  }
+
   return (
     <Card className="mb-4 p-5 md:p-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -153,7 +165,7 @@ export function CompanyCertificateSection({ company }: { company: Company }) {
         {data && (
           <Button
             variant="danger"
-            onClick={() => window.confirm("Remover o certificado atual?") && remove.mutate()}
+            onClick={confirmRemoveCertificate}
             disabled={remove.isPending}
           >
             <Trash2 className="h-4 w-4" />

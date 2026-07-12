@@ -1,4 +1,5 @@
-import { apiFetch, clearSession, saveSession } from "@/lib/api";
+import { apiFetch, clearSession, getSessionUser, saveSession } from "@/lib/api";
+import { getBrowserLocalStorage } from "@/lib/browser-storage";
 
 export interface AuthUser {
   id: string;
@@ -44,11 +45,19 @@ export async function logout() {
 }
 
 export function getStoredUser(): AuthUser | null {
+  const sessionUser = getSessionUser();
+  if (sessionUser) return sessionUser;
   if (typeof window === "undefined") return null;
-  const value = window.localStorage.getItem("ns-fiscal-user");
+  const storage = getBrowserLocalStorage();
+  const rawCookie = typeof document.cookie === "string" ? document.cookie : "";
+  const cookieValue = rawCookie
+    .split("; ")
+    .find((entry) => entry.startsWith("ns-fiscal-user="))
+    ?.slice("ns-fiscal-user=".length);
+  const value = storage?.getItem("ns-fiscal-user") || cookieValue;
   if (!value) return null;
   try {
-    return JSON.parse(value) as AuthUser;
+    return JSON.parse(decodeURIComponent(value)) as AuthUser;
   } catch {
     return null;
   }

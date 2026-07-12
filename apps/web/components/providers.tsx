@@ -1,11 +1,40 @@
 "use client";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
+
+import { AuthProvider } from "@/components/providers/auth-provider";
+import { CompanyProvider } from "@/components/providers/company-provider";
+import { ConfirmDialogProvider } from "@/components/providers/confirm-dialog-provider";
+import { LoadingProvider } from "@/components/providers/loading-provider";
+import { ModalProvider } from "@/components/providers/modal-provider";
+import { PermissionProvider } from "@/components/providers/permissions-provider";
+import { ThemeProvider } from "@/components/providers/theme-provider";
+import { ErrorBoundary } from "@/components/system/error-boundary";
 import { ToastViewport } from "@/components/toast-viewport";
+import { primeSession, type SessionUser } from "@/lib/api";
+import { installBrowserStorageShim } from "@/lib/browser-storage-shim";
 import { cleanStaleMockStorage } from "@/lib/safe-storage";
 
-export function Providers({ children }: { children: React.ReactNode }) {
+installBrowserStorageShim();
+
+export function Providers({
+  children,
+  initialSession,
+}: {
+  children: React.ReactNode;
+  initialSession?: {
+    token: string | null;
+    companyId: string | null;
+    user: SessionUser | null;
+  };
+}) {
+  primeSession({
+    token: initialSession?.token ?? null,
+    companyId: initialSession?.companyId ?? null,
+    user: initialSession?.user ?? null,
+  });
+
   const [queryClient] = useState(
     () =>
       new QueryClient({
@@ -24,8 +53,24 @@ export function Providers({ children }: { children: React.ReactNode }) {
 
   return (
     <QueryClientProvider client={queryClient}>
-      {children}
-      <ToastViewport />
+      <ErrorBoundary>
+        <ThemeProvider>
+          <AuthProvider>
+            <PermissionProvider>
+              <CompanyProvider>
+                <LoadingProvider>
+                  <ModalProvider>
+                    <ConfirmDialogProvider>
+                      {children}
+                      <ToastViewport />
+                    </ConfirmDialogProvider>
+                  </ModalProvider>
+                </LoadingProvider>
+              </CompanyProvider>
+            </PermissionProvider>
+          </AuthProvider>
+        </ThemeProvider>
+      </ErrorBoundary>
     </QueryClientProvider>
   );
 }

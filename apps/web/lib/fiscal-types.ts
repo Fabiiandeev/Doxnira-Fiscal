@@ -453,3 +453,55 @@ export interface FiscalLearningEntry {
   lastApplied: string;
   createdBy: FiscalResponsible;
 }
+
+export type FiscalModuleKey =
+  | "fiscal"
+  | "nfe"
+  | "nfce"
+  | "nfse"
+  | "cte"
+  | "xml-fiscal"
+  | "rejeicoes"
+  | "sped"
+  | "sintegra"
+  | "fechamento-fiscal"
+  | "previsao-impostos"
+  | "guias";
+
+export type FiscalValidationSeverity = "info" | "warning" | "error" | "critical";
+
+export interface FiscalValidationIssue {
+  code: string;
+  module: FiscalModuleKey;
+  field: string;
+  message: string;
+  impact: string;
+  suggestion: string;
+  severity: FiscalValidationSeverity;
+  autoFixAvailable: boolean;
+  autoFixValue?: string | number | boolean | null;
+  ruleReference?: string | null;
+}
+
+export interface FiscalValidationResult {
+  valid: boolean;
+  score: number;
+  issues: FiscalValidationIssue[];
+  autoFixApplied: number;
+  checkedAt: string;
+}
+
+export interface FiscalCalculationLine {
+  label: string;
+  grossAmount: number;
+  discountAmount?: number;
+  taxAmount?: number;
+}
+
+export interface FiscalCalculationSummary {
+  grossAmount: number;
+  discountAmount: number;
+  taxAmount: number;
+  netAmount: number;
+  lines: FiscalCalculationLine[];
+}

@@ -52,6 +52,255 @@ const companySelect = {
   updatedAt: true,
 };
 
+const companyTaxSettingsSelect = {
+  taxRegime: true,
+  calculationRegime: true,
+  uf: true,
+  stateRegistration: true,
+  mainCnae: true,
+  secondaryCnaes: true,
+  simplesAnnex: true,
+  mainActivity: true,
+  isIcmsTaxpayer: true,
+  isIpiTaxpayer: true,
+  pisCofinsRegime: true,
+  accumulatedRevenue: true,
+  providesService: true,
+  sellsMerchandise: true,
+  municipalRegistration: true,
+  crt: true,
+  fiscalConfigComplete: true,
+  simplesNominalRate: true,
+  simplesFatorR: true,
+  simplesRevenue12m: true,
+  updatedAt: true,
+};
+
+const companyCertificateSelect = {
+  id: true,
+  status: true,
+  validUntil: true,
+  holderCnpj: true,
+  validatedAt: true,
+  updatedAt: true,
+};
+
+const companyEnrichedSelect = {
+  ...companySelect,
+  taxSettings: { select: companyTaxSettingsSelect },
+  certificates: {
+    where: { status: { not: "deleted" } },
+    select: companyCertificateSelect,
+    orderBy: { validUntil: "desc" },
+    take: 1,
+  },
+  _count: { select: { fiscalDocuments: true, alerts: true } },
+};
+
+const fiscalSettingsFields = new Set([
+  "taxRegime", "calculationRegime", "uf", "stateRegistration", "mainCnae",
+  "secondaryCnaes", "simplesAnnex", "mainActivity", "isIcmsTaxpayer",
+  "isIpiTaxpayer", "pisCofinsRegime", "accumulatedRevenue", "providesService",
+  "sellsMerchandise", "municipalRegistration", "crt", "simplesNominalRate",
+  "simplesDeductAmount", "simplesEffectiveRate", "simplesIcmsPercent",
+  "simplesIssPercent", "simplesCppPercent", "simplesFatorR",
+  "simplesRevenue12m", "simplesPayroll12m", "simplesManualOverride",
+  "presumidoIrpjBase", "presumidoCsllBase", "presumidoPisRate",
+  "presumidoCofinsRate", "presumidoIssRate", "presumidoIcmsRate",
+  "presumidoIpiRate", "presumidoRatPercent", "presumidoThirdParty",
+  "presumidoInssPatronal", "presumidoIrpjVencimento",
+  "presumidoCsllVencimento", "realapuracaoPeriod", "realPisRate",
+  "realCofinsRate", "realCreditAllowed", "realLalurControl",
+  "realPrejuizoControl", "realIrpjRate", "realCsllRate",
+  "fiscalConfigComplete",
+]);
+
+const fiscalSettingsPatchSchema = z.object({
+  taxRegime: z.enum(["SIMPLES_NACIONAL", "LUCRO_PRESUMIDO", "LUCRO_REAL", "MEI", "OUTRO", "PENDENTE_CONFIRMACAO"]).optional(),
+  calculationRegime: z.enum(["COMPETENCIA", "CAIXA"]).optional(),
+  uf: z.string().length(2).transform((value) => value.toUpperCase()).optional(),
+  stateRegistration: z.string().max(40).optional().nullable(),
+  mainCnae: z.string().max(20).optional().nullable(),
+  secondaryCnaes: z.array(z.string()).optional().nullable(),
+  simplesAnnex: z.string().max(20).optional().nullable(),
+  mainActivity: z.string().max(255).optional().nullable(),
+  isIcmsTaxpayer: z.boolean().optional(),
+  isIpiTaxpayer: z.boolean().optional(),
+  pisCofinsRegime: z.enum(["CUMULATIVO", "NAO_CUMULATIVO", "SIMPLES", "PENDENTE_CONFIRMACAO"]).optional(),
+  accumulatedRevenue: z.coerce.number().min(0).optional().nullable(),
+  providesService: z.boolean().optional(),
+  sellsMerchandise: z.boolean().optional(),
+  municipalRegistration: z.string().max(40).optional().nullable(),
+  crt: z.enum(["1", "2", "3", "4"]).optional().nullable(),
+}).passthrough();
+
+function decorateCompany(company) {
+  const { certificates = [], ...rest } = company;
+  return {
+    ...rest,
+    certificate: certificates[0] || null,
+  };
+}
+
+function createIssue({ id, title, explanation, impact, field, action, severity }) {
+  return { id, title, explanation, impact, field, action, severity };
+}
+
+function buildCompanyValidation(company) {
+  const settings = company.taxSettings || null;
+  const certificate = company.certificate || company.certificates?.[0] || null;
+  const issues = [];
+  const cnpj = normalizeCnpj(company.cnpj);
+
+  if (!isValidCnpj(cnpj)) {
+    issues.push(createIssue({
+      id: "invalid-cnpj",
+      title: "CNPJ inválido",
+      explanation: "O CNPJ informado não passou na validação de dígitos verificadores.",
+      impact: "Bloqueia emissão, sincronização fiscal e validações cadastrais.",
+      field: "cnpj",
+      action: "Corrigir CNPJ da empresa.",
+      severity: "error",
+    }));
+  }
+  if (!company.legalName) {
+    issues.push(createIssue({
+      id: "missing-legal-name",
+      title: "Razão social ausente",
+      explanation: "A razão social é obrigatória para cadastros fiscais.",
+      impact: "Impede a identificação formal da empresa em documentos.",
+      field: "legalName",
+      action: "Informar a razão social.",
+      severity: "error",
+    }));
+  }
+  if (!company.uf) {
+    issues.push(createIssue({
+      id: "missing-uf",
+      title: "UF ausente",
+      explanation: "A UF define regras operacionais e ambiente de integração.",
+      impact: "Bloqueia configuração fiscal mínima.",
+      field: "uf",
+      action: "Informar a UF fiscal da empresa.",
+      severity: "error",
+    }));
+  }
+  if (!company.city) {
+    issues.push(createIssue({
+      id: "missing-city",
+      title: "Cidade ausente",
+      explanation: "A cidade ajuda a validar o domicílio fiscal.",
+      impact: "Pode bloquear NFS-e e cadastros municipais.",
+      field: "city",
+      action: "Informar a cidade da empresa.",
+      severity: "warning",
+    }));
+  }
+  if (!company.taxRegime || company.taxRegime === "PENDENTE_CONFIRMACAO") {
+    issues.push(createIssue({
+      id: "missing-tax-regime",
+      title: "Regime tributário não informado",
+      explanation: "O regime tributário orienta emissão, fechamento e apuração.",
+      impact: "Impede validação fiscal confiável.",
+      field: "taxRegime",
+      action: "Selecionar o regime tributário.",
+      severity: "error",
+    }));
+  }
+  if (!settings?.crt) {
+    issues.push(createIssue({
+      id: "missing-crt",
+      title: "CRT ausente",
+      explanation: "O CRT identifica o regime no XML da NF-e.",
+      impact: "Pode gerar rejeição de emissão.",
+      field: "crt",
+      action: "Configurar CRT na aba fiscal.",
+      severity: "error",
+    }));
+  }
+  if (!settings?.mainCnae) {
+    issues.push(createIssue({
+      id: "missing-main-cnae",
+      title: "CNAE principal ausente",
+      explanation: "O CNAE principal apoia validações fiscais e municipais.",
+      impact: "Reduz a confiança da análise fiscal.",
+      field: "mainCnae",
+      action: "Informar CNAE principal.",
+      severity: "warning",
+    }));
+  }
+  if (settings?.isIcmsTaxpayer && !company.stateRegistration && !settings.stateRegistration) {
+    issues.push(createIssue({
+      id: "missing-state-registration",
+      title: "IE ausente",
+      explanation: "Empresas contribuintes de ICMS devem ter inscrição estadual.",
+      impact: "Pode bloquear emissão de NF-e.",
+      field: "stateRegistration",
+      action: "Informar a inscrição estadual.",
+      severity: "error",
+    }));
+  }
+  if (settings?.providesService && !settings.municipalRegistration) {
+    issues.push(createIssue({
+      id: "missing-municipal-registration",
+      title: "IM ausente para NFS-e",
+      explanation: "Prestadores de serviço normalmente precisam de inscrição municipal.",
+      impact: "Pode bloquear emissão de NFS-e.",
+      field: "municipalRegistration",
+      action: "Informar inscrição municipal.",
+      severity: "warning",
+    }));
+  }
+  if (!certificate) {
+    issues.push(createIssue({
+      id: "missing-certificate",
+      title: "Certificado digital ausente",
+      explanation: "O certificado A1 é necessário para operações fiscais oficiais.",
+      impact: "Bloqueia emissão e sincronização real.",
+      field: "certificate",
+      action: "Gerenciar certificado digital.",
+      severity: "error",
+    }));
+  } else if (certificate.validUntil && new Date(certificate.validUntil) < new Date()) {
+    issues.push(createIssue({
+      id: "expired-certificate",
+      title: "Certificado vencido",
+      explanation: "A validade do certificado digital expirou.",
+      impact: "Bloqueia operações com SEFAZ.",
+      field: "certificate",
+      action: "Substituir certificado digital.",
+      severity: "error",
+    }));
+  }
+  if ((company.taxRegime === "SIMPLES_NACIONAL" || company.taxRegime === "MEI") && settings && settings.simplesNominalRate == null) {
+    issues.push(createIssue({
+      id: "missing-simples-percent",
+      title: "Percentual do Simples não informado",
+      explanation: "A alíquota do Simples orienta simulações e fechamento.",
+      impact: "Mantém cálculos em modo pendente de confirmação.",
+      field: "simplesNominalRate",
+      action: "Informar percentual do Simples.",
+      severity: "warning",
+    }));
+  }
+
+  const errors = issues.filter((issue) => issue.severity === "error").length;
+  const warnings = issues.filter((issue) => issue.severity === "warning").length;
+  const score = Math.max(0, 100 - errors * 16 - warnings * 7);
+
+  return {
+    score,
+    status: errors > 0 ? "blocked" : warnings > 0 ? "attention" : "ready",
+    issues,
+    summary: {
+      errors,
+      warnings,
+      readyForClosing: errors === 0 && Boolean(settings?.fiscalConfigComplete),
+      fiscalConfigComplete: Boolean(settings?.fiscalConfigComplete),
+    },
+  };
+}
+
 function buildInitialTaxSettings(company) {
   if (!company.uf) return null;
   const taxRegime = [
@@ -135,13 +384,16 @@ companiesRouter.get(
   asyncHandler(async (request, response) => {
     const companies = await prisma.company.findMany({
       where: { ownerId: request.user.id, status: { not: "deleted" } },
-      select: {
-        ...companySelect,
-        _count: { select: { fiscalDocuments: true, alerts: true } },
-      },
+      select: companyEnrichedSelect,
       orderBy: { createdAt: "asc" },
     });
-    sendSuccess(response, { data: companies });
+    sendSuccess(response, { data: companies.map((company) => {
+      const decorated = decorateCompany(company);
+      return {
+        ...decorated,
+        validation: buildCompanyValidation(decorated),
+      };
+    }) });
   }),
 );
 
@@ -263,7 +515,7 @@ companiesRouter.post(
       throw new AppError("CNPJ é obrigatório.", "CNPJ_REQUIRED", 400);
     }
     
-    const data = await lookupCompanyFiscalData(cnpj);
+    const data = await resolveCnpjData(cnpj);
     sendSuccess(response, data);
   }),
 );
@@ -317,9 +569,89 @@ companiesRouter.post(
   }),
 );
 
-companiesRouter.get("/:companyId", requireCompanyAccess, (request, response) => {
-  sendSuccess(response, request.company);
-});
+companiesRouter.get(
+  "/:companyId",
+  requireCompanyAccess,
+  asyncHandler(async (request, response) => {
+    const company = await prisma.company.findUnique({
+      where: { id: request.company.id },
+      select: companyEnrichedSelect,
+    });
+    const decorated = decorateCompany(company);
+    sendSuccess(response, {
+      ...decorated,
+      validation: buildCompanyValidation(decorated),
+    });
+  }),
+);
+
+companiesRouter.post(
+  "/:companyId/validate",
+  requireCompanyAccess,
+  asyncHandler(async (request, response) => {
+    const company = await prisma.company.findUnique({
+      where: { id: request.company.id },
+      select: companyEnrichedSelect,
+    });
+    const decorated = decorateCompany(company);
+    sendSuccess(response, buildCompanyValidation(decorated));
+  }),
+);
+
+companiesRouter.patch(
+  "/:companyId/fiscal-settings",
+  requireCompanyAccess,
+  validate(fiscalSettingsPatchSchema),
+  asyncHandler(async (request, response) => {
+    const current = await prisma.companyTaxSetting.findUnique({
+      where: { companyId: request.company.id },
+    });
+    const safe = {};
+    for (const [key, value] of Object.entries(request.body)) {
+      if (fiscalSettingsFields.has(key)) safe[key] = value;
+    }
+    const data = {
+      taxRegime: safe.taxRegime || current?.taxRegime || request.company.taxRegime || "PENDENTE_CONFIRMACAO",
+      calculationRegime: safe.calculationRegime || current?.calculationRegime || "COMPETENCIA",
+      uf: safe.uf || current?.uf || request.company.uf,
+      pisCofinsRegime: safe.pisCofinsRegime || current?.pisCofinsRegime || "PENDENTE_CONFIRMACAO",
+      isIcmsTaxpayer: safe.isIcmsTaxpayer ?? current?.isIcmsTaxpayer ?? false,
+      isIpiTaxpayer: safe.isIpiTaxpayer ?? current?.isIpiTaxpayer ?? false,
+      providesService: safe.providesService ?? current?.providesService ?? false,
+      sellsMerchandise: safe.sellsMerchandise ?? current?.sellsMerchandise ?? true,
+      ...safe,
+    };
+    if (!data.uf) {
+      throw new AppError("Informe a UF antes de salvar configurações fiscais.", "FISCAL_SETTINGS_UF_REQUIRED", 422);
+    }
+    const settings = await prisma.companyTaxSetting.upsert({
+      where: { companyId: request.company.id },
+      create: { companyId: request.company.id, ...data },
+      update: data,
+    });
+    await prisma.company.update({
+      where: { id: request.company.id },
+      data: {
+        taxRegime: settings.taxRegime,
+        uf: settings.uf,
+        stateRegistration: settings.stateRegistration
+          ? String(settings.stateRegistration).replace(/\D/g, "")
+          : request.company.stateRegistration,
+        stateRegistrationFormatted: settings.stateRegistration || request.company.stateRegistrationFormatted,
+        icmsContributorStatus: settings.isIcmsTaxpayer ? "ATIVO" : request.company.icmsContributorStatus,
+      },
+    });
+    await writeAudit({
+      request,
+      action: "company.fiscal_settings_patched",
+      companyId: request.company.id,
+      entityType: "CompanyTaxSetting",
+      entityId: settings.id,
+      metadata: { fields: Object.keys(safe) },
+    });
+    sendSuccess(response, settings);
+  }),
+);
 
 companiesRouter.patch(
   "/:companyId",

@@ -236,6 +236,10 @@ async function validateTotais(nfeData) {
   const issues = [];
   const tot = nfeData.totais || {};
   const itens = nfeData.itens || [];
+  const firstNumber = (...values) => {
+    const found = values.find((value) => value !== undefined && value !== null && value !== "");
+    return Number(found) || 0;
+  };
   let calcProdutos = 0;
   let calcIcms = 0;
   let calcIpi = 0;
@@ -248,15 +252,15 @@ async function validateTotais(nfeData) {
   let calcFcp = 0;
   for (const item of itens) {
     calcProdutos += Number(item.valorTotal) || 0;
-    calcIcms += Number(item.icmsValor) || 0;
-    calcIpi += Number(item.ipiValor) || 0;
-    calcPis += Number(item.pisValor) || 0;
-    calcCofins += Number(item.cofinsValor) || 0;
-    calcDesconto += Number(item.descontoValor) || 0;
-    calcFrete += Number(item.freteValor) || 0;
-    calcSeguro += Number(item.seguroValor) || 0;
-    calcOutras += Number(item.outrasDespesasValor) || 0;
-    calcFcp += Number(item.fcpValor) || 0;
+    calcIcms += firstNumber(item.icmsValor, item.icmsAmount);
+    calcIpi += firstNumber(item.ipiValor, item.ipiAmount);
+    calcPis += firstNumber(item.pisValor, item.pisAmount);
+    calcCofins += firstNumber(item.cofinsValor, item.cofinsAmount);
+    calcDesconto += firstNumber(item.descontoValor, item.desconto);
+    calcFrete += firstNumber(item.freteValor, item.freightValue);
+    calcSeguro += firstNumber(item.seguroValor, item.insuranceValue);
+    calcOutras += firstNumber(item.outrasDespesasValor, item.otherCosts);
+    calcFcp += firstNumber(item.fcpValor, item.fcpAmount);
   }
   calcProdutos = +calcProdutos.toFixed(2);
   calcIcms = +calcIcms.toFixed(2);
@@ -276,17 +280,17 @@ async function validateTotais(nfeData) {
     }
   };
   checkField("produtos", tot.valorProdutos, calcProdutos, "Total Produtos");
-  checkField("icms", tot.icmsTotal, calcIcms, "Total ICMS");
-  checkField("ipi", tot.ipiTotal, calcIpi, "Total IPI");
-  checkField("pis", tot.pisTotal, calcPis, "Total PIS");
-  checkField("cofins", tot.cofinsTotal, calcCofins, "Total COFINS");
-  checkField("desconto", tot.descontoTotal, calcDesconto, "Total Desconto");
-  checkField("frete", tot.freteTotal, calcFrete, "Total Frete");
-  checkField("seguro", tot.seguroTotal, calcSeguro, "Total Seguro");
-  checkField("outras", tot.outrasDespesasTotal, calcOutras, "Outras Despesas");
-  checkField("fcp", tot.fcpTotal, calcFcp, "Total FCP");
+  checkField("icms", firstNumber(tot.icmsTotal, tot.totalIcms), calcIcms, "Total ICMS");
+  checkField("ipi", firstNumber(tot.ipiTotal, tot.totalIpi), calcIpi, "Total IPI");
+  checkField("pis", firstNumber(tot.pisTotal, tot.totalPis), calcPis, "Total PIS");
+  checkField("cofins", firstNumber(tot.cofinsTotal, tot.totalCofins), calcCofins, "Total COFINS");
+  checkField("desconto", firstNumber(tot.descontoTotal, tot.desconto), calcDesconto, "Total Desconto");
+  checkField("frete", firstNumber(tot.freteTotal, tot.frete), calcFrete, "Total Frete");
+  checkField("seguro", firstNumber(tot.seguroTotal, tot.seguro), calcSeguro, "Total Seguro");
+  checkField("outras", firstNumber(tot.outrasDespesasTotal, tot.outrasDespesas), calcOutras, "Outras Despesas");
+  checkField("fcp", firstNumber(tot.fcpTotal, tot.totalFcp), calcFcp, "Total FCP");
   const expectedNota = +(calcProdutos - calcDesconto + calcFrete + calcSeguro + calcOutras + calcIpi).toFixed(2);
-  const reportedNota = +Number(tot.valorNota).toFixed(2);
+  const reportedNota = +firstNumber(tot.valorNota, tot.valorTotal).toFixed(2);
   if (tot.valorNota != null && Math.abs(reportedNota - expectedNota) > 0.01) {
     issues.push(makeIssue("TOT-NOTA", "TOTAIS", "CRITICAL", "totais.valorNota", `Valor da NF-e: informado R$${reportedNota} vs calculado R$${expectedNota}.`, "A SEFAZ rejeitara por divergencia no valor da nota.", "Recalcular automaticamente.", true, expectedNota));
   }
@@ -359,8 +363,11 @@ async function validateCobranca(nfeData) {
   return { phase: "cobranca", issues, name: "Cobranca" };
 }
 
-async function validateCertificado(companyId) {
+async function validateCertificado(companyId, nfeData = {}) {
   const issues = [];
+  if (nfeData.mock === true) {
+    return { phase: "certificado", issues, name: "Certificado Digital Mock" };
+  }
   try {
     const cert = await getCurrentCertificate(companyId);
     const serialized = serializeCertificate(cert);
@@ -407,7 +414,7 @@ async function validateSimulacaoSEFAZ(nfeData, company) {
     where: { companyId: company.id },
   });
   if (!taxSettings) {
-    issues.push(makeIssue("SEFAZ-001", "SIMULACAO", "CRITICAL", "taxSettings", "Configuracao fiscal da empresa ausente.", "Impossivel simular regras SEFAZ.", "Configure a fiscal antes de emitir.", false));
+    issues.push(makeIssue("SEFAZ-001", "SIMULACAO", "ALERT", "taxSettings", "Configuracao fiscal da empresa ausente.", "Simulacao SEFAZ limitada.", "Configure a fiscal antes de emitir em producao.", false));
   }
   for (let i = 0; i < itens.length; i++) {
     const item = itens[i];
@@ -491,7 +498,7 @@ export async function runNfeValidation(nfeData, company) {
   await runPhase(validateTotais, nfeData);
   await runPhase(validateTransporte, nfeData);
   await runPhase(validateCobranca, nfeData);
-  await runPhase(validateCertificado, company.id);
+  await runPhase(validateCertificado, company.id, nfeData);
   await runPhase(validateAmbiente, nfeData, company);
   await runPhase(validateSimulacaoSEFAZ, nfeData, company);
 

@@ -23,6 +23,7 @@ import {
   FileOutput,
   FileText,
   FolderSync,
+  Handshake,
   Inbox,
   LayoutDashboard,
   ListChecks,
@@ -33,9 +34,11 @@ import {
   Send,
   Settings,
   Shield,
+  ShoppingCart,
   Target,
   Truck,
   Users,
+  Webhook,
   X,
   Zap,
 } from "lucide-react";
@@ -44,13 +47,15 @@ import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { BrandMark } from "@/components/brand-mark";
+import { useAuth } from "@/components/providers/auth-provider";
+import { useCompanyContext } from "@/components/providers/company-provider";
 import { notify } from "@/components/toast-viewport";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { getCompanyId, getToken, setCompanyId } from "@/lib/api";
+import { getBrowserLocalStorage } from "@/lib/browser-storage";
 import { useDebouncedValue } from "@/lib/hooks/use-debounced-value";
-import { getStoredUser, logout } from "@/lib/services/auth-service";
-import { listCompanies, type Company } from "@/lib/services/company-service";
+import type { AuthUser } from "@/lib/services/auth-service";
+import type { Company } from "@/lib/services/company-service";
 import { getSyncReadiness, requestSync } from "@/lib/services/sync-service";
 import { cn, maskCnpj } from "@/lib/utils";
 
@@ -78,6 +83,18 @@ const navGroups: NavGroup[] = [
     items: [{ label: "Dashboard", href: "/dashboard", icon: LayoutDashboard }],
   },
   {
+    id: "inteligencia",
+    label: "Inteligência",
+    icon: Brain,
+    items: [
+      { label: "Fiscal Intelligence", href: "/fiscal-intelligence", icon: Brain },
+      { label: "Commerce Intelligence", href: "/commerce-intelligence", icon: BarChart2 },
+      { label: "Doxnira Insights", href: "/doxnira-insights", icon: Zap },
+      { label: "Centro de Decisão", href: "/decision-center", icon: Target },
+      { label: "Benchmark", href: "/benchmark", icon: FileBarChart },
+    ],
+  },
+  {
     id: "fiscal-ai",
     label: "FiscalAI",
     icon: Brain,
@@ -86,35 +103,7 @@ const navGroups: NavGroup[] = [
       { label: "Chat Fiscal", href: "/fiscal-ai", icon: Brain },
       { label: "Radar Fiscal", href: "/fiscal-radar", icon: Activity },
       { label: "Score Fiscal", href: "/fiscal-score", icon: Target },
-      { label: "Ranking de Risco", href: "/accountant/risk-ranking", icon: Shield },
-    ],
-  },
-  {
-    id: "documentos-fiscais",
-    label: "Documentos Fiscais",
-    icon: FileText,
-    items: [
-      { label: "Inbox Fiscal", href: "/fiscal-inbox", icon: Inbox },
-      { label: "NF-e Entrada", href: "/documents/incoming", icon: Truck },
-      { label: "NF-e Saida", href: "/documents/outgoing", icon: FileText },
-      { label: "CT-e Entrada", href: "/cte/incoming", icon: Truck },
-      { label: "NFS-e", href: "/nfse-national", icon: BookOpen },
-      { label: "MDF-e", href: "/documents/services", icon: Send },
-      { label: "XML Fiscal", href: "/xml-center", icon: FileBarChart },
-      { label: "Entrada Automatica", href: "/inventory/incoming", icon: Truck },
-      { label: "Rejeicoes", href: "/rejections", icon: AlertTriangle },
-    ],
-  },
-  {
-    id: "emissao",
-    label: "Emissao",
-    icon: FileOutput,
-    items: [
-      { label: "Notas Fiscais", href: "/notas-fiscais", icon: FileOutput },
-      { label: "Emitir NFS-e", href: "/nfse-national", icon: BookOpen },
-      { label: "Carta de Correcao", href: "/fiscal-rules", icon: FileText },
-      { label: "Cancelamentos", href: "/rejections", icon: AlertTriangle },
-      { label: "Inutilizacoes", href: "/guides", icon: FileKey2 },
+      { label: "Regras Fiscais", href: "/fiscal-rules", icon: Shield },
     ],
   },
   {
@@ -122,44 +111,71 @@ const navGroups: NavGroup[] = [
     label: "Cadastros",
     icon: Users,
     items: [
-      { label: "Clientes", href: "/clients", icon: Users },
-      { label: "Produtos", href: "/products", icon: Package },
-      { label: "Servicos", href: "/services", icon: ClipboardCheck },
-      { label: "Transportadoras", href: "/transportadoras", icon: Truck },
-      { label: "Fornecedores", href: "/fornecedores", icon: Package },
       { label: "Empresas", href: "/companies", icon: Building2 },
+      { label: "Clientes", href: "/customers", icon: Users },
+      { label: "Produtos", href: "/products", icon: Package },
+      { label: "Serviços", href: "/services", icon: ClipboardCheck },
+      { label: "Fornecedores", href: "/fornecedores", icon: Package },
+      { label: "Transportadoras", href: "/transportadoras", icon: Truck },
     ],
   },
   {
-    id: "estoque",
-    label: "Estoque",
+    id: "fiscal-operacional",
+    label: "Fiscal",
+    icon: FileText,
+    items: [
+      { label: "Emitir Nota", href: "/emitir-nota", icon: FileOutput },
+      { label: "NF-e Entrada", href: "/documents/incoming", icon: Truck },
+      { label: "NF-e Saída", href: "/documents/outgoing", icon: FileText },
+      { label: "NFC-e", href: "/nfce", icon: CreditCard },
+      { label: "NFS-e", href: "/nfse-national", icon: BookOpen },
+      { label: "CT-e", href: "/cte", icon: Truck },
+      { label: "XML Fiscal", href: "/xml-center", icon: FileBarChart },
+      { label: "Rejeições", href: "/rejections", icon: AlertTriangle },
+      { label: "SPED", href: "/sped", icon: FileBarChart },
+      { label: "SINTEGRA", href: "/sintegra", icon: FileKey2 },
+      { label: "Fechamento Fiscal", href: "/monthly-closing", icon: FileClock },
+      { label: "Previsão de Impostos", href: "/tax-forecast", icon: CircleDollarSign },
+      { label: "Guias", href: "/guides", icon: FileOutput },
+    ],
+  },
+  {
+    id: "commerce",
+    label: "Commerce",
+    icon: ShoppingCart,
+    items: [
+      { label: "Dashboard Commerce", href: "/commerce", icon: LayoutDashboard },
+      { label: "Produtos Marketplace", href: "/commerce/products", icon: Package },
+      { label: "Anúncios", href: "/commerce/listings", icon: Send },
+      { label: "Pedidos", href: "/commerce/orders", icon: ClipboardList },
+      { label: "Preços", href: "/commerce/pricing", icon: Calculator },
+      { label: "Margens", href: "/commerce/margins", icon: CircleDollarSign },
+      { label: "Concorrência", href: "/commerce/competition", icon: Target },
+      { label: "Oportunidades", href: "/commerce/opportunities", icon: Zap },
+    ],
+  },
+  {
+    id: "marketplaces",
+    label: "Marketplaces",
+    icon: FolderSync,
+    items: [
+      { label: "Mercado Livre", href: "/marketplaces/mercado-livre", icon: Package },
+      { label: "Shopee", href: "/marketplaces/shopee", icon: ShoppingCart },
+      { label: "Contas Conectadas", href: "/marketplaces/accounts", icon: Handshake },
+      { label: "Sincronizações", href: "/marketplaces/sync", icon: RefreshCw },
+      { label: "Webhooks", href: "/marketplaces/webhooks", icon: Webhook },
+    ],
+  },
+  {
+    id: "operacao",
+    label: "Operação",
     icon: Package,
     items: [
-      { label: "Estoque", href: "/inventory", icon: Package },
-      { label: "Movimentacoes", href: "/inventory/movements", icon: Activity },
-      { label: "Inventario", href: "/inventory/incoming", icon: ClipboardList },
-    ],
-  },
-  {
-    id: "agenda-fiscal",
-    label: "Agenda Fiscal",
-    icon: CalendarDays,
-    items: [
-      { label: "Agenda Fiscal", href: "/fiscal-calendar", icon: CalendarDays },
-      { label: "Solicitacoes", href: "/accountant/requests", icon: Inbox },
-      { label: "Fila Fiscal", href: "/accountant/work-queue", icon: ListChecks },
-    ],
-  },
-  {
-    id: "fiscal",
-    label: "Fiscal",
-    icon: FileClock,
-    items: [
-      { label: "Fechamento Fiscal", href: "/monthly-closing", icon: FileClock },
-      { label: "Simulador Tributario", href: "/simulador", icon: Calculator },
-      { label: "Previsao de Impostos", href: "/tax-forecast", icon: CircleDollarSign },
-      { label: "Guias", href: "/guides", icon: FileOutput },
-      { label: "SPED", href: "/sped", icon: FileBarChart },
+      { label: "Estoque", href: "/stock", icon: Package },
+      { label: "Compras", href: "/purchases", icon: ClipboardList },
+      { label: "Vendas", href: "/sales", icon: ShoppingCart },
+      { label: "Financeiro", href: "/finance", icon: CreditCard },
+      { label: "Automação", href: "/automation", icon: Zap },
     ],
   },
   {
@@ -167,30 +183,29 @@ const navGroups: NavGroup[] = [
     label: "Contabilidade",
     icon: BarChart2,
     items: [
-      { label: "Painel do Contador", href: "/accountant", icon: BarChart2 },
-      { label: "Empresas Vinculadas", href: "/companies", icon: Building2 },
-      { label: "Compartilhamentos", href: "/accountant/requests", icon: Inbox },
-      { label: "Pendencias", href: "/stuck-money", icon: CreditCard },
-      { label: "Relatorios", href: "/accountant/value-report", icon: FileBarChart },
+      { label: "Dashboard Contador", href: "/accountant", icon: BarChart2 },
+      { label: "Ranking de Risco", href: "/accountant/risk-ranking", icon: Shield },
+      { label: "Fila Fiscal", href: "/accountant/work-queue", icon: ListChecks },
+      { label: "Solicitações", href: "/accountant/requests", icon: Inbox },
+      { label: "Relatório de Valor", href: "/accountant/value-report", icon: FileBarChart },
     ],
   },
   {
     id: "configuracoes",
-    label: "Configuracoes",
+    label: "Configurações",
     icon: Settings,
     items: [
       { label: "Empresa", href: "/companies", icon: Building2 },
-      { label: "Certificado Digital", href: "/certificate", icon: FileKey2 },
-      { label: "Usuarios", href: "/users", icon: Users },
-      { label: "Permissoes", href: "/settings", icon: Shield },
-      { label: "Integracoes", href: "/fiscal-rules", icon: FolderSync },
-      { label: "API", href: "/segment-rules", icon: FileText },
-      { label: "Logs", href: "/tax-reform", icon: ClipboardList },
+      { label: "Fiscal", href: "/settings/fiscal", icon: FileText },
+      { label: "Certificado", href: "/certificate", icon: FileKey2 },
+      { label: "Integrações", href: "/settings/integrations", icon: FolderSync },
+      { label: "Usuários", href: "/users", icon: Users },
     ],
   },
 ];
 
 const SINGLE_ITEM_GROUPS = new Set(["dashboard"]);
+const ALL_NAV_ITEMS = navGroups.flatMap((group) => group.items);
 
 const OPEN_GROUP_KEY = "ns-sidebar-open-group";
 
@@ -208,16 +223,14 @@ function SidebarContent({
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const stored = localStorage.getItem(OPEN_GROUP_KEY);
+    const stored = getBrowserLocalStorage()?.getItem(OPEN_GROUP_KEY);
     if (stored) {
       try { setOpenGroup(JSON.parse(stored)); } catch { /* ignore */ }
     }
   }, []);
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      localStorage.setItem(OPEN_GROUP_KEY, JSON.stringify(openGroup));
-    }
+    getBrowserLocalStorage()?.setItem(OPEN_GROUP_KEY, JSON.stringify(openGroup));
   }, [openGroup]);
 
   const toggleGroup = useCallback((groupId: string) => {
@@ -386,12 +399,16 @@ function Topbar({
   activeCompany,
   onCompanyChange,
   alertCount,
+  user,
+  onLogout,
 }: {
   onOpenMenu: () => void;
   companies: Company[];
   activeCompany?: Company;
   onCompanyChange: (id: string) => void;
   alertCount: number;
+  user: AuthUser | null;
+  onLogout: () => Promise<void>;
 }) {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -452,7 +469,7 @@ function Topbar({
   }
 
   async function handleLogout() {
-    await logout();
+    await onLogout();
     queryClient.clear();
     router.replace("/login");
   }
@@ -468,7 +485,7 @@ function Topbar({
       </button>
 
       <div className="hidden min-w-[205px] 2xl:block">
-        <p className="text-base font-extrabold">Olá, {getStoredUser()?.name.split(" ")[0] || "Contador"}! 👋</p>
+        <p className="text-base font-extrabold">Olá, {user?.name.split(" ")[0] || "Contador"}!</p>
         <p className="mt-1 text-[10px] text-subtle">Bem-vindo ao portal da contabilidade.</p>
       </div>
 
@@ -545,9 +562,9 @@ function Topbar({
           className="flex h-11 items-center gap-2 rounded-xl border border-line bg-surface px-1.5 pr-3 text-ink"
         >
           <span className="grid h-8 w-8 place-items-center rounded-lg bg-lime text-xs font-extrabold text-ink">
-            {getStoredUser()?.name.slice(0, 2).toUpperCase() || "FN"}
+            {user?.name.slice(0, 2).toUpperCase() || "FN"}
           </span>
-          <span className="hidden text-left 2xl:block"><span className="block text-[10px] font-extrabold">{getStoredUser()?.name || "Fabian"}</span><span className="block text-[8px] font-semibold text-subtle">{getStoredUser()?.role || "Contador"}</span></span>
+          <span className="hidden text-left 2xl:block"><span className="block text-[10px] font-extrabold">{user?.name || "Fabian"}</span><span className="block text-[8px] font-semibold text-subtle">{user?.role || "Contador"}</span></span>
           <ChevronDown className="hidden h-3.5 w-3.5 text-subtle 2xl:block" />
         </button>
           {profileOpen && (
@@ -566,62 +583,86 @@ function Topbar({
   );
 }
 
+function formatSegment(segment: string) {
+  return decodeURIComponent(segment)
+    .replace(/-/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function Breadcrumbs() {
+  const pathname = usePathname() ?? "/";
+  const segments = pathname.split("/").filter(Boolean);
+
+  if (segments.length === 0) return null;
+
+  return (
+    <div className="border-b border-line bg-white px-4 py-3 md:px-5">
+      <nav aria-label="Breadcrumb" className="flex flex-wrap items-center gap-2 text-[11px] font-bold">
+        <Link href="/dashboard" className="text-subtle hover:text-ink">
+          Dashboard
+        </Link>
+        {segments.map((segment, index) => {
+          const href = `/${segments.slice(0, index + 1).join("/")}`;
+          const item = ALL_NAV_ITEMS.find((navItem) => navItem.href === href);
+          const isLast = index === segments.length - 1;
+
+          return (
+            <span key={href} className="flex items-center gap-2">
+              <span className="text-subtle">/</span>
+              {isLast ? (
+                <span className="text-ink">{item?.label ?? formatSegment(segment)}</span>
+              ) : (
+                <Link href={href} className="text-subtle hover:text-ink">
+                  {item?.label ?? formatSegment(segment)}
+                </Link>
+              )}
+            </span>
+          );
+        })}
+      </nav>
+    </div>
+  );
+}
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const queryClient = useQueryClient();
+  const { isAuthenticated, signOut, user } = useAuth();
+  const {
+    activeCompany,
+    activeCompanyId,
+    companies,
+    isSuccess: isCompanyQuerySuccess,
+    selectCompany,
+  } = useCompanyContext();
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [ready, setReady] = useState(false);
-  const [activeCompanyId, setActiveCompanyId] = useState<string | null>(null);
-  const companiesQuery = useQuery({
-    queryKey: ["companies"],
-    queryFn: listCompanies,
-    enabled: ready,
-  });
+  const [ready, setReady] = useState(true);
 
   useEffect(() => {
-    if (!getToken()) {
+    if (!isAuthenticated) {
       router.replace("/login");
       return;
     }
-    setActiveCompanyId(getCompanyId());
     setReady(true);
-  }, [router]);
-
-  useEffect(() => {
-    const first = companiesQuery.data?.data[0];
-    if (!activeCompanyId && first) {
-      setCompanyId(first.id);
-      setActiveCompanyId(first.id);
-    }
-  }, [activeCompanyId, companiesQuery.data]);
+  }, [isAuthenticated, router]);
 
   useEffect(() => {
     if (
       ready &&
       !activeCompanyId &&
-      companiesQuery.isSuccess &&
-      (companiesQuery.data?.data ?? []).length === 0
+      isCompanyQuerySuccess &&
+      companies.length === 0
     ) {
       router.replace("/onboarding");
     }
-  }, [ready, activeCompanyId, companiesQuery.isSuccess, companiesQuery.data, router]);
+  }, [ready, activeCompanyId, isCompanyQuerySuccess, companies.length, router]);
 
   if (!ready) return <div className="min-h-screen animate-pulse bg-canvas" />;
 
-  const companies = companiesQuery.data?.data || [];
-  const activeCompany =
-    companies.find((company) => company.id === activeCompanyId) || companies[0];
-
-  if (companies.length === 0 && companiesQuery.isSuccess) {
-    return <div className="min-h-screen animate-pulse bg-canvas" />;
-  }
   const documentCount = activeCompany?._count?.fiscalDocuments || 0;
   const alertCount = activeCompany?._count?.alerts || 0;
 
   function changeCompany(id: string) {
-    setCompanyId(id);
-    setActiveCompanyId(id);
-    queryClient.invalidateQueries();
+    selectCompany(id);
     notify({ title: "Empresa alterada", description: "Os dados fiscais foram atualizados." });
     router.refresh();
   }
@@ -664,7 +705,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             activeCompany={activeCompany}
             onCompanyChange={changeCompany}
             alertCount={alertCount}
+            user={user}
+            onLogout={signOut}
           />
+          <Breadcrumbs />
           <main className="px-4 pb-10 pt-4 md:px-5">{children}</main>
         </div>
       </div>
