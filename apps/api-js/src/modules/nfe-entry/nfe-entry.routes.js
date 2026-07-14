@@ -1065,6 +1065,9 @@ nfeEntryRouter.post(
   "/:id/post-inventory",
   asyncHandler(async (request, response) => {
     const entry = await findEntry(request.company.id, request.params.id);
+    if (entry.stockPostedAt || entry.status === "ENTRADA_CONFIRMADA") {
+      throw new AppError("Entrada ja confirmada para esta NF-e.", "NFE_ENTRY_ALREADY_CONFIRMED", 409);
+    }
     if (entry.stockStatus !== "READY_TO_POST") {
       throw new AppError("Prepare e revise a entrada de estoque antes de confirmar.", "NFE_ENTRY_INVENTORY_NOT_READY", 422);
     }

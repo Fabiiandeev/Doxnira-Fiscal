@@ -1,6 +1,14 @@
-import "dotenv/config";
+import { config } from "dotenv";
 
 import { z } from "zod";
+import { enforceTestDatabaseEnvironment } from "./test-database-safety.js";
+
+if (process.env.NODE_ENV === "test") {
+  config({ path: ".env.test", override: true });
+  enforceTestDatabaseEnvironment();
+} else {
+  config();
+}
 
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),

@@ -15,8 +15,16 @@ let baseUrl;
 let company;
 let token;
 
+async function cleanupTestDatabase() {
+  const [database] = await prisma.$queryRawUnsafe("SELECT current_database() AS database");
+  if (!/(test|testing|ci)/i.test(database.database)) {
+    throw new Error(`Recusada limpeza fora de banco isolado de teste: ${database.database}`);
+  }
+  await prisma.$executeRawUnsafe('TRUNCATE TABLE "users" CASCADE');
+}
+
 function xmlFixture() {
-  return `<?xml version="1.0" encoding="UTF-8"?><nfeProc versao="4.00"><NFe><infNFe Id="NFe${accessKey}" versao="4.00"><ide><cUF>35</cUF><cNF>12345678</cNF><natOp>COMPRA PARA COMERCIALIZACAO</natOp><mod>55</mod><serie>1</serie><nNF>123</nNF><dhEmi>2026-07-11T10:00:00-03:00</dhEmi><tpNF>1</tpNF></ide><emit><CNPJ>${supplierCnpj}</CNPJ><xNome>FORNECEDOR TESTE LTDA</xNome><enderEmit><UF>SP</UF></enderEmit></emit><dest><CNPJ>${companyCnpj}</CNPJ><xNome>EMPRESA TESTE LTDA</xNome></dest><det nItem="1"><prod><cProd>SUP-001</cProd><cEAN>7891234567895</cEAN><xProd>PRODUTO TESTE ENTRADA</xProd><NCM>84713012</NCM><CFOP>1102</CFOP><uCom>UN</uCom><qCom>2.0000</qCom><vUnCom>100.0000</vUnCom><vProd>200.00</vProd></prod><imposto><ICMS><ICMS00><CST>00</CST><vBC>200.00</vBC><vICMS>36.00</vICMS></ICMS00></ICMS></imposto></det><total><ICMSTot><vBC>200.00</vBC><vICMS>36.00</vICMS><vProd>200.00</vProd><vFrete>20.00</vFrete><vDesc>10.00</vDesc><vIPI>0.00</vPIS>0.00</vPIS><vCOFINS>0.00</vCOFINS><vNF>210.00</vNF></ICMSTot></total></infNFe></NFe><protNFe><infProt><chNFe>${accessKey}</chNFe><cStat>100</cStat><xMotivo>Autorizado o uso da NF-e</xMotivo><nProt>135260000000001</nProt></infProt></protNFe></nfeProc>`;
+  return `<?xml version="1.0" encoding="UTF-8"?><nfeProc versao="4.00"><NFe><infNFe Id="NFe${accessKey}" versao="4.00"><ide><cUF>35</cUF><cNF>12345678</cNF><natOp>COMPRA PARA COMERCIALIZACAO</natOp><mod>55</mod><serie>1</serie><nNF>123</nNF><dhEmi>2026-07-11T10:00:00-03:00</dhEmi><tpNF>1</tpNF></ide><emit><CNPJ>${supplierCnpj}</CNPJ><xNome>FORNECEDOR TESTE LTDA</xNome><enderEmit><UF>SP</UF></enderEmit></emit><dest><CNPJ>${companyCnpj}</CNPJ><xNome>EMPRESA TESTE LTDA</xNome></dest><det nItem="1"><prod><cProd>SUP-001</cProd><cEAN>7891234567895</cEAN><xProd>PRODUTO TESTE ENTRADA</xProd><NCM>84713012</NCM><CFOP>1102</CFOP><uCom>UN</uCom><qCom>2.0000</qCom><vUnCom>100.0000</vUnCom><vProd>200.00</vProd></prod><imposto><ICMS><ICMS00><CST>00</CST><vBC>200.00</vBC><vICMS>36.00</vICMS></ICMS00></ICMS></imposto></det><total><ICMSTot><vBC>200.00</vBC><vICMS>36.00</vICMS><vProd>200.00</vProd><vFrete>20.00</vFrete><vDesc>10.00</vDesc><vIPI>0.00</vIPI><vPIS>0.00</vPIS><vCOFINS>0.00</vCOFINS><vNF>210.00</vNF></ICMSTot></total></infNFe></NFe><protNFe><infProt><chNFe>${accessKey}</chNFe><cStat>100</cStat><xMotivo>Autorizado o uso da NF-e</xMotivo><nProt>135260000000001</nProt></infProt></protNFe></nfeProc>`;
 }
 
 async function request(path, init = {}) {
@@ -27,7 +35,11 @@ async function request(path, init = {}) {
 
 before(async () => {
   if (!process.env.DATABASE_URL_TEST?.includes("ns_fiscal_cloud_test")) throw new Error("DATABASE_URL_TEST isolada é obrigatória.");
-  await prisma.$executeRawUnsafe('TRUNCATE TABLE "users" CASCADE');
+  try {
+    await cleanupTestDatabase();
+  } catch (error) {
+    throw new Error(`Falha na limpeza inicial do banco E2E: ${error.message}`, { cause: error });
+  }
   const passwordHash = await bcrypt.hash("TestPassword#2026", 10);
   const user = await prisma.user.create({ data: { name: "Usuário E2E", email: "e2e@nfe.test", passwordHash } });
   company = await prisma.company.create({ data: { ownerId: user.id, legalName: "EMPRESA TESTE LTDA", cnpj: companyCnpj, uf: "SP", city: "São Paulo", environment: "homologation" } });
@@ -43,9 +55,12 @@ before(async () => {
 });
 
 after(async () => {
-  await new Promise((resolve) => server.close(resolve));
-  await prisma.$executeRawUnsafe('TRUNCATE TABLE "users" CASCADE');
-  await disconnectDatabase();
+  try {
+    if (server) await new Promise((resolve) => server.close(resolve));
+    await cleanupTestDatabase();
+  } finally {
+    await disconnectDatabase();
+  }
 });
 
 test("fluxo HTTP E2E da NF-e de entrada persiste XML, estoque, financeiro e auditoria", async () => {
@@ -77,6 +92,7 @@ test("fluxo HTTP E2E da NF-e de entrada persiste XML, estoque, financeiro e audi
   assert.equal(posted.response.status, 200);
   const replay = await request(`/api/companies/${company.id}/nfe-entry/${entryId}/post-inventory`, { method: "POST", headers: { authorization: `Bearer ${token}` } });
   assert.equal(replay.response.status, 409);
+  assert.equal(replay.body.code, "NFE_ENTRY_ALREADY_CONFIRMED");
 
   const financial = await request(`/api/companies/${company.id}/nfe-entry/${entryId}/generate-payables`, { method: "POST", headers: { authorization: `Bearer ${token}` } });
   assert.equal(financial.response.status, 200);

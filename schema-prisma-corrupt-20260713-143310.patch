@@ -1,0 +1,130 @@
+﻿diff --git a/apps/api-js/prisma/schema.prisma b/apps/api-js/prisma/schema.prisma
+index 08d02a8..5a9be2c 100644
+--- a/apps/api-js/prisma/schema.prisma
++++ b/apps/api-js/prisma/schema.prisma
+@@ -19,6 +19,22 @@ enum Environment {
+   homologation
+ }
+ 
++enum AllocationStatus {
++  NOT_ALLOCATED
++  PENDING_CONFIGURATION
++  CALCULATED
++  CONFIRMED
++  APPLIED
++}
++
++enum AllocationMethod {
++  VALUE
++  QUANTITY
++  WEIGHT
++  VOLUME
++  MANUAL
++}
++
+ model User {
+   id           String   @id @default(uuid()) @db.Uuid
+   name         String   @db.VarChar(160)
+@@ -114,6 +130,8 @@ model Company {
+   nfeEntryEvents          NfeEntryEvent[]
+   cteEntries              CteEntry[]
+   cteEntryNfeLinks        CteEntryNfeLink[]
++  cteAllocations          CteAllocation[]
++  cteAllocationDocuments  CteAllocationDocument[]
+   stockMovements          StockMovement[]
+   payables                Payable[]
+   fiscalAlerts            FiscalAlert[]
+@@ -1557,6 +1575,7 @@ model NfeEntry {
+   manifestations NfeEntryManifestation[]
+   events         NfeEntryEvent[]
+   cteLinks       CteEntryNfeLink[]
++  allocationDocuments CteAllocationDocument[]
+   stockMovements StockMovement[]
+   payables       Payable[]
+   alerts         FiscalAlert[]
+@@ -1703,6 +1722,7 @@ model CteEntry {
+   company           Company            @relation(fields: [companyId], references: [id])
+   transportDocument TransportDocument? @relation(fields: [transportDocumentId], references: [id], onDelete: Cascade)
+   nfeLinks          CteEntryNfeLink[]
++  allocations       CteAllocation[]
+ 
+   @@unique([companyId, accessKey])
+   @@index([companyId, issueDate(sort: Desc)])
+@@ -1720,9 +1740,10 @@ model CteEntryNfeLink {
+   source       String   @default("CTE_XML") @db.VarChar(30)
+   createdAt    DateTime @default(now()) @map("created_at")
+ 
+-  company  Company   @relation(fields: [companyId], references: [id])
+-  cteEntry CteEntry  @relation(fields: [cteEntryId], references: [id], onDelete: Cascade)
+-  nfeEntry NfeEntry? @relation(fields: [nfeEntryId], references: [id])
++  company          Company             @relation(fields: [companyId], references: [id])
++  cteEntry         CteEntry            @relation(fields: [cteEntryId], references: [id], onDelete: Cascade)
++  nfeEntry         NfeEntry?           @relation(fields: [nfeEntryId], references: [id])
++  allocationItems  CteAllocationDocument[] @relation("LinkAllocationDocuments")
+ 
+   @@unique([companyId, cteEntryId, nfeAccessKey])
+   @@index([companyId])
+@@ -1732,6 +1753,63 @@ model CteEntryNfeLink {
+   @@map("cte_entry_nfe_links")
+ }
+ 
++model CteAllocation {
++  id                  String   @id @default(uuid()) @db.Uuid
++  companyId           String   @map("company_id") @db.Uuid
++  cteEntryId          String   @map("cte_entry_id") @db.Uuid
++  hash                String   @db.VarChar(64)
++  method              AllocationMethod
++  allocatableValue    Decimal  @db.Decimal(15, 2)
++  componentsIncluded  Json?    @map("components_included")
++  componentsExcluded  Json?    @map("components_excluded")
++  calculationVersion  String   @default("1.0") @map("calculation_version") @db.VarChar(20)
++  status              AllocationStatus @default(NOT_ALLOCATED)
++  confirmedBy         String?  @map("confirmed_by") @db.Uuid
++  confirmedAt         DateTime? @map("confirmed_at")
++  createdAt           DateTime @default(now()) @map("created_at")
++  updatedAt           DateTime @updatedAt @map("updated_at")
++
++  company      Company              @relation(fields: [companyId], references: [id])
++  cteEntry     CteEntry             @relation(fields: [cteEntryId], references: [id], onDelete: Cascade)
++  documents    CteAllocationDocument[]
++
++  @@unique([cteEntryId, hash])
++  @@index([companyId])
++  @@index([cteEntryId])
++  @@index([status])
++  @@index([hash])
++  @@map("cte_allocations")
++}
++
++model CteAllocationDocument {
++  id                  String   @id @default(uuid()) @db.Uuid
++  allocationId        String   @map("allocation_id") @db.Uuid
++  companyId           String   @map("company_id") @db.Uuid
++  cteEntryNfeLinkId   String   @map("cte_entry_nfe_link_id") @db.Uuid
++  nfeEntryId          String?  @map("nfe_entry_id") @db.Uuid
++  nfeAccessKey        String   @map("nfe_access_key") @db.VarChar(44)
++  calculationBase     Decimal  @db.Decimal(15, 4) @map("calculation_base")
++  percentage          Decimal  @db.Decimal(8, 6)
++  calculatedValue     Decimal  @db.Decimal(15, 2) @map("calculated_value")
++  residualAdjustment  Decimal  @default(0) @map("residual_adjustment") @db.Decimal(15, 2)
++  manualValue         Decimal? @map("manual_value") @db.Decimal(15, 2)
++  allocatedValue      Decimal  @map("allocated_value") @db.Decimal(15, 2)
++  createdAt           DateTime @default(now()) @map("created_at")
++
++  allocation         CteAllocation     @relation(fields: [allocationId], references: [id], onDelete: Cascade)
++  company            Company           @relation(fields: [companyId], references: [id])
++  cteEntryNfeLink    CteEntryNfeLink   @relation("LinkAllocationDocuments", fields: [cteEntryNfeLinkId], references: [id], onDelete: Cascade)
++  nfeEntry           NfeEntry?         @relation(fields: [nfeEntryId], references: [id])
++
++  @@unique([allocationId, cteEntryNfeLinkId])
++  @@index([companyId])
++  @@index([allocationId])
++  @@index([cteEntryNfeLinkId])
++  @@index([nfeEntryId])
++  @@index([nfeAccessKey])
++  @@map("cte_allocation_documents")
++}
++
+ model StockMovement {
+   id             String   @id @default(uuid()) @db.Uuid
+   companyId      String   @map("company_id") @db.Uuid

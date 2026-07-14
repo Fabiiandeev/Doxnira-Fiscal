@@ -1,0 +1,528 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  OWNER
+  ADMIN
+  ACCOUNTANT
+  OPERATOR
+  VIEWER
+}
+
+enum Environment {
+  production
+  homologation
+}
+
+enum AllocationStatus {
+  NOT_ALLOCATED
+  PENDING_CONFIGURATION
+  CALCULATED
+  CONFIRMED
+  APPLIED
+}
+
+enum AllocationMethod {
+  VALUE
+  QUANTITY
+  WEIGHT
+  VOLUME
+  MANUAL
+}
+
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  name         String   @db.VarChar(160)
+  email        String   @unique @db.VarChar(180)
+  passwordHash String   @map("password_hash")
+  role         UserRole @default(OWNER)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  companies         Company[]
+  preferences       UserPreference?
+  savedFilters      SavedFilter[]
+  documentNotes     DocumentNote[]
+  auditLogs         AuditLog[]
+  xmlDownloadLogs   XmlDownloadLog[]
+  assignedAlerts    Alert[]            @relation("AssignedAlerts")
+  clients           Client[]
+  nfeValidationRuns NfeValidationRun[]
+  nfeDocuments      NfeDocument[]
+
+  @@map("users")
+}
+
+model Company {
+  id                           String      @id @default(uuid()) @db.Uuid
+  ownerId                      String      @map("owner_id") @db.Uuid
+  legalName                    String      @map("legal_name") @db.VarChar(255)
+  tradeName                    String?     @map("trade_name") @db.VarChar(255)
+  cnpj                         String      @unique @db.VarChar(14)
+  stateRegistration            String?     @map("state_registration") @db.VarChar(40)
+  stateRegistrationStatus      String?     @default("PENDENTE_VALIDACAO_SEFAZ") @map("state_registration_status") @db.VarChar(30)
+  stateRegistrationSource      String?     @map("state_registration_source") @db.VarChar(50)
+  stateRegistrationValidatedAt DateTime?   @map("state_registration_validated_at")
+  stateRegistrationFormatted   String?     @map("state_registration_formatted") @db.VarChar(40)
+  icmsContributorStatus        String?     @default("PENDENTE_VALIDACAO_SEFAZ") @map("icms_contributor_status") @db.VarChar(30)
+  uf                           String?     @db.Char(2)
+  city                         String?     @db.VarChar(120)
+  taxRegime                    String?     @map("tax_regime") @db.VarChar(60)
+  environment                  Environment @default(production)
+  status                       String      @default("active") @db.VarChar(30)
+  nfeLastNsu                   String      @default("000000000000000") @map("nfe_last_nsu") @db.VarChar(15)
+  nfeMaxNsu                    String?     @map("nfe_max_nsu") @db.VarChar(15)
+  nfeNextAllowedSyncAt         DateTime?   @map("nfe_next_allowed_sync_at")
+  lastSyncAt                   DateTime?   @map("last_sync_at")
+  createdAt                    DateTime    @default(now()) @map("created_at")
+  updatedAt                    DateTime    @updatedAt @map("updated_at")
+
+  owner                   User                     @relation(fields: [ownerId], references: [id])
+  certificates            DigitalCertificate[]
+  fiscalDocuments         FiscalDocument[]
+  fiscalEvents            FiscalEvent[]
+  syncLogs                SyncLog[]
+  manifestations          Manifestation[]
+  defaultForUsers         UserPreference[]         @relation("DefaultCompany")
+  savedFilters            SavedFilter[]
+  documentNotes           DocumentNote[]
+  documentTags            DocumentTag[]
+  alerts                  Alert[]
+  auditLogs               AuditLog[]
+  xmlDownloadLogs         XmlDownloadLog[]
+  transportDocuments      TransportDocument[]
+  fiscalDocumentLinks     FiscalDocumentLink[]
+  taxSettings             CompanyTaxSetting?
+  documentItems           FiscalDocumentItem[]
+  monthlyClosings         MonthlyTaxClosing[]
+  taxRules                TaxRule[]
+  products                Product[]
+  clients                 Client[]
+  transportadoras         Transportadora[]
+  fornecedores            Fornecedor[]
+  nfeDocuments            NfeDocument[]
+  nfeNumberSequences      NfeNumberSequence[]
+  nfeValidationRuns       NfeValidationRun[]
+  nfeItems                NfeItem[]
+  nfeTotals               NfeTotal[]
+  nfeTransport            NfeTransport[]
+  nfeBilling              NfeBilling[]
+  nfeInstallments         NfeInstallment[]
+  nfeObservations         NfeObservation[]
+  nfeReferences           NfeReference[]
+  nfeValidationResults    NfeValidationResult[]
+  nfeValidationIssues     NfeValidationIssue[]
+  nfeAutoFixes            NfeAutoFix[]
+  nfeTransmissionAttempts NfeTransmissionAttempt[]
+  nfeSefazReturns         NfeSefazReturn[]
+  nfeAuthorizations       NfeAuthorization[]
+  nfeFiles                NfeFile[]
+  nfeLogs                 NfeLog[]
+  nfeEntries              NfeEntry[]
+  nfeEntryItems           NfeEntryItem[]
+  nfeEntryProductLinks    NfeEntryProductLink[]
+  nfeEntryManifestations  NfeEntryManifestation[]
+  nfeEntryEvents          NfeEntryEvent[]
+  cteEntries              CteEntry[]
+  cteEntryNfeLinks        CteEntryNfeLink[]
+  cteAllocations          CteAllocation[]
+  stockMovements          StockMovement[]
+  payables                Payable[]
+  fiscalAlerts            FiscalAlert[]
+  dfeSyncLogs             DfeSyncLog[]
+
+  @@index([ownerId])
+  @@map("companies")
+}
+
+model DigitalCertificate {
+  id                String    @id @default(uuid()) @db.Uuid
+  companyId         String    @map("company_id") @db.Uuid
+  serialNumber      String?   @map("serial_number") @db.VarChar(120)
+  subject           String?
+  issuer            String?
+  validFrom         DateTime? @map("valid_from")
+  validUntil        DateTime? @map("valid_until")
+  encryptedFile     Bytes     @map("encrypted_file")
+  encryptedPassword String    @map("encrypted_password")
+  holderCnpj        String?   @map("holder_cnpj") @db.VarChar(14)
+  validatedAt       DateTime? @map("validated_at")
+  status            String    @default("active") @db.VarChar(30)
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@index([companyId])
+  @@map("digital_certificates")
+}
+
+model FiscalDocument {
+  id                  String    @id @default(uuid()) @db.Uuid
+  companyId           String    @map("company_id") @db.Uuid
+  documentType        String    @map("document_type") @db.VarChar(30)
+  operationDirection  String    @default("UNKNOWN") @map("operation_direction") @db.VarChar(30)
+  companyRole         String    @default("OTHER") @map("company_role") @db.VarChar(30)
+  invoiceNumber       String?   @map("invoice_number") @db.VarChar(30)
+  series              String?   @db.VarChar(10)
+  model               String?   @db.VarChar(10)
+  accessKey           String?   @map("access_key") @db.VarChar(44)
+  nsu                 String?   @db.VarChar(15)
+  schemaName          String?   @map("schema_name") @db.VarChar(120)
+  status              String?   @db.VarChar(40)
+  protocol            String?   @db.VarChar(80)
+  manifestationStatus String    @default("PENDING") @map("manifestation_status") @db.VarChar(30)
+  issuerCnpj          String?   @map("issuer_cnpj") @db.VarChar(14)
+  issuerName          String?   @map("issuer_name") @db.VarChar(255)
+  recipientCnpj       String?   @map("recipient_cnpj") @db.VarChar(14)
+  recipientName       String?   @map("recipient_name") @db.VarChar(255)
+  uf                  String?   @db.Char(2)
+  cfop                String?   @db.VarChar(10)
+  emissionDate        DateTime? @map("emission_date")
+  authorizationDate   DateTime? @map("authorization_date")
+  totalAmount         Decimal?  @map("total_amount") @db.Decimal(15, 2)
+  productsAmount      Decimal?  @default(0) @map("products_amount") @db.Decimal(15, 2)
+  freightAmount       Decimal?  @default(0) @map("freight_amount") @db.Decimal(15, 2)
+  discountAmount      Decimal?  @default(0) @map("discount_amount") @db.Decimal(15, 2)
+  icmsAmount          Decimal?  @default(0) @map("icms_amount") @db.Decimal(15, 2)
+  ipiAmount           Decimal?  @default(0) @map("ipi_amount") @db.Decimal(15, 2)
+  pisAmount           Decimal?  @default(0) @map("pis_amount") @db.Decimal(15, 2)
+  cofinsAmount        Decimal?  @default(0) @map("cofins_amount") @db.Decimal(15, 2)
+  icmsBase            Decimal?  @default(0) @map("icms_base") @db.Decimal(15, 2)
+  icmsStAmount        Decimal?  @default(0) @map("icms_st_amount") @db.Decimal(15, 2)
+  fcpAmount           Decimal?  @default(0) @map("fcp_amount") @db.Decimal(15, 2)
+  otherAmount         Decimal?  @default(0) @map("other_amount") @db.Decimal(15, 2)
+  taxAmount           Decimal?  @default(0) @map("tax_amount") @db.Decimal(15, 2)
+  xmlStorageKey       String    @map("xml_storage_key")
+  xmlHashSha256       String    @map("xml_hash_sha256") @db.VarChar(64)
+  rawXmlHash          String?   @map("raw_xml_hash") @db.VarChar(64)
+  source              String    @default("MANUAL_IMPORT") @db.VarChar(30)
+  rawXml              String?   @map("raw_xml")
+  products            Json?
+  taxes               Json?
+  isSummary           Boolean   @default(false) @map("is_summary")
+  isCancelled         Boolean   @default(false) @map("is_cancelled")
+  isNewSupplier       Boolean   @default(false) @map("is_new_supplier")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  company        Company                 @relation(fields: [companyId], references: [id])
+  events         FiscalEvent[]
+  manifestations Manifestation[]
+  notes          DocumentNote[]
+  tags           DocumentTagLink[]
+  alerts         Alert[]
+  downloadLogs   XmlDownloadLog[]
+  transportLinks FiscalDocumentLink[]    @relation("LinkedNfe")
+  items          FiscalDocumentItem[]
+  closingItems   MonthlyTaxClosingItem[]
+  nfeEntry       NfeEntry?
+  fiscalAlerts   FiscalAlert[]
+
+  @@unique([companyId, nsu])
+  @@unique([companyId, accessKey, schemaName])
+  @@index([companyId, emissionDate(sort: Desc)])
+  @@index([accessKey])
+  @@index([issuerCnpj])
+  @@index([recipientCnpj])
+  @@index([companyId, nsu])
+  @@index([companyId, status])
+  @@index([companyId, source])
+  @@index([companyId, documentType])
+  @@index([companyId, operationDirection])
+  @@index([companyId, cfop])
+  @@index([companyId, isSummary])
+  @@index([companyId, isCancelled])
+  @@index([companyId, createdAt(sort: Desc)])
+  @@map("fiscal_documents")
+}
+
+model CompanyTaxSetting {
+  id                    String   @id @default(uuid()) @db.Uuid
+  companyId             String   @unique @map("company_id") @db.Uuid
+  taxRegime             String   @map("tax_regime") @db.VarChar(40)
+  calculationRegime     String   @map("calculation_regime") @db.VarChar(30)
+  uf                    String   @db.Char(2)
+  stateRegistration     String?  @map("state_registration") @db.VarChar(40)
+  mainCnae              String?  @map("main_cnae") @db.VarChar(20)
+  secondaryCnaes        Json?    @map("secondary_cnaes")
+  simplesAnnex          String?  @map("simples_annex") @db.VarChar(20)
+  mainActivity          String?  @map("main_activity") @db.VarChar(255)
+  isIcmsTaxpayer        Boolean  @default(false) @map("is_icms_taxpayer")
+  isIpiTaxpayer         Boolean  @default(false) @map("is_ipi_taxpayer")
+  icmsContribType       String?  @map("icms_contrib_type") @db.VarChar(20)
+  pisCofinsRegime       String   @map("pis_cofins_regime") @db.VarChar(30)
+  accumulatedRevenue    Decimal? @map("accumulated_revenue") @db.Decimal(15, 2)
+  providesService       Boolean  @default(false) @map("provides_service")
+  sellsMerchandise      Boolean  @default(true) @map("sells_merchandise")
+  municipalRegistration String?  @map("municipal_registration") @db.VarChar(40)
+
+  simplesNominalRate    Decimal? @map("simples_nominal_rate") @db.Decimal(5, 2)
+  simplesDeductAmount   Decimal? @map("simples_deduct_amount") @db.Decimal(15, 2)
+  simplesEffectiveRate  Decimal? @map("simples_effective_rate") @db.Decimal(5, 2)
+  simplesIcmsPercent    Decimal? @map("simples_icms_percent") @db.Decimal(5, 2)
+  simplesIssPercent     Decimal? @map("simples_iss_percent") @db.Decimal(5, 2)
+  simplesCppPercent     Decimal? @map("simples_cpp_percent") @db.Decimal(5, 2)
+  simplesFatorR         Decimal? @map("simples_fator_r") @db.Decimal(5, 2)
+  simplesRevenue12m     Decimal? @map("simples_revenue_12m") @db.Decimal(15, 2)
+  simplesPayroll12m     Decimal? @map("simples_payroll_12m") @db.Decimal(15, 2)
+  simplesManualOverride Boolean  @default(false) @map("simples_manual_override")
+
+  presumidoIrpjBase       Decimal? @map("presumido_irpj_base") @db.Decimal(5, 2)
+  presumidoCsllBase       Decimal? @map("presumido_csll_base") @db.Decimal(5, 2)
+  presumidoPisRate        Decimal? @map("presumido_pis_rate") @db.Decimal(5, 2)
+  presumidoCofinsRate     Decimal? @map("presumido_cofins_rate") @model CteAllocation {
+  id            String   @id @default(uuid()) @db.Uuid
+  companyId     String   @map("company_id") @db.Uuid
+  cteEntryId    String   @map("cte_entry_id") @db.Uuid
+  hash          String   @unique @db.VarChar(64) // SHA-256 hash
+  method        AllocationMethod
+  allocatableValue Decimal   @db.Decimal(15, 2) // Total value to allocate
+  componentsIncluded Json?   // Components included in calculation
+  componentsExcluded Json?   // Components excluded from calculation
+  version       String    @default("1.0") @db.VarChar(20) // Calculation version
+  status        AllocationStatus @default(NOT_ALLOCATED)
+  confirmedBy   String?   @map("confirmed_by") @db.Uuid // User who confirmed
+  confirmedAt   DateTime? @map("confirmed_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  company       Company   @relation(fields: [companyId], references: [id])
+  cteEntry      CteEntry  @relation(fields: [cteEntryId], references: [id])
+  documents     CteAllocationDocument[] @relation("AllocationDocuments")
+
+  @@index([companyId])
+  @@index([cteEntryId])
+  @@index([status])
+  @@map("cte_allocations")
+}
+
+model CteAllocationDocument {
+  id                  String   @id @default(uuid()) @db.Uuid
+  allocationId        String   @map("allocation_id") @db.Uuid
+  companyId           String   @map("company_id") @db.Uuid
+  nfeEntryId          String   @map("nfe_entry_id") @db.Uuid
+  nfeAccessKey        String   @map("nfe_access_key") @db.VarChar(44)
+  calculationBase     Decimal  @db.Decimal(15, 4) // Base used for calculation (value, weight, etc.)
+  percentage          Decimal  @db.Decimal(8, 6)   // Percentage for allocation
+  calculatedValue     Decimal  @db.Decimal(15, 2)   // Calculated allocation value
+  residualAdjustment  Decimal  @db.Decimal(15, 2)   // Adjustment for residual cents
+  manualValue         Decimal? @db.Decimal(15, 2)   // Manual override value (if applicable)
+  allocatedValue      Decimal  @db.Decimal(15, 2)   // Final allocated value
+  nfeEntry            NfeEntry? @relation(fields: [nfeEntryId], references: [id])
+
+  allocation          CteAllocation @relation(fields: [allocationId], references: [id], onDelete: Cascade)
+  company             Company       @relation(fields: [companyId], references: [id])
+
+  @@unique([allocationId, nfeEntryId])
+  @@index([companyId])
+  @@index([allocationId])
+  @@index([nfeEntryId])
+  @@map("cte_allocation_documents")
+}
+
+// Rest of the schema continues from where it left off...
+model CteEntryAuditLog {
+  id           String   @id @default(uuid()) @db.Uuid
+  companyId    String   @map("company_id") @db.Uuid
+  cteEntryId   String   @map("cte_entry_id") @db.Uuid
+  userId       String?  @map("user_id") @db.Uuid
+  action       String   @db.VarChar(80)
+  rule         String?  @db.VarChar(120)
+  previousValue Json?   @map("previous_value")
+  newValue     Json?     @map("new_value")
+  metadata     Json?
+  requestId    String?   @map("request_id") @db.VarChar(80)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  company  Company  @relation(fields: [companyId], references: [id])
+  cteEntry CteEntry @relation(fields: [cteEntryId], references: [id], onDelete: Cascade)
+  user     User?     @relation(fields: [userId], references: [id])
+
+  @@index([cteEntryId, createdAt(sort: Desc)])
+  @@index([companyId])
+  @@map("cte_entry_audit_logs")
+}
+
+model CteEntryNfeLink {
+  id           String   @id @default(uuid()) @db.Uuid
+  companyId    String   @map("company_id") @db.Uuid
+  cteEntryId   String   @map("cte_entry_id") @db.Uuid
+  nfeEntryId   String?  @map("nfe_entry_id") @db.Uuid
+  nfeAccessKey String   @map("nfe_access_key") @db.VarChar(44)
+  freightShare Decimal  @default(0) @map("freight_share") @db.Decimal(15, 2)
+  source       String   @default("CTE_XML") @db.VarChar(30)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  company  Company   @relation(fields: [companyId], references: [id])
+  cteEntry CteEntry  @relation(fields: [cteEntryId], references: [id], onDelete: Cascade)
+  nfeEntry NfeEntry? @relation(fields: [nfeEntryId], references: [id])
+
+  @@unique([companyId, cteEntryId, nfeAccessKey])
+  @@index([companyId])
+  @@index([cteEntryId])
+  @@index([nfeEntryId])
+  @@index([nfeAccessKey])
+  @@map("cte_entry_nfe_links")
+}
+
+model StockMovement {
+  id             String   @id @default(uuid()) @db.Uuid
+  companyId      String   @map("company_id") @db.Uuid
+  productId      String   @map("product_id") @db.Uuid
+  nfeEntryId     String?  @map("nfe_entry_id") @db.Uid
+  nfeEntryItemId String?  @map("nfe_entry_item_id") @db.Uid
+  movementType   String   @map("movement_type") @db.VarChar(40)
+  quantity       Decimal  @db.Decimal(15, 4)
+  unitCost       Decimal  @default(0) @map("unit_cost") @db.Decimal(15, 4)
+  totalCost      Decimal  @default(0) @map("total_cost") @db.Decimal(15, 2)
+  previousStock  Int?     @map("previous_stock")
+  newStock       Int?     @map("new_stock")
+  metadata       Json?
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  company      Company       @relation(fields: [companyId], references: [id])
+  product      Product       @relation(fields: [productId], references: [id])
+  nfeEntry     NfeEntry?     @relation(fields: [nfeEntryId], references: [id])
+  nfeEntryItem NfeEntryItem? @relation(fields: [nfeEntryItemId], references: [id])
+
+  @@index([companyId, createdAt(sort: Desc)])
+  @@index([productId, createdAt(sort: Desc)])
+  @@index([nfeEntryId])
+  @@index([nfeEntryItemId])
+  @@map("stock_movements")
+}
+
+model Payable {
+  id                String    @id @default(uuid()) @db.Uuid
+  companyId         String    @map("company_id") @db.Uuid
+  nfeEntryId        String    @map("nfe_entry_id") @db.Uid
+  supplierId        String?   @map("supplier_id") @db.Uuid
+  supplierName      String?   @map("supplier_name") @db.VarChar(255)
+  supplierCnpj      String?   @map("supplier_cnpj") @db.VarChar(14)
+  installmentNumber String    @map("installment_number") @db.VarChar(20)
+  dueDate           DateTime  @map("due_date")
+  amount            Decimal   @db.Decimal(15, 2)
+  paymentMethod     String?   @map("payment_method") @db.VarChar(60)
+  status            String    @default("OPEN") @db.VarChar(30)
+  source            String    @default("NFE_ENTRY") @db.VarChar(30)
+  paidAt            DateTime? @map("paid_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  company  Company     @relation(fields: [companyId], references: [id])
+  nfeEntry NfeEntry    @relation(fields: [nfeEntryId], references: [id], onDelete: Cascade)
+  supplier Fornecedor? @relation(fields: [supplierId], references: [id])
+
+  @@unique([nfeEntryId, installmentNumber])
+  @@index([companyId, dueDate])
+  @@index([supplierId])
+  @@index([nfeEntryId])
+  @@map("payables")
+}
+
+model FiscalAlert {
+  id               String    @id @default(uuid()) @db.Uid
+  companyId        String    @map("company_id") @db.Uid
+  nfeEntryId       String?   @map("nfe_entry_id") @db.Uid
+  nfeEntryItemId   String?   @map("nfe_entry_item_id") @db.Uid
+  fiscalDocumentId String?   @map("fiscal_document_id") @db.Uid
+  type             String    @db.VarChar(80)
+  severity         String    @db.VarChar(20)
+  title            String    @db.VarChar(180)
+  message          String    @db.Text
+  recommendation   String?   @db.Text
+  status           String    @default("open") @db.VarChar(30)
+  createdAt        DateTime  @default(now()) @map("created_at")
+  resolvedAt       DateTime? @map("resolved_at")
+
+  company        Company         @relation(fields: [companyId], references: [id])
+  nfeEntry       NfeEntry?       @relation(fields: [nfeEntryId], references: [id], onDelete: Cascade)
+  nfeEntryItem   NfeEntryItem?   @relation(fields: [nfeEntryItemId], references: [id])
+  fiscalDocument FiscalDocument? @relation(fields: [fiscalDocumentId], references: [id])
+
+  @@index([companyId, status, createdAt(sort: Desc)])
+  @@index([nfeEntryId])
+  @@index([nfeEntryItemId])
+  @@index([fiscalDocumentId])
+  @@map("fiscal_alerts")
+}
+
+model DfeSyncLog {
+  id             String    @id @default(uuid()) @db.Uid
+  companyId      String    @map("company_id") @db.Uid
+  documentType   String    @map("document_type") @db.VarChar(20)
+  service        String    @default("DFE_SYNC") @db.VarChar(60)
+  mode           String    @default("mock") @db.VarChar(20)
+  status         String    @db.VarChar(30)
+  documentsFound Int       @default(0) @map("documents_found")
+  documentsSaved Int       = 0 @map("documents_saved")
+  message        String?   @db.Text
+  requestNsu     String?   @map("request_nsu") @db.VarChar(15)
+  responseUltNsu String?   = 0 @map("response_ult_nsu") @db.VarChar(15)
+  responseMaxNsu String?   = 0 @map("response_max_nsu") @db.VarChar(15)
+  startedAt      DateTime  @map("started_at")
+  finishedAt     DateTime? @map("finished_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@index([companyId, startedAt(sort: Desc)])
+  @@index([companyId, documentType, status])
+  @@map("dfe_sync_logs")
+}
+
+model CteAllocation {
+  id            String   @id @default(uuid()) @db.Uuid
+  companyId     String   @map("company_id") @db.Uuid
+  cteEntryId    String   @map("cte_entry_id") @db.Uuid
+  hash          String   @unique @db.VarChar(64) // SHA-256 hash
+  method        AllocationMethod
+  allocatableValue Decimal   @db.Decimal(15, 2) // Total value to allocate
+  componentsIncluded Json?   // Components included in calculation
+  componentsExcluded Json?   // Components excluded from calculation
+  version       String    @default("1.0") @db.VarChar(20) // Calculation version
+  status        AllocationStatus @default(NOT_ALLOCATED)
+  confirmedBy   String?   @map("confirmed_by") @db.Uuid // User who confirmed
+  confirmedAt   DateTime? @map("confirmed_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  company       Company   @relation(fields: [companyId], references: [id])
+  cteEntry      CteEntry  @relation(fields: [cteEntryId], references: [id])
+  documents     CteAllocationDocument[] @relation("AllocationDocuments")
+
+  @@index([companyId])
+  @@index([cteEntryId])
+  @@index([status])
+  @@map("cte_allocations")
+}
+
+model CteAllocationDocument {
+  id                  String   @id @default(uuid()) @db.Uuid
+  allocationId        String   @map("allocation_id") @db.Uuid
+  companyId           String   @map("company_id") @db.Uuid
+  nfeEntryId          String   @map("nfe_entry_id") @db.Uid
+  nfeAccessKey        String   @map("nfe_access_key") @db.VarChar(44)
+  calculationBase     Decimal  @db.Decimal(15, 4) // Base used for calculation (value, weight, etc.)
+  percentage          Decimal  @db.Decimal(8, 6)   // Percentage for allocation
+  calculatedValue     Decimal  @db.Decimal(15, 2)   // Calculated allocation value
+  residualAdjustment  Decimal  @db.Decimal(15, 2)   // Adjustment for residual cents
+  manualValue         Decimal? @db.Decimal(15, 2)   // Manual override value (if applicable)
+  allocatedValue      Decimal  @db.Decimal(15, 2)   // Final allocated value
+  nfeEntry            NfeEntry? @relation(fields: [nfeEntryId], references: [id])
+
+  allocation          CteAllocation @relation(fields: [allocationId], references: [id], onDelete: Cascade)
+  company             Company       @relation(fields: [companyId], references: [id])
+
+  @@unique([allocationId, nfeEntryId])
+  @@index([companyId])
+  @@index([allocationId])
+  @@index([nfeEntryId])
+  @@map("cte_allocation_documents")
+}

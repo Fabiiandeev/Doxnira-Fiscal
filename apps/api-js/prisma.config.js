@@ -1,12 +1,20 @@
-import "dotenv/config";
+import { config } from "dotenv";
 
 import { defineConfig } from "prisma/config";
+import { enforceTestDatabaseEnvironment } from "./src/config/test-database-safety.js";
+
+if (process.env.NODE_ENV === "test") {
+  config({ path: ".env.test", override: true });
+  enforceTestDatabaseEnvironment();
+} else {
+  config();
+}
 
 const args = process.argv.slice(2);
 const isNonDevMigrateCommand = args.includes("migrate") && !args.includes("dev");
 const isTestEnvironment = process.env.NODE_ENV === "test";
 const datasourceUrl = isTestEnvironment
-  ? process.env.DATABASE_URL_TEST || process.env.DATABASE_URL
+  ? process.env.DATABASE_URL_TEST
   : isNonDevMigrateCommand && process.env.DIRECT_URL
     ? process.env.DIRECT_URL
     : process.env.DATABASE_URL;
