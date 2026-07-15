@@ -12,7 +12,7 @@
     "check": "node scripts/check-syntax.js",
     "lint": "node scripts/check-syntax.js",
     "build": "node scripts/check-syntax.js",
-    "test": "node --env-file=.env.test --test test/unit/nfe-entry-rules.unit.test.js test/unit/cte-allocation-rules.unit.test.js test/unit/test-database-safety.unit.test.js test/integration/incoming-nfe.integration.test.js",
+    "test": "node --env-file=.env.test --test test/unit/nfe-entry-rules.unit.test.js test/unit/cte-allocation-rules.unit.test.js test/unit/test-database-safety.unit.test.js test/unit/accountant-permissions.unit.test.js test/unit/accountant-documents-filters.unit.test.js test/integration/incoming-nfe.integration.test.js",
     "test:unit": "node --env-file=.env.test --test test/unit/nfe-entry-rules.unit.test.js test/unit/cte-allocation-rules.unit.test.js test/unit/test-database-safety.unit.test.js",
     "test:cte-allocation": "node --env-file=.env.test --test test/unit/cte-allocation-rules.unit.test.js test/unit/cte-allocation-service.unit.test.js",
     "test:integration": "node --env-file=.env.test --test test/integration/incoming-nfe.integration.test.js",
