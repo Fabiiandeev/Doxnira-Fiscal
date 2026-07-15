@@ -25,7 +25,6 @@ enum AllocationStatus {
   CALCULATED
   CONFIRMED
   APPLIED
-  BLOCKED
 }
 
 enum AllocationMethod {
@@ -34,31 +33,6 @@ enum AllocationMethod {
   WEIGHT
   VOLUME
   MANUAL
-}
-
-enum AccountantRole {
-  OWNER
-  ADMIN
-  OPERATOR
-  VIEWER
-}
-
-enum MembershipStatus {
-  ACTIVE
-  INACTIVE
-  SUSPENDED
-}
-
-enum CompanyLinkStatus {
-  ACTIVE
-  INACTIVE
-  PENDING
-}
-
-enum AccessLevel {
-  FULL
-  READ_ONLY
-  RESTRICTED
 }
 
 model User {
@@ -80,9 +54,6 @@ model User {
   clients           Client[]
   nfeValidationRuns NfeValidationRun[]
   nfeDocuments      NfeDocument[]
-  cteAllocationsCreated CteAllocation[] @relation("CteAllocationCreatedBy")
-  cteAllocationsConfirmed CteAllocation[] @relation("CteAllocationConfirmedBy")
-  accountantMemberships AccountantMembership[]
 
   @@map("users")
 }
@@ -161,14 +132,10 @@ model Company {
   cteEntryNfeLinks        CteEntryNfeLink[]
   cteAllocations          CteAllocation[]
   cteAllocationDocuments  CteAllocationDocument[]
-  cteAllocationItems      CteAllocationItem[]
-  cteEntryAuditLogs       CteEntryAuditLog[]
   stockMovements          StockMovement[]
   payables                Payable[]
   fiscalAlerts            FiscalAlert[]
   dfeSyncLogs             DfeSyncLog[]
-  accountantLinks         AccountantCompanyLink[]
-  accountantAccessGrants  AccountantUserCompanyAccess[]
 
   @@index([ownerId])
   @@map("companies")
@@ -912,7 +879,6 @@ model Product {
   nfeEntryItems        NfeEntryItem[]
   nfeEntryProductLinks NfeEntryProductLink[]
   stockMovements       StockMovement[]
-  cteAllocationItems   CteAllocationItem[]
 
   @@unique([companyId, code])
   @@index([companyId])
@@ -1657,7 +1623,6 @@ model NfeEntryItem {
   productLink        NfeEntryProductLink?
   stockMovements     StockMovement[]
   fiscalAlerts       FiscalAlert[]
-  cteAllocationItems CteAllocationItem[]
 
   @@unique([nfeEntryId, itemNumber])
   @@index([companyId])
@@ -1758,7 +1723,6 @@ model CteEntry {
   transportDocument TransportDocument? @relation(fields: [transportDocumentId], references: [id], onDelete: Cascade)
   nfeLinks          CteEntryNfeLink[]
   allocations       CteAllocation[]
-  auditLogs         CteEntryAuditLog[]
 
   @@unique([companyId, accessKey])
   @@index([companyId, issueDate(sort: Desc)])
@@ -1776,10 +1740,10 @@ model CteEntryNfeLink {
   source       String   @default("CTE_XML") @db.VarChar(30)
   createdAt    DateTime @default(now()) @map("created_at")
 
-  company             Company                  @relation(fields: [companyId], references: [id])
-  cteEntry            CteEntry                 @relation(fields: [cteEntryId], references: [id], onDelete: Cascade)
-  nfeEntry            NfeEntry?                @relation(fields: [nfeEntryId], references: [id])
-  allocationDocuments CteAllocationDocument[]
+  company          Company             @relation(fields: [companyId], references: [id])
+  cteEntry         CteEntry            @relation(fields: [cteEntryId], references: [id], onDelete: Cascade)
+  nfeEntry         NfeEntry?           @relation(fields: [nfeEntryId], references: [id])
+  allocationItems  CteAllocationDocument[] @relation("LinkAllocationDocuments")
 
   @@unique([companyId, cteEntryId, nfeAccessKey])
   @@index([companyId])
@@ -1790,109 +1754,60 @@ model CteEntryNfeLink {
 }
 
 model CteAllocation {
-  id               String           @id @default(uuid()) @db.Uuid
-  companyId        String           @map("company_id") @db.Uuid
-  cteEntryId       String           @map("cte_entry_id") @db.Uuid
-  method           AllocationMethod
-  status           AllocationStatus @default(PENDING_CONFIGURATION)
-  serviceTotal     Decimal          @default(0) @map("service_total") @db.Decimal(15, 2)
-  allocatableValue Decimal          @default(0) @map("allocatable_value") @db.Decimal(15, 2)
-  allocatedValue   Decimal          @default(0) @map("allocated_value") @db.Decimal(15, 2)
-  residualValue    Decimal          @default(0) @map("residual_value") @db.Decimal(15, 2)
-  configuration    Json?
-  calculationHash  String           @map("calculation_hash") @db.VarChar(64)
-  version          Int              @default(1)
-  createdBy        String?          @map("created_by") @db.Uuid
-  confirmedBy      String?          @map("confirmed_by") @db.Uuid
-  confirmedAt      DateTime?        @map("confirmed_at")
-  appliedAt        DateTime?        @map("applied_at")
-  createdAt        DateTime         @default(now()) @map("created_at")
-  updatedAt        DateTime         @updatedAt @map("updated_at")
+  id                  String   @id @default(uuid()) @db.Uuid
+  companyId           String   @map("company_id") @db.Uuid
+  cteEntryId          String   @map("cte_entry_id") @db.Uuid
+  hash                String   @db.VarChar(64)
+  method              AllocationMethod
+  allocatableValue    Decimal  @db.Decimal(15, 2)
+  componentsIncluded  Json?    @map("components_included")
+  componentsExcluded  Json?    @map("components_excluded")
+  calculationVersion  String   @default("1.0") @map("calculation_version") @db.VarChar(20)
+  status              AllocationStatus @default(NOT_ALLOCATED)
+  confirmedBy         String?  @map("confirmed_by") @db.Uuid
+  confirmedAt         DateTime? @map("confirmed_at")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
 
-  company   Company                  @relation(fields: [companyId], references: [id])
-  cteEntry  CteEntry                 @relation(fields: [cteEntryId], references: [id], onDelete: Cascade)
-  creator   User?                    @relation("CteAllocationCreatedBy", fields: [createdBy], references: [id])
-  confirmer User?                    @relation("CteAllocationConfirmedBy", fields: [confirmedBy], references: [id])
-  documents CteAllocationDocument[]
+  company      Company              @relation(fields: [companyId], references: [id])
+  cteEntry     CteEntry             @relation(fields: [cteEntryId], references: [id], onDelete: Cascade)
+  documents    CteAllocationDocument[]
 
-  @@unique([cteEntryId, calculationHash])
+  @@unique([cteEntryId, hash])
   @@index([companyId])
   @@index([cteEntryId])
   @@index([status])
-  @@index([calculationHash])
-  @@index([confirmedAt])
+  @@index([hash])
   @@map("cte_allocations")
 }
 
 model CteAllocationDocument {
-  id                 String        @id @default(uuid()) @db.Uuid
-  companyId          String        @map("company_id") @db.Uuid
-  allocationId       String        @map("allocation_id") @db.Uuid
-  cteEntryNfeLinkId  String        @map("cte_entry_nfe_link_id") @db.Uuid
-  nfeEntryId         String?       @map("nfe_entry_id") @db.Uuid
-  calculationBase    Decimal       @map("calculation_base") @db.Decimal(18, 6)
-  percentage         Decimal       @db.Decimal(12, 6)
-  calculatedValue    Decimal       @map("calculated_value") @db.Decimal(15, 2)
-  residualAdjustment Decimal       @default(0) @map("residual_adjustment") @db.Decimal(15, 2)
-  allocatedValue     Decimal       @map("allocated_value") @db.Decimal(15, 2)
-  source             String        @default("CALCULATED") @db.VarChar(30)
-  createdAt          DateTime      @default(now()) @map("created_at")
-  updatedAt          DateTime      @updatedAt @map("updated_at")
+  id                  String   @id @default(uuid()) @db.Uuid
+  allocationId        String   @map("allocation_id") @db.Uuid
+  companyId           String   @map("company_id") @db.Uuid
+  cteEntryNfeLinkId   String   @map("cte_entry_nfe_link_id") @db.Uuid
+  nfeEntryId          String?  @map("nfe_entry_id") @db.Uuid
+  nfeAccessKey        String   @map("nfe_access_key") @db.VarChar(44)
+  calculationBase     Decimal  @db.Decimal(15, 4) @map("calculation_base")
+  percentage          Decimal  @db.Decimal(8, 6)
+  calculatedValue     Decimal  @db.Decimal(15, 2) @map("calculated_value")
+  residualAdjustment  Decimal  @default(0) @map("residual_adjustment") @db.Decimal(15, 2)
+  manualValue         Decimal? @map("manual_value") @db.Decimal(15, 2)
+  allocatedValue      Decimal  @map("allocated_value") @db.Decimal(15, 2)
+  createdAt           DateTime @default(now()) @map("created_at")
 
-  company         Company         @relation(fields: [companyId], references: [id])
-  allocation      CteAllocation   @relation(fields: [allocationId], references: [id], onDelete: Cascade)
-  cteEntryNfeLink CteEntryNfeLink @relation(fields: [cteEntryNfeLinkId], references: [id], onDelete: Restrict)
-  nfeEntry        NfeEntry?       @relation(fields: [nfeEntryId], references: [id], onDelete: Restrict)
-  items           CteAllocationItem[]
+  allocation         CteAllocation     @relation(fields: [allocationId], references: [id], onDelete: Cascade)
+  company            Company           @relation(fields: [companyId], references: [id])
+  cteEntryNfeLink    CteEntryNfeLink   @relation("LinkAllocationDocuments", fields: [cteEntryNfeLinkId], references: [id], onDelete: Cascade)
+  nfeEntry           NfeEntry?         @relation(fields: [nfeEntryId], references: [id])
 
   @@unique([allocationId, cteEntryNfeLinkId])
   @@index([companyId])
   @@index([allocationId])
+  @@index([cteEntryNfeLinkId])
   @@index([nfeEntryId])
+  @@index([nfeAccessKey])
   @@map("cte_allocation_documents")
-}
-
-model CteAllocationItem {
-  id                   String                @id @default(uuid()) @db.Uuid
-  companyId            String                @map("company_id") @db.Uuid
-  allocationDocumentId String                @map("allocation_document_id") @db.Uuid
-  nfeEntryItemId       String                @map("nfe_entry_item_id") @db.Uuid
-  productId            String?               @map("product_id") @db.Uuid
-  calculationBase      Decimal               @map("calculation_base") @db.Decimal(18, 6)
-  percentage           Decimal               @db.Decimal(12, 6)
-  allocatedValue       Decimal               @map("allocated_value") @db.Decimal(15, 2)
-  projectedUnitImpact  Decimal               @map("projected_unit_impact") @db.Decimal(15, 6)
-  createdAt            DateTime              @default(now()) @map("created_at")
-  updatedAt            DateTime              @updatedAt @map("updated_at")
-
-  company            Company               @relation(fields: [companyId], references: [id])
-  allocationDocument CteAllocationDocument @relation(fields: [allocationDocumentId], references: [id], onDelete: Cascade)
-  nfeEntryItem       NfeEntryItem          @relation(fields: [nfeEntryItemId], references: [id], onDelete: Restrict)
-  product            Product?              @relation(fields: [productId], references: [id], onDelete: Restrict)
-
-  @@unique([allocationDocumentId, nfeEntryItemId])
-  @@index([companyId])
-  @@index([allocationDocumentId])
-  @@index([nfeEntryItemId])
-  @@index([productId])
-  @@map("cte_allocation_items")
-}
-
-model CteEntryAuditLog {
-  id         String   @id @default(uuid()) @db.Uuid
-  companyId  String   @map("company_id") @db.Uuid
-  cteEntryId String   @map("cte_entry_id") @db.Uuid
-  userId     String?  @map("user_id") @db.Uuid
-  action     String   @db.VarChar(80)
-  metadata   Json?
-  createdAt  DateTime @default(now()) @map("created_at")
-
-  company  Company  @relation(fields: [companyId], references: [id])
-  cteEntry CteEntry @relation(fields: [cteEntryId], references: [id], onDelete: Cascade)
-
-  @@index([companyId, createdAt(sort: Desc)])
-  @@index([cteEntryId, createdAt(sort: Desc)])
-  @@map("cte_entry_audit_logs")
 }
 
 model StockMovement {
@@ -1999,78 +1914,4 @@ model DfeSyncLog {
   @@index([companyId, startedAt(sort: Desc)])
   @@index([companyId, documentType, status])
   @@map("dfe_sync_logs")
-}
-
-model AccountantOffice {
-  id        String   @id @default(uuid()) @db.Uuid
-  name      String   @db.VarChar(255)
-  cnpj      String   @unique @db.VarChar(14)
-  address   String?  @db.VarChar(500)
-  phone     String?  @db.VarChar(40)
-  email     String?  @db.VarChar(180)
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-
-  members        AccountantMembership[]
-  linkedCompanies AccountantCompanyLink[]
-
-  @@map("accountant_offices")
-}
-
-model AccountantMembership {
-  id        String           @id @default(uuid()) @db.Uuid
-  officeId  String           @map("office_id") @db.Uuid
-  userId    String           @map("user_id") @db.Uuid
-  role      AccountantRole   @default(OPERATOR)
-  status    MembershipStatus @default(ACTIVE)
-  joinedAt  DateTime         @default(now()) @map("joined_at")
-  createdAt DateTime         @default(now()) @map("created_at")
-  updatedAt DateTime         @updatedAt @map("updated_at")
-
-  office          AccountantOffice              @relation(fields: [officeId], references: [id])
-  user            User                          @relation(fields: [userId], references: [id])
-  companyAccesses AccountantUserCompanyAccess[]
-
-  @@unique([officeId, userId])
-  @@index([userId])
-  @@index([officeId, status])
-  @@map("accountant_memberships")
-}
-
-model AccountantCompanyLink {
-  id        String            @id @default(uuid()) @db.Uuid
-  officeId  String            @map("office_id") @db.Uuid
-  companyId String            @map("company_id") @db.Uuid
-  status    CompanyLinkStatus @default(ACTIVE)
-  linkedAt  DateTime          @default(now()) @map("linked_at")
-  expiresAt DateTime?         @map("expires_at")
-  createdAt DateTime          @default(now()) @map("created_at")
-  updatedAt DateTime          @updatedAt @map("updated_at")
-
-  office  AccountantOffice @relation(fields: [officeId], references: [id])
-  company Company          @relation(fields: [companyId], references: [id])
-
-  @@unique([officeId, companyId])
-  @@index([companyId])
-  @@index([officeId, status])
-  @@map("accountant_company_links")
-}
-
-model AccountantUserCompanyAccess {
-  id           String      @id @default(uuid()) @db.Uuid
-  membershipId String      @map("membership_id") @db.Uuid
-  companyId    String      @map("company_id") @db.Uuid
-  accessLevel  AccessLevel @default(FULL) @map("access_level")
-  grantedAt    DateTime    @default(now()) @map("granted_at")
-  revokedAt    DateTime?   @map("revoked_at")
-  createdAt    DateTime    @default(now()) @map("created_at")
-  updatedAt    DateTime    @updatedAt @map("updated_at")
-
-  membership AccountantMembership @relation(fields: [membershipId], references: [id])
-  company    Company              @relation(fields: [companyId], references: [id])
-
-  @@unique([membershipId, companyId])
-  @@index([companyId])
-  @@index([membershipId, accessLevel])
-  @@map("accountant_user_company_access")
 }
