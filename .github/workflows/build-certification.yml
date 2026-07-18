@@ -23,16 +23,32 @@ jobs:
     name: Next.js production build
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: ns_fiscal_cloud_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d ns_fiscal_cloud_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
     env:
       CI: "true"
       NEXT_TELEMETRY_DISABLED: "1"
+      DATABASE_URL_TEST: postgresql://postgres:postgres@127.0.0.1:5432/ns_fiscal_cloud_test?schema=public
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/ns_fiscal_cloud_test?schema=public
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v4
         with:
           node-version: "24.14.0"
       - name: Install exact pnpm version
-        run: npm install --global pnpm@11.7.0
+        run: npm install --global pnpm@11.8.0
       - name: Print runtime versions
         run: |
           set -euxo pipefail
@@ -50,12 +66,20 @@ jobs:
           set -euxo pipefail
           pnpm --filter @ns-fiscal/api-js prisma:validate
           pnpm --filter @ns-fiscal/api-js prisma:generate
+      - name: Validate test database migrations
+        run: pnpm --filter @ns-fiscal/api-js test:db:migrate
       - name: Run lint
         run: pnpm lint 2>&1 | tee lint.log
       - name: Run typecheck
         run: pnpm typecheck 2>&1 | tee typecheck.log
       - name: Run API tests
         run: pnpm --filter @ns-fiscal/api-js test 2>&1 | tee api-tests.log
+      - name: Run API HTTP and E2E tests
+        run: |
+          set -o pipefail
+          pnpm --filter @ns-fiscal/api-js test:http 2>&1 | tee api-http-tests.log
+          pnpm --filter @ns-fiscal/api-js test:http:cte-entry 2>&1 | tee api-cte-http-tests.log
+          pnpm --filter @ns-fiscal/api-js test:e2e 2>&1 | tee api-e2e-tests.log
       - name: Record build start
         run: |
           mkdir -p build-evidence
@@ -106,6 +130,9 @@ jobs:
             lint.log
             typecheck.log
             api-tests.log
+            api-http-tests.log
+            api-cte-http-tests.log
+            api-e2e-tests.log
             next-start.log
             build-evidence/
             apps/web/.next/BUILD_ID

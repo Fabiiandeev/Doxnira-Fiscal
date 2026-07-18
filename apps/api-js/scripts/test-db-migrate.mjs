@@ -1,4 +1,6 @@
 import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 
 import { config } from "dotenv";
 
@@ -9,8 +11,11 @@ config({ path: ".env.test", override: true });
 const target = enforceTestDatabaseEnvironment();
 console.log(`Test database target: host=${target.host}; database=${target.database}; schema=${target.schema}`);
 
-const command = process.platform === "win32" ? "npx.cmd" : "npx";
-const result = spawnSync(command, ["prisma", "migrate", "deploy", "--config", "prisma.config.js"], {
+const localPrisma = resolve("node_modules", ".bin", process.platform === "win32" ? "prisma.cmd" : "prisma");
+if (!existsSync(localPrisma)) {
+  throw new Error(`Prisma local não encontrado: ${localPrisma}`);
+}
+const result = spawnSync(localPrisma, ["migrate", "deploy", "--config", "prisma.config.js"], {
   stdio: "inherit",
   env: process.env,
 });

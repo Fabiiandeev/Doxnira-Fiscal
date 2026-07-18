@@ -44,3 +44,42 @@ export async function getAccountantFiscalDocumentDetail({ companyId, documentId,
     relatedTransportDocuments: document.transportLinks.map((link) => ({ id: link.cteDocument.id, linkType: link.linkType, source: link.source, accessKey: link.cteDocument.accessKey, number: link.cteDocument.number, series: link.cteDocument.series, issuerName: link.cteDocument.issuerName, recipientName: link.cteDocument.recipientName, issueDate: date(link.cteDocument.emissionDate), total: decimal(link.cteDocument.totalAmount), status: link.cteDocument.status })),
   };
 }
+
+export async function getAccountantTransportDocumentDetail({ companyId, documentId, officeId, canDownload, canDownloadNfe }) {
+  const cte = await prisma.transportDocument.findFirst({
+    where: { id: documentId, companyId },
+    include: {
+      nfeLinks: {
+        include: { nfeDocument: { select: { id: true, invoiceNumber: true, series: true, accessKey: true, issuerName: true, recipientName: true, emissionDate: true, totalAmount: true, status: true, rawXml: true } } },
+        orderBy: { createdAt: "desc" },
+      },
+    },
+  });
+  if (!cte) throw new AppError("CT-e não encontrado.", "CTE_NOT_FOUND", 404);
+  const review = await prisma.accountantDocumentReview.findUnique({
+    where: { officeId_transportDocumentId: { officeId, transportDocumentId: cte.id } },
+    select: { status: true, note: true, reviewedAt: true, reopenedAt: true, reopenReason: true, updatedAt: true, user: { select: { id: true, name: true } } },
+  });
+  const availability = cte.rawXml ? "FULL" : "MISSING";
+  const linked = cte.nfeLinks.filter((link) => link.nfeDocumentId);
+  const pending = cte.nfeLinks.filter((link) => !link.nfeDocumentId);
+  return {
+    id: cte.id, companyId: cte.companyId, documentType: "CTE", operationDirection: null,
+    identification: { model: "57", number: cte.number, series: cte.series, accessKey: cte.accessKey, issueDate: date(cte.emissionDate), authorizationDate: null, protocol: null, environment: null, status: cte.status || "UNKNOWN", origin: null, isCancelled: /CANCEL/i.test(cte.status || ""), cancellationDate: null },
+    issuer: cte.issuerName || cte.issuerCnpj ? { name: cte.issuerName, document: cte.issuerCnpj, stateRegistration: null, city: null, uf: null, address: null } : null,
+    recipient: cte.recipientName || cte.recipientCnpj ? { name: cte.recipientName, document: cte.recipientCnpj, stateRegistration: null, city: null, uf: null, address: null } : null,
+    totals: { serviceValue: decimal(cte.totalAmount), amountReceivable: null, icmsBase: null, icmsRate: null, icms: null, taxReduction: null, otherTaxes: null, total: decimal(cte.totalAmount) },
+    items: [], events: [], alerts: [],
+    review: review ? { ...review, reviewedAt: date(review.reviewedAt), reopenedAt: date(review.reopenedAt), updatedAt: date(review.updatedAt) } : null,
+    xml: { availability, canView: availability !== "MISSING", canDownload: canDownloadAccountantXml(availability, canDownload) },
+    nfeLinks: linked.map((link) => ({
+      id: link.id,
+      accessKey: link.nfeAccessKey,
+      source: link.source,
+      createdAt: link.createdAt.toISOString(),
+      xml: { availability: link.nfeDocument?.rawXml ? "FULL" : "MISSING", canDownload: canDownloadAccountantXml(link.nfeDocument?.rawXml ? "FULL" : "MISSING", Boolean(canDownloadNfe)) },
+      document: { ...link.nfeDocument, totalAmount: link.nfeDocument?.totalAmount?.toString() || null },
+    })),
+    pendingReferences: pending.map((link) => ({ id: link.id, accessKey: link.nfeAccessKey, source: link.source, createdAt: link.createdAt.toISOString(), status: "PENDING_DOCUMENT" })),
+  };
+}

@@ -69,19 +69,19 @@ export function MonthlyClosingView() {
       notify({ title: "Correção automática falhou", description: error.message, tone: "error" }),
   });
   const action = useMutation({
-    mutationFn: ({ id, name }: { id: string; name: "recalculate" | "approve" | "reopen" }) =>
-      closingAction(id, name),
+    mutationFn: ({ id, name, reason }: { id: string; name: "recalculate" | "approve" | "reopen"; reason?: string }) =>
+      closingAction(id, name, reason),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["monthly-closing"] }),
     onError: (error) => handleSmartError(error),
   });
   const groups = useMemo(() => {
     const items = closing?.items || [];
     return {
-      inbound: items.filter((item) => item.category === "INBOUND"),
-      outbound: items.filter((item) => item.category === "OUTBOUND"),
-      cteInbound: items.filter((item) => item.category === "TRANSPORT_INBOUND"),
-      cteOutbound: items.filter((item) => item.category === "TRANSPORT_OUTBOUND"),
-      unknown: items.filter((item) => !["INBOUND", "OUTBOUND", "TRANSPORT_INBOUND", "TRANSPORT_OUTBOUND"].includes(item.category)),
+      inbound: items.filter((item) => item.category === "NF_E_ENTRADA"),
+      outbound: items.filter((item) => item.category === "NF_E_SAIDA"),
+      cteInbound: items.filter((item) => item.category === "CT_E_ENTRADA"),
+      cteOutbound: [],
+      unknown: [],
       ignored: closing?.ignoredDocuments || 0,
     };
   }, [closing]);
@@ -167,7 +167,7 @@ export function MonthlyClosingView() {
               <span className="mr-auto text-[10px] font-bold text-subtle">{closing.includedDocuments} incluídos · {closing.ignoredDocuments} MOCK/SEED ignorados</span>
               <Button size="sm" variant="outline" onClick={() => action.mutate({ id: closing.id, name: "recalculate" })}><RefreshCw className="h-3.5 w-3.5" />Recalcular</Button>
               {closing.status === "APPROVED" ? (
-                <Button size="sm" variant="outline" onClick={() => action.mutate({ id: closing.id, name: "reopen" })}><RotateCcw className="h-3.5 w-3.5" />Reabrir</Button>
+                <Button size="sm" variant="outline" onClick={() => { const reason = window.prompt("Motivo da reabertura:"); if (reason?.trim()) action.mutate({ id: closing.id, name: "reopen", reason }); }}><RotateCcw className="h-3.5 w-3.5" />Reabrir</Button>
               ) : (
                 <Button size="sm" variant="lime" onClick={() => action.mutate({ id: closing.id, name: "approve" })}><ShieldCheck className="h-3.5 w-3.5" />Aprovar</Button>
               )}
@@ -244,6 +244,9 @@ function statusLabel(status: MonthlyClosing["status"]) {
     DRAFT: "Rascunho",
     PROCESSING: "Processando",
     READY_FOR_REVIEW: "Pronto para revisão",
+    TAX_SETTINGS_REQUIRED: "Configuração tributária necessária",
+    PENDING_REVIEW: "Pendências para revisão",
+    READY_FOR_APPROVAL: "Pronto para aprovação",
     APPROVED: "Aprovado",
     REOPENED: "Reaberto",
     ERROR: "Erro",

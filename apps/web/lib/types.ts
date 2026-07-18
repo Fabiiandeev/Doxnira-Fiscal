@@ -156,7 +156,7 @@ export interface MonthlyClosing {
   id: string;
   periodYear: number;
   periodMonth: number;
-  status: "DRAFT" | "PROCESSING" | "READY_FOR_REVIEW" | "APPROVED" | "REOPENED" | "ERROR";
+  status: "DRAFT" | "TAX_SETTINGS_REQUIRED" | "PENDING_REVIEW" | "READY_FOR_APPROVAL" | "PROCESSING" | "READY_FOR_REVIEW" | "APPROVED" | "REOPENED" | "ERROR";
   inboundTotal: number;
   outboundTotal: number;
   freightTotal: number;
@@ -167,6 +167,10 @@ export interface MonthlyClosing {
   estimatedTaxTotal: number;
   includedDocuments: number;
   ignoredDocuments: number;
+  eligibleDocuments?: number;
+  blockedDocuments?: number;
+  pendingCount?: number;
+  events?: Array<{ id: string; action: string; fromStatus?: string | null; toStatus?: string | null; note?: string | null; createdAt: string }>;
   approvedAt: string | null;
   items: MonthlyClosingItem[];
   warnings: MonthlyClosingWarning[];

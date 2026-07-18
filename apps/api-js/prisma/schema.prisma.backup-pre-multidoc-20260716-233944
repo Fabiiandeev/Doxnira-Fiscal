@@ -87,8 +87,6 @@ model User {
   accountantDocumentNotes AccountantDocumentNote[]
   accountantDocumentTagsCreated AccountantDocumentTag[] @relation("AccountantTagCreator")
   accountantDocumentRequests AccountantDocumentRequest[]
-  accountantRequestAssignments AccountantDocumentRequest[] @relation("RequestAssignedTo")
-  accountantRequestEvents AccountantDocumentRequestEvent[] @relation("RequestEventActor")
 
   @@map("users")
 }
@@ -179,7 +177,6 @@ model Company {
   accountantNotes         AccountantDocumentNote[]
   accountantTagLinks      AccountantDocumentTagLink[]
   accountantRequests      AccountantDocumentRequest[]
-  accountantRequestEvents AccountantDocumentRequestEvent[]
 
   @@index([ownerId])
   @@map("companies")
@@ -404,18 +401,6 @@ model MonthlyTaxClosing {
   periodYear        Int       @map("period_year")
   periodMonth       Int       @map("period_month")
   status            String    @default("DRAFT") @db.VarChar(30)
-  officeId          String?   @map("office_id") @db.Uuid
-  sourceSnapshotAt  DateTime? @map("source_snapshot_at")
-  taxSettingsSnapshot Json?   @map("tax_settings_snapshot_json")
-  eligibleDocuments Int       @default(0) @map("eligible_documents")
-  blockedDocuments  Int       @default(0) @map("blocked_documents")
-  pendingCount      Int       @default(0) @map("pending_count")
-  createdByUserId   String?   @map("created_by_user_id") @db.Uuid
-  approvedByUserId  String?   @map("approved_by_user_id") @db.Uuid
-  reopenedByUserId  String?   @map("reopened_by_user_id") @db.Uuid
-  reopenedAt        DateTime? @map("reopened_at")
-  approvalNote      String?   @map("approval_note")
-  reopenReason      String?   @map("reopen_reason")
   inboundTotal      Decimal   @default(0) @map("inbound_total") @db.Decimal(15, 2)
   outboundTotal     Decimal   @default(0) @map("outbound_total") @db.Decimal(15, 2)
   freightTotal      Decimal   @default(0) @map("freight_total") @db.Decimal(15, 2)
@@ -434,115 +419,11 @@ model MonthlyTaxClosing {
   company  Company                    @relation(fields: [companyId], references: [id])
   items    MonthlyTaxClosingItem[]
   warnings MonthlyTaxClosingWarning[]
-  events   MonthlyTaxClosingEvent[]
-  fiscalBookPreparations FiscalBookPreparation[]
 
   @@unique([companyId, periodYear, periodMonth])
   @@index([companyId, periodYear, periodMonth])
   @@index([status])
-  @@index([companyId, periodYear, periodMonth, status])
   @@map("monthly_tax_closings")
-}
-
-model FiscalBookPreparation {
-  id String @id @default(uuid()) @db.Uuid
-  companyId String @map("company_id") @db.Uuid
-  officeId String? @map("office_id") @db.Uuid
-  monthlyTaxClosingId String @map("monthly_tax_closing_id") @db.Uuid
-  periodYear Int @map("period_year")
-  periodMonth Int @map("period_month")
-  status String @default("DRAFT") @db.VarChar(30)
-  snapshotHash String? @map("snapshot_hash") @db.VarChar(64)
-  sourceClosingApprovedAt DateTime? @map("source_closing_approved_at")
-  generatedAt DateTime? @map("generated_at")
-  generatedByUserId String? @map("generated_by_user_id") @db.Uuid
-  invalidatedAt DateTime? @map("invalidated_at")
-  invalidatedReason String? @map("invalidated_reason")
-  documentsCount Int @default(0) @map("documents_count")
-  itemsCount Int @default(0) @map("items_count")
-  issuesCount Int @default(0) @map("issues_count")
-  blockingIssuesCount Int @default(0) @map("blocking_issues_count")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-  closing MonthlyTaxClosing @relation(fields: [monthlyTaxClosingId], references: [id], onDelete: Cascade)
-  documents FiscalBookPreparationDocument[]
-  issues FiscalBookIssue[]
-  @@unique([monthlyTaxClosingId])
-  @@index([companyId, periodYear, periodMonth, status])
-  @@map("fiscal_book_preparations")
-}
-
-model FiscalBookPreparationDocument {
-  id String @id @default(uuid()) @db.Uuid
-  preparationId String @map("preparation_id") @db.Uuid
-  companyId String @map("company_id") @db.Uuid
-  sourceType String @map("source_type") @db.VarChar(10)
-  sourceDocumentId String? @map("source_document_id") @db.Uuid
-  operationGroup String @map("operation_group") @db.VarChar(30)
-  accessKey String? @map("access_key") @db.VarChar(44)
-  model String? @db.VarChar(10)
-  series String? @db.VarChar(10)
-  number String? @db.VarChar(30)
-  emissionDate DateTime? @map("emission_date")
-  participantDocument String? @map("participant_document") @db.VarChar(20)
-  participantName String? @map("participant_name")
-  cfop String? @db.VarChar(10)
-  totalAmount Decimal? @map("total_amount") @db.Decimal(15,2)
-  icmsAmount Decimal? @map("icms_amount") @db.Decimal(15,2)
-  ipiAmount Decimal? @map("ipi_amount") @db.Decimal(15,2)
-  pisAmount Decimal? @map("pis_amount") @db.Decimal(15,2)
-  cofinsAmount Decimal? @map("cofins_amount") @db.Decimal(15,2)
-  freightAmount Decimal? @map("freight_amount") @db.Decimal(15,2)
-  sourceOrigin String? @map("source_origin") @db.VarChar(30)
-  preparation FiscalBookPreparation @relation(fields: [preparationId], references: [id], onDelete: Cascade)
-  items FiscalBookPreparationItem[]
-  @@unique([preparationId, sourceDocumentId])
-  @@index([preparationId, operationGroup])
-  @@map("fiscal_book_preparation_documents")
-}
-
-model FiscalBookPreparationItem {
-  id String @id @default(uuid()) @db.Uuid
-  preparationDocumentId String @map("preparation_document_id") @db.Uuid
-  itemNumber Int @map("item_number")
-  productCode String? @map("product_code")
-  description String?
-  ncm String? @db.VarChar(20)
-  cest String? @db.VarChar(20)
-  cfop String? @db.VarChar(10)
-  cst String? @db.VarChar(10)
-  csosn String? @db.VarChar(10)
-  unit String? @db.VarChar(10)
-  quantity Decimal? @db.Decimal(15,4)
-  unitValue Decimal? @map("unit_value") @db.Decimal(15,4)
-  totalValue Decimal? @map("total_value") @db.Decimal(15,2)
-  preparationDocument FiscalBookPreparationDocument @relation(fields: [preparationDocumentId], references: [id], onDelete: Cascade)
-  @@unique([preparationDocumentId, itemNumber])
-  @@map("fiscal_book_preparation_items")
-}
-
-model FiscalBookIssue {
-  id String @id @default(uuid()) @db.Uuid
-  preparationId String @map("preparation_id") @db.Uuid
-  companyId String @map("company_id") @db.Uuid
-  severity String @db.VarChar(20)
-  code String @db.VarChar(80)
-  title String
-  message String
-  recommendation String?
-  sourceType String? @map("source_type") @db.VarChar(10)
-  sourceDocumentId String? @map("source_document_id") @db.Uuid
-  sourceItemId String? @map("source_item_id") @db.Uuid
-  recordReference String? @map("record_reference") @db.VarChar(20)
-  fieldName String? @map("field_name")
-  status String @default("OPEN") @db.VarChar(20)
-  createdAt DateTime @default(now()) @map("created_at")
-  resolvedAt DateTime? @map("resolved_at")
-  resolvedByUserId String? @map("resolved_by_user_id") @db.Uuid
-  ignoreReason String? @map("ignore_reason")
-  preparation FiscalBookPreparation @relation(fields: [preparationId], references: [id], onDelete: Cascade)
-  @@index([preparationId, severity, status])
-  @@map("fiscal_book_issues")
 }
 
 model MonthlyTaxClosingItem {
@@ -554,7 +435,6 @@ model MonthlyTaxClosingItem {
   accessKey  String?  @map("access_key") @db.VarChar(44)
   amount     Decimal  @default(0) @db.Decimal(15, 2)
   taxAmount  Decimal  @default(0) @map("tax_amount") @db.Decimal(15, 2)
-  exclusionReason String? @map("exclusion_reason")
   snapshot   Json?
   createdAt  DateTime @default(now()) @map("created_at")
 
@@ -564,22 +444,6 @@ model MonthlyTaxClosingItem {
   @@index([closingId, category])
   @@index([documentId])
   @@map("monthly_tax_closing_items")
-}
-
-model MonthlyTaxClosingEvent {
-  id          String   @id @default(uuid()) @db.Uuid
-  closingId   String   @map("closing_id") @db.Uuid
-  actorUserId String?  @map("actor_user_id") @db.Uuid
-  action      String   @db.VarChar(40)
-  fromStatus  String?  @map("from_status") @db.VarChar(30)
-  toStatus    String?  @map("to_status") @db.VarChar(30)
-  note        String?
-  createdAt   DateTime @default(now()) @map("created_at")
-
-  closing MonthlyTaxClosing @relation(fields: [closingId], references: [id], onDelete: Cascade)
-
-  @@index([closingId, createdAt])
-  @@map("monthly_tax_closing_events")
 }
 
 model MonthlyTaxClosingWarning {
@@ -646,10 +510,6 @@ model TransportDocument {
   company  Company              @relation(fields: [companyId], references: [id])
   nfeLinks FiscalDocumentLink[] @relation("LinkedCte")
   cteEntry CteEntry?
-  accountantReviews AccountantDocumentReview[]
-  accountantNotes AccountantDocumentNote[]
-  accountantTagLinks AccountantDocumentTagLink[]
-  accountantRequests AccountantDocumentRequest[]
 
   @@unique([companyId, accessKey])
   @@index([companyId, emissionDate(sort: Desc)])
@@ -2169,7 +2029,6 @@ model AccountantOffice {
   documentNotes AccountantDocumentNote[]
   documentTags AccountantDocumentTag[]
   documentRequests AccountantDocumentRequest[]
-  requestEvents AccountantDocumentRequestEvent[]
 
   @@map("accountant_offices")
 }
@@ -2234,52 +2093,45 @@ model AccountantUserCompanyAccess {
 }
 
 model AccountantDocumentReview {
-  id                  String   @id @default(uuid()) @db.Uuid
-  officeId            String   @map("office_id") @db.Uuid
-  companyId           String   @map("company_id") @db.Uuid
-  fiscalDocumentId    String?  @map("fiscal_document_id") @db.Uuid
-  transportDocumentId String?  @map("transport_document_id") @db.Uuid
-  userId              String   @map("user_id") @db.Uuid
-  status              String   @default("PENDING") @db.VarChar(30)
-  note                String?  @db.Text
-  reviewedAt          DateTime? @map("reviewed_at")
-  reopenedAt          DateTime? @map("reopened_at")
-  reopenReason        String?  @map("reopen_reason") @db.Text
-  createdAt           DateTime @default(now()) @map("created_at")
-  updatedAt           DateTime @updatedAt @map("updated_at")
+  id               String   @id @default(uuid()) @db.Uuid
+  officeId         String   @map("office_id") @db.Uuid
+  companyId        String   @map("company_id") @db.Uuid
+  fiscalDocumentId String   @map("fiscal_document_id") @db.Uuid
+  userId           String   @map("user_id") @db.Uuid
+  status           String   @default("PENDING") @db.VarChar(30)
+  note             String?  @db.Text
+  reviewedAt       DateTime? @map("reviewed_at")
+  reopenedAt       DateTime? @map("reopened_at")
+  reopenReason     String?  @map("reopen_reason") @db.Text
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
 
-  office              AccountantOffice @relation(fields: [officeId], references: [id])
-  company             Company          @relation(fields: [companyId], references: [id])
-  fiscalDocument      FiscalDocument?  @relation(fields: [fiscalDocumentId], references: [id], onDelete: Cascade)
-  transportDocument   TransportDocument? @relation(fields: [transportDocumentId], references: [id], onDelete: Cascade)
-  user                User             @relation(fields: [userId], references: [id])
+  office          AccountantOffice @relation(fields: [officeId], references: [id])
+  company         Company          @relation(fields: [companyId], references: [id])
+  fiscalDocument  FiscalDocument   @relation(fields: [fiscalDocumentId], references: [id], onDelete: Cascade)
+  user            User             @relation(fields: [userId], references: [id])
 
   @@unique([officeId, fiscalDocumentId])
-  @@unique([officeId, transportDocumentId])
   @@index([companyId, status])
   @@index([fiscalDocumentId])
-  @@index([transportDocumentId])
   @@map("accountant_document_reviews")
 }
 
 model AccountantDocumentNote {
-  id                  String   @id @default(uuid()) @db.Uuid
-  officeId            String   @map("office_id") @db.Uuid
-  companyId           String   @map("company_id") @db.Uuid
-  fiscalDocumentId    String?  @map("fiscal_document_id") @db.Uuid
-  transportDocumentId String?  @map("transport_document_id") @db.Uuid
-  authorUserId        String   @map("author_user_id") @db.Uuid
-  content             String   @db.Text
-  createdAt           DateTime @default(now()) @map("created_at")
-  updatedAt           DateTime @updatedAt @map("updated_at")
-  deletedAt           DateTime? @map("deleted_at")
-  office              AccountantOffice  @relation(fields: [officeId], references: [id])
-  company             Company           @relation(fields: [companyId], references: [id])
-  fiscalDocument      FiscalDocument?   @relation(fields: [fiscalDocumentId], references: [id], onDelete: Cascade)
-  transportDocument   TransportDocument? @relation(fields: [transportDocumentId], references: [id], onDelete: Cascade)
-  author              User              @relation(fields: [authorUserId], references: [id])
+  id String @id @default(uuid()) @db.Uuid
+  officeId String @map("office_id") @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+  fiscalDocumentId String @map("fiscal_document_id") @db.Uuid
+  authorUserId String @map("author_user_id") @db.Uuid
+  content String @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+  office AccountantOffice @relation(fields: [officeId], references: [id])
+  company Company @relation(fields: [companyId], references: [id])
+  fiscalDocument FiscalDocument @relation(fields: [fiscalDocumentId], references: [id], onDelete: Cascade)
+  author User @relation(fields: [authorUserId], references: [id])
   @@index([officeId, companyId, fiscalDocumentId, createdAt(sort: Desc)])
-  @@index([officeId, companyId, transportDocumentId, createdAt(sort: Desc)])
   @@map("accountant_document_notes")
 }
 
@@ -2300,85 +2152,36 @@ model AccountantDocumentTag {
 }
 
 model AccountantDocumentTagLink {
-  id                  String   @id @default(uuid()) @db.Uuid
-  officeId            String   @map("office_id") @db.Uuid
-  companyId           String   @map("company_id") @db.Uuid
-  fiscalDocumentId    String?  @map("fiscal_document_id") @db.Uuid
-  transportDocumentId String?  @map("transport_document_id") @db.Uuid
-  tagId               String   @map("tag_id") @db.Uuid
-  assignedAt          DateTime @default(now()) @map("assigned_at")
-  company             Company           @relation(fields: [companyId], references: [id])
-  fiscalDocument      FiscalDocument?   @relation(fields: [fiscalDocumentId], references: [id], onDelete: Cascade)
-  transportDocument   TransportDocument? @relation(fields: [transportDocumentId], references: [id], onDelete: Cascade)
-  tag                 AccountantDocumentTag @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  id String @id @default(uuid()) @db.Uuid
+  officeId String @map("office_id") @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+  fiscalDocumentId String @map("fiscal_document_id") @db.Uuid
+  tagId String @map("tag_id") @db.Uuid
+  assignedAt DateTime @default(now()) @map("assigned_at")
+  company Company @relation(fields: [companyId], references: [id])
+  fiscalDocument FiscalDocument @relation(fields: [fiscalDocumentId], references: [id], onDelete: Cascade)
+  tag AccountantDocumentTag @relation(fields: [tagId], references: [id], onDelete: Cascade)
   @@unique([officeId, fiscalDocumentId, tagId])
-  @@unique([officeId, transportDocumentId, tagId])
   @@index([officeId, companyId, fiscalDocumentId])
-  @@index([officeId, companyId, transportDocumentId])
   @@map("accountant_document_tag_links")
 }
 
 model AccountantDocumentRequest {
-  id                  String   @id @default(uuid()) @db.Uuid
-  officeId            String   @map("office_id") @db.Uuid
-  companyId           String   @map("company_id") @db.Uuid
-  fiscalDocumentId    String?  @map("fiscal_document_id") @db.Uuid
-  transportDocumentId String?  @map("transport_document_id") @db.Uuid
-  userId              String   @map("user_id") @db.Uuid
-  type                String   @db.VarChar(60)
-  priority            String   @default("NORMAL") @db.VarChar(20)
-  status              String   @default("OPEN") @db.VarChar(20)
-  description         String?  @db.Text
-  assignedToUserId    String?  @map("assigned_to_user_id") @db.Uuid
-  responseMessage     String?  @map("response_message") @db.Text
-  openedAt            DateTime @default(now()) @map("opened_at")
-  acceptedAt          DateTime? @map("accepted_at")
-  respondedAt         DateTime? @map("responded_at")
-  resolvedAt          DateTime? @map("resolved_at")
-  cancelledAt         DateTime? @map("cancelled_at")
-  reopenedAt          DateTime? @map("reopened_at")
-  resolvedByUserId    String?  @map("resolved_by_user_id") @db.Uuid
-  cancelledByUserId   String?  @map("cancelled_by_user_id") @db.Uuid
-  lastResponseAt      DateTime? @map("last_response_at")
-  lastResponseByUserId String? @map("last_response_by_user_id") @db.Uuid
-  resolutionNote      String?  @map("resolution_note") @db.Text
-  cancelReason        String?  @map("cancel_reason") @db.Text
-  reopenReason        String?  @map("reopen_reason") @db.Text
-  createdAt           DateTime @default(now()) @map("created_at")
-  updatedAt           DateTime @updatedAt @map("updated_at")
-  office              AccountantOffice  @relation(fields: [officeId], references: [id])
-  company             Company           @relation(fields: [companyId], references: [id])
-  fiscalDocument      FiscalDocument?   @relation(fields: [fiscalDocumentId], references: [id], onDelete: Cascade)
-  transportDocument   TransportDocument? @relation(fields: [transportDocumentId], references: [id], onDelete: Cascade)
-  user                User              @relation(fields: [userId], references: [id])
-  assignedTo          User?             @relation("RequestAssignedTo", fields: [assignedToUserId], references: [id])
-  events              AccountantDocumentRequestEvent[]
-  @@index([officeId, companyId, fiscalDocumentId, status])
-  @@index([officeId, companyId, transportDocumentId, status])
-  @@index([companyId, status, createdAt(sort: Desc)])
-  @@map("accountant_document_requests")
-}
-
-model AccountantDocumentRequestEvent {
-  id          String   @id @default(uuid()) @db.Uuid
-  requestId   String   @map("request_id") @db.Uuid
-  officeId    String   @map("office_id") @db.Uuid
-  companyId   String   @map("company_id") @db.Uuid
-  actorUserId String   @map("actor_user_id") @db.Uuid
-  actorRole   String   @map("actor_role") @db.VarChar(20)
-  eventType   String   @map("event_type") @db.VarChar(40)
-  fromStatus  String?  @map("from_status") @db.VarChar(20)
-  toStatus    String?  @map("to_status") @db.VarChar(20)
-  message     String?  @db.Text
-  metadata    Json?    @map("metadata_json")
-  createdAt   DateTime @default(now()) @map("created_at")
-
-  request AccountantDocumentRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  id String @id @default(uuid()) @db.Uuid
+  officeId String @map("office_id") @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+  fiscalDocumentId String @map("fiscal_document_id") @db.Uuid
+  userId String @map("user_id") @db.Uuid
+  type String @db.VarChar(60)
+  priority String @default("NORMAL") @db.VarChar(20)
+  status String @default("OPEN") @db.VarChar(20)
+  description String? @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
   office AccountantOffice @relation(fields: [officeId], references: [id])
   company Company @relation(fields: [companyId], references: [id])
-  actor User @relation("RequestEventActor", fields: [actorUserId], references: [id])
-
-  @@index([requestId, createdAt])
-  @@index([officeId, companyId, createdAt(sort: Desc)])
-  @@map("accountant_document_request_events")
+  fiscalDocument FiscalDocument @relation(fields: [fiscalDocumentId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id])
+  @@index([officeId, companyId, fiscalDocumentId, status])
+  @@map("accountant_document_requests")
 }

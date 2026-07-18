@@ -43,10 +43,11 @@ export function createMonthlyClosing(periodYear: number, periodMonth: number) {
 export function closingAction(
   closingId: string,
   action: "recalculate" | "approve" | "reopen",
+  reason?: string,
 ) {
   return apiFetch<MonthlyClosing>(
     `/companies/${company()}/monthly-closing/${closingId}/${action}`,
-    { method: "POST" },
+    { method: "POST", body: reason ? JSON.stringify({ reason }) : undefined },
   );
 }
 
