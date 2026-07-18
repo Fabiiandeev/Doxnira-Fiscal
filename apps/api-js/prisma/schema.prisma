@@ -436,6 +436,7 @@ model MonthlyTaxClosing {
   warnings MonthlyTaxClosingWarning[]
   events   MonthlyTaxClosingEvent[]
   fiscalBookPreparations FiscalBookPreparation[]
+  fiscalExports FiscalExport[]
 
   @@unique([companyId, periodYear, periodMonth])
   @@index([companyId, periodYear, periodMonth])
@@ -467,9 +468,38 @@ model FiscalBookPreparation {
   closing MonthlyTaxClosing @relation(fields: [monthlyTaxClosingId], references: [id], onDelete: Cascade)
   documents FiscalBookPreparationDocument[]
   issues FiscalBookIssue[]
+  exports FiscalExport[]
   @@unique([monthlyTaxClosingId])
   @@index([companyId, periodYear, periodMonth, status])
   @@map("fiscal_book_preparations")
+}
+
+model FiscalExport {
+  id String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+  officeId String @map("office_id") @db.Uuid
+  preparationId String @map("preparation_id") @db.Uuid
+  closingId String @map("closing_id") @db.Uuid
+  type String @db.VarChar(30)
+  periodYear Int @map("period_year")
+  periodMonth Int @map("period_month")
+  status String @default("GENERATED") @db.VarChar(30)
+  layoutVersion String @map("layout_version") @db.VarChar(40)
+  snapshotHash String @map("snapshot_hash") @db.VarChar(64)
+  contentHash String @map("content_hash") @db.VarChar(64)
+  fileName String @map("file_name")
+  content String @db.Text
+  sizeBytes Int @map("size_bytes")
+  snapshot Json
+  generatedByUserId String? @map("generated_by_user_id") @db.Uuid
+  generatedAt DateTime @default(now()) @map("generated_at")
+  error Json? @map("error_json")
+  preparation FiscalBookPreparation @relation(fields: [preparationId], references: [id], onDelete: Restrict)
+  closing MonthlyTaxClosing @relation(fields: [closingId], references: [id], onDelete: Restrict)
+  @@unique([preparationId, type, layoutVersion, snapshotHash])
+  @@index([companyId, officeId, periodYear, periodMonth, generatedAt])
+  @@index([companyId, preparationId])
+  @@map("fiscal_exports")
 }
 
 model FiscalBookPreparationDocument {

@@ -36,6 +36,7 @@ import { accountantRouter } from "./modules/accountant/accountant.routes.js";
 import { accountantDocumentsRouter } from "./modules/accountant/accountant-documents.routes.js";
 import { accountantMonthlyClosingRouter } from "./modules/accountant/accountant-monthly-closing.routes.js";
 import { fiscalBookPreparationRouter } from "./modules/accountant/fiscal-book-preparation.routes.js";
+import { fiscalExportRouter } from "./modules/accountant/fiscal-export.routes.js";
 import { companyDocumentRequestsRouter } from "./modules/accountant/company-document-requests.routes.js";
 import { transportadorasRouter } from "./modules/transportadoras/transportadoras.routes.js";
 import { nfeValidationRouter } from "./modules/nfe-validation/nfe-validation.routes.js";
@@ -122,6 +123,7 @@ companyApiRouter.use("/:companyId", companyDocumentRequestsRouter);
 app.use("/api/accountant/companies/:companyId", requireAuth, requireAccountantCompanyAccess, accountantDocumentsRouter);
 app.use("/api/accountant/companies/:companyId", requireAuth, requireAccountantCompanyAccess, accountantMonthlyClosingRouter);
 app.use("/api/accountant/companies/:companyId", requireAuth, requireAccountantCompanyAccess, fiscalBookPreparationRouter);
+app.use("/api/accountant/companies/:companyId", requireAuth, requireAccountantCompanyAccess, fiscalExportRouter);
 app.use("/api/accountant", requireAuth, accountantRouter);
 
 app.use("/api/cfops", requireAuth, cfopsRouter);
