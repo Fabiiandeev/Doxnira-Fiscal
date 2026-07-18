@@ -184,6 +184,7 @@ const navGroups: NavGroup[] = [
     icon: BarChart2,
     items: [
       { label: "Dashboard Contador", href: "/accountant", icon: BarChart2 },
+      { label: "Documentos Fiscais", href: "/accountant/documents", icon: FileText },
       { label: "Ranking de Risco", href: "/accountant/risk-ranking", icon: Shield },
       { label: "Fila Fiscal", href: "/accountant/work-queue", icon: ListChecks },
       { label: "Solicitações", href: "/accountant/requests", icon: Inbox },

@@ -99,7 +99,7 @@ monthlyClosingRouter.post(
   asyncHandler(async (request, response) => {
     sendSuccess(
       response,
-      await approveMonthlyClosing(request.company.id, request.params.closingId),
+      await approveMonthlyClosing(request.company.id, request.params.closingId, { userId: request.user.id, note: request.body?.note }),
     );
   }),
 );
@@ -109,7 +109,7 @@ monthlyClosingRouter.post(
   asyncHandler(async (request, response) => {
     sendSuccess(
       response,
-      await reopenMonthlyClosing(request.company.id, request.params.closingId),
+      await reopenMonthlyClosing(request.company.id, request.params.closingId, { userId: request.user.id, reason: request.body?.reason }),
     );
   }),
 );

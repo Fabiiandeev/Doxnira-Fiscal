@@ -1,0 +1,140 @@
+name: Build Certification
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "apps/web/**"
+      - "apps/api-js/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - ".github/workflows/build-certification.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-certification-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  certify-build:
+    name: Next.js production build
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: ns_fiscal_cloud_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d ns_fiscal_cloud_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      CI: "true"
+      NEXT_TELEMETRY_DISABLED: "1"
+      DATABASE_URL_TEST: postgresql://postgres:postgres@127.0.0.1:5432/ns_fiscal_cloud_test?schema=public
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/ns_fiscal_cloud_test?schema=public
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.14.0"
+      - name: Install exact pnpm version
+        run: npm install --global pnpm@11.8.0
+      - name: Print runtime versions
+        run: |
+          set -euxo pipefail
+          node --version
+          npm --version
+          pnpm --version
+          which node
+          which pnpm
+          node -p "process.version"
+          pnpm exec node -p "process.version"
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Validate Prisma
+        run: |
+          set -euxo pipefail
+          pnpm --filter @ns-fiscal/api-js prisma:validate
+          pnpm --filter @ns-fiscal/api-js prisma:generate
+      - name: Validate test database migrations
+        run: pnpm --filter @ns-fiscal/api-js test:db:migrate
+      - name: Run lint
+        run: pnpm lint 2>&1 | tee lint.log
+      - name: Run typecheck
+        run: pnpm typecheck 2>&1 | tee typecheck.log
+      - name: Run API tests
+        run: pnpm --filter @ns-fiscal/api-js test 2>&1 | tee api-tests.log
+      - name: Run API HTTP and E2E tests
+        run: |
+          set -o pipefail
+          pnpm --filter @ns-fiscal/api-js test:http 2>&1 | tee api-http-tests.log
+          pnpm --filter @ns-fiscal/api-js test:http:cte-entry 2>&1 | tee api-cte-http-tests.log
+          pnpm --filter @ns-fiscal/api-js test:e2e 2>&1 | tee api-e2e-tests.log
+      - name: Record build start
+        run: |
+          mkdir -p build-evidence
+          date -u +"%Y-%m-%dT%H:%M:%SZ" | tee build-evidence/started-at.txt
+      - name: Build production application
+        id: production_build
+        shell: bash
+        run: |
+          set +e
+          set -o pipefail
+          pnpm build 2>&1 | tee build.log
+          BUILD_EXIT_CODE=${PIPESTATUS[0]}
+          printf '%s\n' "${BUILD_EXIT_CODE}" | tee build-evidence/exit-code.txt
+          date -u +"%Y-%m-%dT%H:%M:%SZ" | tee build-evidence/finished-at.txt
+          test "${BUILD_EXIT_CODE}" -eq 0
+      - name: Verify BUILD_ID
+        if: success()
+        run: |
+          set -euxo pipefail
+          test -s apps/web/.next/BUILD_ID
+          stat apps/web/.next/BUILD_ID | tee build-evidence/build-id-stat.txt
+          cat apps/web/.next/BUILD_ID | tee build-evidence/build-id.txt
+      - name: Start production server
+        if: success()
+        working-directory: apps/web
+        shell: bash
+        run: |
+          set -euxo pipefail
+          pnpm exec next start -p 3100 > ../../next-start.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "${SERVER_PID}" 2>/dev/null || true; wait "${SERVER_PID}" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 60); do
+            if curl --silent --show-error --location --output /dev/null --max-time 5 http://127.0.0.1:3100/; then exit 0; fi
+            kill -0 "${SERVER_PID}" 2>/dev/null || { cat ../../next-start.log; exit 1; }
+            sleep 2
+          done
+          cat ../../next-start.log
+          exit 1
+      - name: Upload diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-certification-${{ github.run_id }}
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            build.log
+            lint.log
+            typecheck.log
+            api-tests.log
+            api-http-tests.log
+            api-cte-http-tests.log
+            api-e2e-tests.log
+            next-start.log
+            build-evidence/
+            apps/web/.next/BUILD_ID
+            apps/web/.next/trace
+            apps/web/.next/server/

@@ -6,6 +6,39 @@ import { asyncHandler, sendSuccess } from "../../utils/response.js";
 export const accountantRouter = Router({ mergeParams: true });
 
 accountantRouter.get(
+  "/companies",
+  asyncHandler(async (request, response) => {
+    const memberships = await prisma.accountantMembership.findMany({
+      where: { userId: request.user.id, status: "ACTIVE" },
+      select: {
+        officeId: true,
+        office: { select: { id: true, name: true } },
+        companyAccesses: {
+          where: { revokedAt: null, company: { status: { not: "deleted" } } },
+          select: {
+            accessLevel: true,
+            permissions: true,
+            company: { select: { id: true, legalName: true, tradeName: true, cnpj: true } },
+          },
+        },
+      },
+    });
+    const data = [];
+    for (const membership of memberships) {
+      const activeLinks = await prisma.accountantCompanyLink.findMany({
+        where: { officeId: membership.officeId, status: "ACTIVE", OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] },
+        select: { companyId: true },
+      });
+      const linkedIds = new Set(activeLinks.map((link) => link.companyId));
+      membership.companyAccesses.forEach((access) => {
+        if (linkedIds.has(access.company.id)) data.push({ office: membership.office, accessLevel: access.accessLevel, permissions: access.permissions || [], company: access.company });
+      });
+    }
+    sendSuccess(response, { data });
+  }),
+);
+
+accountantRouter.get(
   "/risk-ranking",
   asyncHandler(async (request, response) => {
     const ownerId = request.user.id;

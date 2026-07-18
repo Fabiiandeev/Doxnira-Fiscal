@@ -13,7 +13,27 @@ import { getActiveTaxRules } from "./tax-rules.service.js";
 const closingInclude = {
   items: { orderBy: { createdAt: "asc" } },
   warnings: { orderBy: [{ severity: "desc" }, { createdAt: "asc" }] },
+  events: { orderBy: { createdAt: "asc" } },
 };
+
+export function closingCategory(document) {
+  if (document.documentType === "CTE") return "CT_E_ENTRADA";
+  return document.operationDirection === "OUTBOUND" ? "NF_E_SAIDA" : "NF_E_ENTRADA";
+}
+
+export function isClosingEligible(document) {
+  return CLOSING_SOURCES.includes(document.source) && !document.isCancelled && !["INUTILIZADO", "INUTILIZADA"].includes(String(document.status || "").toUpperCase());
+}
+
+function taxSettingsSnapshot(settings) {
+  if (!settings) return null;
+  return {
+    taxRegime: settings.taxRegime,
+    calculationRegime: settings.calculationRegime,
+    uf: settings.uf,
+    fiscalConfigComplete: settings.fiscalConfigComplete,
+  };
+}
 
 function closingItems(closing) {
   return (closing.items || []).filter((item) => CLOSING_SOURCES.includes(item.source));
@@ -155,7 +175,7 @@ async function buildWarnings(companyId, documents, ignoredDocuments, rules) {
   return warnings;
 }
 
-export async function calculateMonthlyClosing(companyId, year, month) {
+export async function calculateMonthlyClosing(companyId, year, month, actor = {}) {
   const [company, settings] = await Promise.all([
     prisma.company.findUnique({
       where: { id: companyId },
@@ -167,13 +187,6 @@ export async function calculateMonthlyClosing(companyId, year, month) {
     }),
     prisma.companyTaxSetting.findUnique({ where: { companyId } }),
   ]);
-  if (!settings) {
-    throw new AppError(
-      "Configure os dados fiscais da empresa antes de gerar o fechamento.",
-      "TAX_SETTINGS_REQUIRED",
-      422,
-    );
-  }
   if (
     company?.stateRegistration &&
     (company.stateRegistrationStatus === "PENDENTE_VALIDACAO_SEFAZ" ||
@@ -203,17 +216,23 @@ export async function calculateMonthlyClosing(companyId, year, month) {
         emissionDate: period,
       },
     }),
-    getActiveTaxRules(companyId, period.lt),
+    settings ? getActiveTaxRules(companyId, period.lt) : [],
   ]);
-  const warnings = await buildWarnings(companyId, documents, ignoredDocuments, rules);
-  const active = documents.filter((document) => !document.isCancelled);
+  const excluded = documents.filter((document) => !isClosingEligible(document));
+  const active = documents.filter(isClosingEligible);
+  const warnings = await buildWarnings(companyId, active, ignoredDocuments + excluded.length, rules);
+  if (!settings || !settings.fiscalConfigComplete) {
+    warnings.push({ severity: "ERROR", code: "TAX_SETTINGS_REQUIRED", message: "A configuração tributária está ausente ou incompleta.", details: { blocking: true }, suggestion: "Complete company_tax_settings antes de aprovar o fechamento." });
+  }
+  const openRequests = await prisma.accountantDocumentRequest.count({ where: { companyId, status: { in: ["OPEN", "IN_PROGRESS", "ANSWERED"] } } });
+  if (openRequests) warnings.push({ severity: "ERROR", code: "ACCOUNTANT_REQUEST_OPEN", message: `${openRequests} solicitação(ões) contábil(is) em aberto.`, details: { blocking: true, count: openRequests } });
   const inbound = active.filter((item) => item.operationDirection === "INBOUND");
   const outbound = active.filter((item) => item.operationDirection === "OUTBOUND");
   const cteInbound = active.filter((item) => item.operationDirection === "TRANSPORT_INBOUND");
   const cteOutbound = active.filter((item) => item.operationDirection === "TRANSPORT_OUTBOUND");
   const cteUnknown = active.filter((item) => item.documentType === "CTE" && item.operationDirection === "UNKNOWN");
   const knownForTaxes = active.filter((item) => item.operationDirection !== "UNKNOWN");
-  const taxes = calculateEstimatedTaxes(knownForTaxes, settings, rules);
+  const taxes = settings ? calculateEstimatedTaxes(knownForTaxes, settings, rules) : { highlighted: { icms: 0, ipi: 0, pis: 0, cofins: 0 }, estimatedTotal: 0 };
   const totals = {
     inboundTotal: sumDocuments(inbound, "totalAmount"),
     outboundTotal: sumDocuments(outbound, "totalAmount"),
@@ -236,9 +255,11 @@ export async function calculateMonthlyClosing(companyId, year, month) {
       companyId,
       periodYear: year,
       periodMonth: month,
-      status: "PROCESSING",
+      status: "DRAFT",
+      officeId: actor.officeId || null,
+      createdByUserId: actor.userId || null,
     },
-    update: { status: "PROCESSING", approvedAt: null },
+    update: { status: "DRAFT", approvedAt: null, approvalNote: null },
   });
   await prisma.$transaction([
     prisma.monthlyTaxClosingItem.deleteMany({ where: { closingId: closing.id } }),
@@ -247,17 +268,18 @@ export async function calculateMonthlyClosing(companyId, year, month) {
       where: { id: closing.id },
       data: {
         ...totals,
-        status: "READY_FOR_REVIEW",
-        includedDocuments: documents.length,
-        ignoredDocuments,
+        status: !settings || !settings.fiscalConfigComplete ? "TAX_SETTINGS_REQUIRED" : warnings.some((warning) => warning.severity === "ERROR") ? "PENDING_REVIEW" : "READY_FOR_APPROVAL",
+        includedDocuments: active.length,
+        eligibleDocuments: active.length,
+        blockedDocuments: excluded.length,
+        pendingCount: warnings.filter((warning) => warning.severity === "ERROR").length,
+        ignoredDocuments: ignoredDocuments + excluded.length,
+        sourceSnapshotAt: new Date(),
+        taxSettingsSnapshot: taxSettingsSnapshot(settings),
         snapshot: {
           generatedAt: new Date().toISOString(),
           allowedSources: CLOSING_SOURCES,
-          taxSettings: {
-            taxRegime: settings.taxRegime,
-            calculationRegime: settings.calculationRegime,
-            simplesAnnex: settings.simplesAnnex,
-          },
+          taxSettings: taxSettingsSnapshot(settings),
           directionCounts: {
             nfeInbound: inbound.length,
             nfeOutbound: outbound.length,
@@ -270,13 +292,13 @@ export async function calculateMonthlyClosing(companyId, year, month) {
         },
       },
     }),
-    ...(documents.length
+    ...(active.length
       ? [
           prisma.monthlyTaxClosingItem.createMany({
-            data: documents.map((document) => ({
+            data: active.map((document) => ({
               closingId: closing.id,
               documentId: document.id,
-              category: document.operationDirection,
+              category: closingCategory(document),
               source: document.source,
               accessKey: document.accessKey,
               amount: document.totalAmount || 0,
@@ -294,10 +316,17 @@ export async function calculateMonthlyClosing(companyId, year, month) {
     ...(warnings.length
       ? [
           prisma.monthlyTaxClosingWarning.createMany({
-            data: warnings.map((warning) => ({ closingId: closing.id, ...warning })),
+            data: warnings.map(({ severity, code, message, details, field, cause, suggestion, documentId, accessKey, ...presentation }) => ({
+              closingId: closing.id,
+              severity,
+              code,
+              message,
+              details: { ...(details || {}), ...(field ? { field } : {}), ...(cause ? { cause } : {}), ...(suggestion ? { suggestion } : {}), ...(documentId ? { documentId } : {}), ...(accessKey ? { accessKey } : {}), ...presentation },
+            })),
           }),
         ]
       : []),
+    prisma.monthlyTaxClosingEvent.create({ data: { closingId: closing.id, actorUserId: actor.userId || null, action: "RECALCULATED", toStatus: !settings || !settings.fiscalConfigComplete ? "TAX_SETTINGS_REQUIRED" : warnings.some((warning) => warning.severity === "ERROR") ? "PENDING_REVIEW" : "READY_FOR_APPROVAL" } }),
   ]);
   return getMonthlyClosing(companyId, closing.id);
 }
@@ -329,24 +358,32 @@ export async function getMonthlyClosing(companyId, closingId) {
   return serialize(closing);
 }
 
-export async function approveMonthlyClosing(companyId, closingId) {
-  await getMonthlyClosing(companyId, closingId);
+export async function approveMonthlyClosing(companyId, closingId, actor = {}) {
+  const current = await getMonthlyClosing(companyId, closingId);
+  if (current.status !== "READY_FOR_APPROVAL") throw new AppError("O fechamento possui pendências bloqueantes ou configuração tributária incompleta.", current.status === "TAX_SETTINGS_REQUIRED" ? "TAX_SETTINGS_REQUIRED" : "MONTHLY_CLOSING_NOT_READY", 422);
   return serialize(
     await prisma.monthlyTaxClosing.update({
       where: { id: closingId },
-      data: { status: "APPROVED", approvedAt: new Date() },
+      data: { status: "APPROVED", approvedAt: new Date(), approvedByUserId: actor.userId || null, approvalNote: actor.note || null, events: { create: { actorUserId: actor.userId || null, action: "APPROVED", fromStatus: current.status, toStatus: "APPROVED", note: actor.note || null } } },
       include: closingInclude,
     }),
   );
 }
 
-export async function reopenMonthlyClosing(companyId, closingId) {
-  await getMonthlyClosing(companyId, closingId);
-  return serialize(
-    await prisma.monthlyTaxClosing.update({
+export async function reopenMonthlyClosing(companyId, closingId, actor = {}) {
+  const current = await getMonthlyClosing(companyId, closingId);
+  if (!actor.reason?.trim()) throw new AppError("Motivo obrigatório para reabrir o fechamento.", "MONTHLY_CLOSING_REOPEN_REASON_REQUIRED", 422);
+  const updated = await prisma.$transaction(async (tx) => {
+    const stale = await tx.fiscalBookPreparation.findMany({ where: { companyId, monthlyTaxClosingId: closingId, status: { not: "STALE" } }, select: { id: true, status: true, officeId: true } });
+    if (stale.length) {
+      await tx.fiscalBookPreparation.updateMany({ where: { id: { in: stale.map((item) => item.id) } }, data: { status: "STALE", invalidatedAt: new Date(), invalidatedReason: actor.reason } });
+      await tx.auditLog.createMany({ data: stale.map((item) => ({ action: "accountant.fiscal_book.invalidated", companyId, userId: actor.userId || null, entityType: "FiscalBookPreparation", entityId: item.id, metadata: { officeId: item.officeId || actor.officeId || null, closingId, previousStatus: item.status, status: "STALE", reason: actor.reason, timestamp: new Date().toISOString() } })) });
+    }
+    return tx.monthlyTaxClosing.update({
       where: { id: closingId },
-      data: { status: "REOPENED", approvedAt: null },
+      data: { status: "REOPENED", approvedAt: null, reopenedAt: new Date(), reopenedByUserId: actor.userId || null, reopenReason: actor.reason, events: { create: { actorUserId: actor.userId || null, action: "REOPENED", fromStatus: current.status, toStatus: "REOPENED", note: actor.reason } } },
       include: closingInclude,
-    }),
-  );
+    });
+  });
+  return serialize(updated);
 }

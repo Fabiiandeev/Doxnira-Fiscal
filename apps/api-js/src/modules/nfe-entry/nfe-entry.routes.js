@@ -17,6 +17,7 @@ import { sanitizeXml } from "../../utils/sanitize-xml.js";
 import { asyncHandler, sendSuccess } from "../../utils/response.js";
 import { writeAudit } from "../audit/audit.service.js";
 import { buildIncomingInventoryPlan, incomingInventoryReadiness, validateIncomingPayableInstallments } from "./nfe-entry-rules.js";
+import { calculateAllocation, confirmAllocation, getAllocation, removeNfeLink, resetAllocation } from "./cte-allocation-service.js";
 
 export const nfeEntryRouter = Router({ mergeParams: true });
 export const cteEntryRouter = Router({ mergeParams: true });
@@ -1270,3 +1271,36 @@ cteEntryRouter.post(
     sendSuccess(response, { data: serializeCte(await prisma.cteEntry.findUnique({ where: { id: cte.id }, include: { nfeLinks: { include: { nfeEntry: true } } } })), message: "CT-e vinculado a NF-e." });
   }),
 );
+
+cteEntryRouter.post("/:id/calculate-allocation", asyncHandler(async (request, response) => {
+  const { method, allocatableValue, manualAllocations, configuration } = request.body || {};
+  if (!method || allocatableValue === undefined) throw new AppError("Método e valor rateável são obrigatórios.", "CTE_ALLOCATION_INVALID_VALUE", 422);
+  const data = await calculateAllocation({ companyId: request.company.id, cteEntryId: request.params.id, userId: request.user.id, method, allocatableValue, manualAllocations, configuration });
+  sendSuccess(response, { data, requestId: request.id }, 201);
+}));
+
+cteEntryRouter.get("/:id/allocation", asyncHandler(async (request, response) => {
+  const data = await getAllocation(request.company.id, request.params.id);
+  sendSuccess(response, { data, requestId: request.id });
+}));
+
+cteEntryRouter.post("/:id/confirm-allocation", asyncHandler(async (request, response) => {
+  if (!request.body?.calculationHash) throw new AppError("Hash do cálculo é obrigatório.", "CTE_ALLOCATION_STALE_CALCULATION", 422);
+  const data = await confirmAllocation({ companyId: request.company.id, cteEntryId: request.params.id, userId: request.user.id, calculationHash: request.body.calculationHash });
+  sendSuccess(response, { data, requestId: request.id });
+}));
+
+cteEntryRouter.post("/:id/reset-allocation", asyncHandler(async (request, response) => {
+  await resetAllocation({ companyId: request.company.id, cteEntryId: request.params.id, userId: request.user.id, reason: request.body?.reason });
+  sendSuccess(response, { data: { status: "PENDING_CONFIGURATION" }, requestId: request.id });
+}));
+
+cteEntryRouter.delete("/:id/link-nfe/:linkId", asyncHandler(async (request, response) => {
+  await removeNfeLink({ companyId: request.company.id, cteEntryId: request.params.id, linkId: request.params.linkId, userId: request.user.id });
+  sendSuccess(response, { data: { deleted: true }, requestId: request.id });
+}));
+
+cteEntryRouter.get("/:id/available-nfe", asyncHandler(async (request, response) => {
+  const data = await prisma.nfeEntry.findMany({ where: { companyId: request.company.id, cteLinks: { none: { cteEntryId: request.params.id } } }, select: { id: true, accessKey: true, number: true, series: true, productsAmount: true, totalAmount: true }, take: 100 });
+  sendSuccess(response, { data, requestId: request.id });
+}));

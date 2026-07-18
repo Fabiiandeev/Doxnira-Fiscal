@@ -60,6 +60,7 @@ after(async () => {
     await cleanupTestDatabase();
   } finally {
     await disconnectDatabase();
+    process.exit(0);
   }
 });
 

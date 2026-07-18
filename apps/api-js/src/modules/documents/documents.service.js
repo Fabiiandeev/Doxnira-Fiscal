@@ -66,7 +66,7 @@ function serializeDocument(document) {
   };
 }
 
-function buildWhere(companyId, query) {
+export function buildWhere(companyId, query) {
   const where = { companyId };
   const term = query.query?.trim();
   if (term) {
@@ -90,6 +90,17 @@ function buildWhere(companyId, query) {
   if (query.manifestation) where.manifestationStatus = query.manifestation;
   if (query.uf) where.uf = query.uf;
   if (query.onlyNewSuppliers === "true") where.isNewSupplier = true;
+  if (query.cancelled === "true") where.isCancelled = true;
+  if (query.hasAlerts === "true") where.alerts = { some: { status: "open" } };
+  if (query.hasAlerts === "false") where.alerts = { none: { status: "open" } };
+  if (query.reviewStatus && query.accountantOfficeId) {
+    where.accountantReviews = query.reviewStatus === "PENDING"
+      ? { none: { officeId: query.accountantOfficeId } }
+      : { some: { officeId: query.accountantOfficeId, status: query.reviewStatus } };
+  }
+  if (query.tagId && query.accountantOfficeId) {
+    where.accountantTagLinks = { some: { officeId: query.accountantOfficeId, tagId: query.tagId } };
+  }
   if (query.startDate || query.endDate) {
     where.emissionDate = {};
     if (query.startDate) where.emissionDate.gte = new Date(`${query.startDate}T00:00:00`);

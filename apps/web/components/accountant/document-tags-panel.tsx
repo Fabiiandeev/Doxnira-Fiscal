@@ -1,0 +1,96 @@
+"use client";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import {
+  assignAccountantDocumentTag,
+  createAccountantTag,
+  listAccountantDocumentTags,
+  listAccountantTags,
+  removeAccountantDocumentTag,
+  assignAccountantTransportDocumentTag,
+  listAccountantTransportDocumentTags,
+  removeAccountantTransportDocumentTag,
+} from "@/lib/services/accountant-documents-service";
+
+type Props = { officeId: string; companyId: string; documentId: string; kind: "FISCAL" | "TRANSPORT" };
+
+export function DocumentTagsPanel({ officeId, companyId, documentId, kind }: Props) {
+  const qc = useQueryClient();
+  const [name, setName] = useState("");
+  const catalogKey = ["accountant", officeId, "tags"];
+  const documentKey = ["accountant", officeId, companyId, kind, documentId, "tags"];
+  const catalog = useQuery({ queryKey: catalogKey, queryFn: () => listAccountantTags({ officeId, companyId }) });
+  const current = useQuery({
+    queryKey: documentKey,
+    queryFn: () =>
+      kind === "FISCAL"
+        ? listAccountantDocumentTags({ officeId, companyId, documentId })
+        : listAccountantTransportDocumentTags({ officeId, companyId, documentId }),
+  });
+  const refresh = () => {
+    qc.invalidateQueries({ queryKey: catalogKey });
+    qc.invalidateQueries({ queryKey: documentKey });
+    qc.invalidateQueries({ queryKey: ["accountant", officeId, companyId, "fiscal-documents"] });
+    qc.invalidateQueries({ queryKey: ["accountant", officeId, companyId, "transport-documents"] });
+  };
+  const create = useMutation({
+    mutationFn: () => createAccountantTag({ officeId, companyId, name }),
+    onSuccess: () => { setName(""); refresh(); },
+  });
+  const assign = useMutation({
+    mutationFn: (tagId: string) =>
+      kind === "FISCAL"
+        ? assignAccountantDocumentTag({ officeId, companyId, documentId, tagId })
+        : assignAccountantTransportDocumentTag({ officeId, companyId, documentId, tagId }),
+    onSuccess: refresh,
+  });
+  const remove = useMutation({
+    mutationFn: (tagId: string) =>
+      kind === "FISCAL"
+        ? removeAccountantDocumentTag({ officeId, companyId, documentId, tagId })
+        : removeAccountantTransportDocumentTag({ officeId, companyId, documentId, tagId }),
+    onSuccess: refresh,
+  });
+  const ids = new Set(current.data?.map((x) => String(x.id)));
+  return (
+    <Card className="p-5">
+      <h2 className="font-extrabold">Etiquetas</h2>
+      <div className="mt-3 flex gap-2">
+        <input
+          className="h-9 flex-1 rounded border px-2 text-sm"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Nova etiqueta"
+        />
+        <Button size="sm" disabled={!name.trim() || create.isPending} onClick={() => create.mutate()}>
+          Criar
+        </Button>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {current.data?.map((tag) => (
+          <Button key={String(tag.id)} size="sm" variant="outline" onClick={() => remove.mutate(String(tag.id))}>
+            {String(tag.name)} ×
+          </Button>
+        ))}
+      </div>
+      {!current.isLoading && !current.data?.length && (
+        <p className="mt-3 text-sm text-subtle">Nenhuma etiqueta associada.</p>
+      )}
+      <div className="mt-3 flex flex-wrap gap-2">
+        {catalog.data?.filter((tag) => !ids.has(String(tag.id))).map((tag) => (
+          <Button
+            key={String(tag.id)}
+            size="sm"
+            variant="ghost"
+            onClick={() => assign.mutate(String(tag.id))}
+            disabled={assign.isPending}
+          >
+            + {String(tag.name)}
+          </Button>
+        ))}
+      </div>
+    </Card>
+  );
+}
