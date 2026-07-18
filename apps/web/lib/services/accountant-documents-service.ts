@@ -35,6 +35,17 @@ export function createFiscalBookPreparation(input: AccountantRequest & {closingI
 export function getFiscalBookPreparation(input: AccountantRequest & {preparationId:string; suffix?:string}) { return apiFetch<Record<string, unknown>>(`/accountant/companies/${input.companyId}/fiscal-book-preparations/${input.preparationId}${input.suffix||""}`, {headers:headers(input)}); }
 export function updateFiscalBookIssue(input: AccountantRequest & {preparationId:string; issueId:string; action:"resolve"|"ignore"; reason?:string}) { return apiFetch(`/accountant/companies/${input.companyId}/fiscal-book-preparations/${input.preparationId}/issues/${input.issueId}/${input.action}`, {method:"POST",headers:headers(input),body:JSON.stringify({reason:input.reason})}); }
 
+export type FiscalBookPreparationSummary = { id: string; periodYear: number; periodMonth: number; status: string; documentsCount: number; itemsCount: number; issuesCount: number; blockingIssuesCount: number };
+export type FiscalExport = { id: string; preparationId: string; closingId: string; type: "SPED_FISCAL" | "SINTEGRA"; periodYear: number; periodMonth: number; status: string; layoutVersion: string; contentHash: string; fileName: string; sizeBytes: number; generatedAt: string; generatedByUserId: string | null; snapshot?: Record<string, unknown>; error?: Record<string, unknown> | null };
+export function validateFiscalExport(input: AccountantRequest & { preparationId: string }) { return apiFetch<{ valid: boolean; preparationId: string; closingId: string; status: string; layoutVersions: Record<string, string> }>(`/accountant/companies/${input.companyId}/fiscal-exports/validate`, { method: "POST", headers: headers(input), body: JSON.stringify({ preparationId: input.preparationId }) }); }
+export function createFiscalExport(input: AccountantRequest & { preparationId: string; type: FiscalExport["type"] }) { return apiFetch<FiscalExport>(`/accountant/companies/${input.companyId}/fiscal-exports`, { method: "POST", headers: headers(input), body: JSON.stringify({ preparationId: input.preparationId, type: input.type }) }); }
+export function listFiscalExports(input: AccountantRequest & { preparationId?: string }) { const params = new URLSearchParams(); if (input.preparationId) params.set("preparationId", input.preparationId); return apiFetch<{ data: FiscalExport[]; pagination: { page: number; total: number; totalPages: number } }>(`/accountant/companies/${input.companyId}/fiscal-exports?${params}`, { headers: headers(input) }); }
+export async function downloadFiscalExport(input: AccountantRequest & { exportId: string; fileName: string }) {
+  const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3333/api"}/accountant/companies/${input.companyId}/fiscal-exports/${input.exportId}/download`, { headers: { authorization: `Bearer ${getToken()}`, "x-accountant-office-id": input.officeId } });
+  if (!response.ok) throw new Error("Falha ao baixar exportação fiscal.");
+  const url = URL.createObjectURL(await response.blob()); const anchor = document.createElement("a"); anchor.href = url; anchor.download = input.fileName; anchor.click(); URL.revokeObjectURL(url);
+}
+
 export function getAccountantDocuments(input: AccountantRequest & { page: number; filters: Record<string, string> }) {
   const params = new URLSearchParams({ page: String(input.page), pageSize: "25", sortBy: "emissionDate", sortOrder: "desc" });
   Object.entries(input.filters).forEach(([key, value]) => { if (value) params.set(key, value); });
