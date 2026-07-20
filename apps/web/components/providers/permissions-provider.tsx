@@ -13,8 +13,8 @@ type PermissionContextValue = {
 const rolePermissions: Record<string, string[]> = {
   OWNER: ["*"],
   ADMIN: ["*"],
-  ACCOUNTANT: ["dashboard:read", "fiscal:read", "accountant:write", "reports:read"],
-  OPERATOR: ["dashboard:read", "fiscal:write", "commerce:write"],
+  ACCOUNTANT: ["dashboard:read", "fiscal:read", "accountant:write", "reports:read", "mdfe:read"],
+  OPERATOR: ["dashboard:read", "fiscal:write", "commerce:write", "mdfe:read", "mdfe:create", "mdfe:update", "mdfe:validate"],
   VIEWER: ["dashboard:read", "reports:read"],
 };
 

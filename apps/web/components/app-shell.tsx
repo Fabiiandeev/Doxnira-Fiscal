@@ -37,6 +37,7 @@ import {
   ShoppingCart,
   Target,
   Truck,
+  Route,
   Users,
   Webhook,
   X,
@@ -48,6 +49,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { BrandMark } from "@/components/brand-mark";
 import { useAuth } from "@/components/providers/auth-provider";
+import { usePermissionsContext } from "@/components/providers/permissions-provider";
 import { useCompanyContext } from "@/components/providers/company-provider";
 import { notify } from "@/components/toast-viewport";
 import { Button } from "@/components/ui/button";
@@ -66,6 +68,7 @@ type NavItem = {
   href: string;
   icon: LucideIcon;
   badge?: string;
+  permission?: string;
 };
 
 type NavGroup = {
@@ -124,12 +127,12 @@ const navGroups: NavGroup[] = [
     label: "Fiscal",
     icon: FileText,
     items: [
-      { label: "Emitir Nota", href: "/emitir-nota", icon: FileOutput },
+      { label: "Emitir NF-e", href: "/emitir-nota", icon: FileOutput },
       { label: "NF-e Entrada", href: "/documents/incoming", icon: Truck },
-      { label: "NF-e Saída", href: "/documents/outgoing", icon: FileText },
       { label: "NFC-e", href: "/nfce", icon: CreditCard },
       { label: "NFS-e", href: "/nfse-national", icon: BookOpen },
       { label: "CT-e", href: "/cte", icon: Truck },
+      { label: "MDF-e", href: "/mdfe", icon: Route, permission: "mdfe:read" },
       { label: "XML Fiscal", href: "/xml-center", icon: FileBarChart },
       { label: "Rejeições", href: "/rejections", icon: AlertTriangle },
       { label: "SPED", href: "/sped", icon: FileBarChart },
@@ -220,6 +223,7 @@ function SidebarContent({
   alertCount?: number;
 }) {
   const pathname = usePathname();
+  const { hasPermission } = usePermissionsContext();
   const [openGroup, setOpenGroup] = useState<string | null>(null);
 
   useEffect(() => {
@@ -257,6 +261,8 @@ function SidebarContent({
       </div>
       <nav className="scrollbar-none flex-1 overflow-y-auto px-3">
         {navGroups.map((group) => {
+          const visibleItems = group.items.filter((item) => !item.permission || hasPermission(item.permission));
+          if (!visibleItems.length) return null;
           const isSingle = SINGLE_ITEM_GROUPS.has(group.id);
           const isOpen = openGroup === group.id;
           const GroupIcon = group.icon;
@@ -301,7 +307,7 @@ function SidebarContent({
             );
           }
 
-          const hasActiveChild = group.items.some(
+          const hasActiveChild = visibleItems.some(
             (item) =>
               pathname === item.href ||
               (item.href !== "/dashboard" && pathname?.startsWith(`${item.href}/`)),
@@ -335,7 +341,7 @@ function SidebarContent({
                 )}
               >
                 <div className="space-y-0.5 pb-1 pl-4">
-                  {group.items.map((item, index) => {
+                  {visibleItems.map((item, index) => {
                     const badge =
                       item.href === "/documents"
                         ? documentCount

@@ -1,0 +1,48 @@
+# Docker Compose (v2) for a clean, isolated local PostgreSQL bootstrap.
+#
+# This compose file is intentionally NOT named after any container or user.
+# It will fail fast if:
+#   - POSTGRES_PASSWORD is missing (no default value);
+#   - the target port is already in use (docker compose will report the bind
+#     failure and we exit before reusing or stopping any external container).
+#
+# This compose file does NOT manage, restart, stop, recreate or remove
+# containers outside what docker compose up/down controls inside this project
+# scope. Legacy containers such as `doxnira-postgres` are NEVER touched here.
+#
+# Usage:
+#   1. cp .env.docker.example .env.docker
+#   2. edit .env.docker with a locally generated POSTGRES_PASSWORD
+#   3. pnpm db:up            # from apps/api-js or workspace root
+#   4. pnpm db:status
+#   5. pnpm db:down          # never removes the volume
+#
+# This is a NEW bootstrap, parallel to (and not a replacement of) any
+# pre-existing local PostgreSQL you may already have. If port 5432 is taken
+# by an external container, change POSTGRES_PORT in .env.docker and update
+# DATABASE_URL_TEST in apps/api-js/.env.test accordingly.
+
+name: ns-fiscal-local-postgres
+
+services:
+  postgres:
+    image: postgres:${POSTGRES_IMAGE_TAG:-16-alpine}
+    restart: unless-stopped
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB must be defined in .env.docker}
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER must be defined in .env.docker}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be defined in .env.docker}
+    volumes:
+      - ns_fiscal_local_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ns_fiscal_app} -d ${POSTGRES_DB:-ns_fiscal_cloud_test}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+volumes:
+  ns_fiscal_local_postgres_data:
+    name: ns_fiscal_local_postgres_data
