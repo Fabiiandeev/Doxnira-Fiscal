@@ -204,6 +204,7 @@ const navGroups: NavGroup[] = [
       { label: "Certificado", href: "/certificate", icon: FileKey2 },
       { label: "Integrações", href: "/settings/integrations", icon: FolderSync },
       { label: "Usuários", href: "/users", icon: Users },
+      { label: "Planos e assinatura", href: "/settings/subscription", icon: CreditCard },
     ],
   },
 ];

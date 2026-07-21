@@ -1,0 +1,12 @@
+import { Router } from "express";
+import { asyncHandler } from "../../utils/response.js";
+import * as controller from "./subscription.controller.js";
+export const subscriptionRouter=Router({mergeParams:true});
+subscriptionRouter.get("/catalog",asyncHandler(controller.catalog));
+subscriptionRouter.get("/current",asyncHandler(controller.current));
+subscriptionRouter.get("/usage",asyncHandler(controller.usage));
+subscriptionRouter.post("/change",asyncHandler(controller.change));
+subscriptionRouter.post("/cancel",asyncHandler(controller.cancel));
+subscriptionRouter.post("/reactivate",asyncHandler(controller.reactivate));
+export const internalSubscriptionRouter=Router();
+internalSubscriptionRouter.post("/manual",asyncHandler(controller.manual));

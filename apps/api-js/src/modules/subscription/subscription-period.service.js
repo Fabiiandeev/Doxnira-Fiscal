@@ -1,0 +1,5 @@
+import { SubscriptionConfigurationError } from "./subscription.errors.js";
+export function addCalendarMonths(date, months) { const d=new Date(date); const day=d.getDate(); d.setDate(1); d.setMonth(d.getMonth()+months); const last=new Date(d.getFullYear(),d.getMonth()+1,0).getDate(); d.setDate(Math.min(day,last)); return d; }
+export function addCalendarYears(date, years) { return addCalendarMonths(date,years*12); }
+export function calculateTrialPeriod({now,trialDays}) { if(!Number.isInteger(trialDays)||trialDays<1||trialDays>90) throw new SubscriptionConfigurationError({trialDays}); const start=new Date(now); const end=new Date(start); end.setDate(end.getDate()+trialDays); return {trialStartedAt:start,trialEndsAt:end,currentPeriodStart:start,currentPeriodEnd:end}; }
+export function calculateNextPeriod({periodStart,billingCycle}) { const start=new Date(periodStart); if(billingCycle==='MONTHLY')return {currentPeriodStart:start,currentPeriodEnd:addCalendarMonths(start,1)}; if(billingCycle==='ANNUAL')return {currentPeriodStart:start,currentPeriodEnd:addCalendarYears(start,1)}; throw new SubscriptionConfigurationError({billingCycle}); }

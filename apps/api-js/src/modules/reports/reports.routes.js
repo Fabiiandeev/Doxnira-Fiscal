@@ -10,6 +10,7 @@ import {
 import { listMonthlyClosings } from "../../services/monthly-tax-closing.service.js";
 import { createXlsx } from "../../services/xlsx-export.service.js";
 import { asyncHandler, sendSuccess } from "../../utils/response.js";
+import { requireSubscriptionFeature } from "../subscription/subscription-gates.middleware.js";
 
 function periodFromQuery(query) {
   const now = new Date();
@@ -122,6 +123,7 @@ reportsRouter.get(
 
 reportsRouter.get(
   "/export-csv",
+  requireSubscriptionFeature("exports.advanced"),
   asyncHandler(async (request, response) => {
     const data = await accountingData(request.company.id, request.query);
     const csv = reportRows(data)
@@ -140,6 +142,7 @@ reportsRouter.get(
 
 reportsRouter.get(
   "/export-xlsx",
+  requireSubscriptionFeature("exports.advanced"),
   asyncHandler(async (request, response) => {
     const data = await accountingData(request.company.id, request.query);
     response

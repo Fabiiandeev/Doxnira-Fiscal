@@ -22,6 +22,40 @@ const suppliers = [
 const statusCycle = ["AUTHORIZED", "AUTHORIZED", "AUTHORIZED", "CANCELLED", "EVENT"];
 const manifestationCycle = ["PENDING", "AWARE", "CONFIRMED", "UNKNOWN", "NOT_PERFORMED"];
 
+// Official subscription feature codes. Entitlement semantics are implemented in a later stage.
+const subscriptionFeatures = [
+  ["companies.limit", "Limite de empresas", "INTEGER", "limit"], ["branches.limit", "Limite de filiais", "INTEGER", "limit"], ["users.limit", "Limite de usuários", "INTEGER", "limit"], ["documents.monthly.limit", "Limite mensal de documentos", "INTEGER", "limit"], ["xml.retention.months", "Retenção de XML", "INTEGER", "limit"], ["api.requests.monthly.limit", "Limite mensal de API", "INTEGER", "limit"], ["webhook.endpoints.limit", "Limite de webhooks", "INTEGER", "limit"],
+  ["nfe.emission", "Emissão de NF-e"], ["nfse.emission", "Emissão de NFS-e"], ["nfe.inbound", "NF-e recebida"], ["cte.inbound", "CT-e recebido"], ["dfe.sync", "Sincronização DF-e"], ["fiscal_ai.basic", "FiscalAI básico"], ["fiscal_ai.correction", "FiscalAI corretivo"], ["fiscal_ai.batch_correction", "Correção FiscalAI em lote"], ["fiscal_ai.radar", "Radar Fiscal"], ["fiscal_ai.score", "Score Fiscal"], ["api.access", "Acesso via API"], ["webhooks.access", "Webhooks"], ["erp.integration", "Integração ERP"], ["batch.actions", "Ações em lote"], ["documents.reprocess", "Reprocessamento de documentos"], ["stock.automation", "Automação de estoque"], ["nfe_cte.reconciliation", "Conciliação NF-e/CT-e"], ["freight.allocation", "Rateio de frete"], ["reports.advanced", "Relatórios avançados"], ["dashboards.company", "Dashboards por empresa"], ["risk.ranking", "Ranking de risco"], ["audit.advanced", "Auditoria avançada"], ["exports.advanced", "Exportações avançadas"], ["monthly.closing", "Fechamento mensal"], ["sped.preparation", "Preparação SPED"], ["sintegra.preparation", "Preparação SINTEGRA"], ["accountant.portal", "Portal Contábil"], ["accountant.portal.full", "Portal Contábil completo"], ["accountant.multi_company", "Portal multiempresa"], ["accountant.requests", "Solicitações contábeis"], ["accountant.document_review", "Revisão de documentos"], ["accountant.xml_download", "Download de XML"], ["accountant.monthly_closing", "Fechamento contábil"], ["accountant.fiscal_book_preparation", "Preparação do livro fiscal"], ["accountant.portfolio_risk", "Risco da carteira"], ["accountant.portfolio_reports", "Relatórios da carteira"], ["accountant.productivity_dashboard", "Painel de produtividade"], ["implementation.assistance", "Implantação assistida"], ["support.priority", "Suporte prioritário"], ["support.specialized", "Suporte especializado"],
+] as const;
+
+const subscriptionPlans = [
+  { code: "STARTER", name: "Starter + Portal Contábil", amountCents: 20000, order: 1, limits: { "companies.limit": 1, "branches.limit": 1, "users.limit": 2, "documents.monthly.limit": 100, "xml.retention.months": 12 }, enabled: ["nfe.emission", "nfse.emission", "nfe.inbound", "fiscal_ai.basic", "accountant.portal", "accountant.requests"] },
+  { code: "PROFESSIONAL", name: "Professional + Portal Contábil", amountCents: 45000, order: 2, limits: { "companies.limit": 1, "branches.limit": 1, "users.limit": 5, "documents.monthly.limit": 1000, "xml.retention.months": 60 }, enabled: ["nfe.emission", "nfse.emission", "nfe.inbound", "fiscal_ai.basic", "accountant.portal", "accountant.requests", "cte.inbound", "dfe.sync", "fiscal_ai.correction", "fiscal_ai.radar", "fiscal_ai.score", "reports.advanced", "accountant.portal.full", "accountant.document_review", "accountant.xml_download", "support.priority"] },
+  { code: "BUSINESS", name: "Business + Portal Contábil", amountCents: 65000, order: 3, limits: { "companies.limit": 1, "branches.limit": 5, "users.limit": 10, "documents.monthly.limit": 5000, "xml.retention.months": 120 }, enabled: ["nfe.emission", "nfse.emission", "nfe.inbound", "fiscal_ai.basic", "accountant.portal", "accountant.requests", "cte.inbound", "dfe.sync", "fiscal_ai.correction", "fiscal_ai.radar", "fiscal_ai.score", "reports.advanced", "accountant.portal.full", "accountant.document_review", "accountant.xml_download", "support.priority", "api.access", "webhooks.access", "erp.integration", "batch.actions", "fiscal_ai.batch_correction", "documents.reprocess", "stock.automation", "nfe_cte.reconciliation", "freight.allocation", "dashboards.company", "risk.ranking", "audit.advanced", "exports.advanced", "monthly.closing", "sped.preparation", "sintegra.preparation", "accountant.monthly_closing", "accountant.fiscal_book_preparation", "implementation.assistance"] },
+  { code: "COMPANY", name: "Empresa + Portal Contábil", amountCents: 85000, order: 4, limits: { "companies.limit": 1, "branches.limit": 5, "users.limit": 20, "documents.monthly.limit": 10000, "xml.retention.months": 120 }, enabled: ["nfe.emission", "nfse.emission", "nfe.inbound", "fiscal_ai.basic", "accountant.portal", "accountant.requests", "cte.inbound", "dfe.sync", "fiscal_ai.correction", "fiscal_ai.radar", "fiscal_ai.score", "reports.advanced", "accountant.portal.full", "accountant.document_review", "accountant.xml_download", "support.priority", "api.access", "webhooks.access", "erp.integration", "batch.actions", "fiscal_ai.batch_correction", "documents.reprocess", "stock.automation", "nfe_cte.reconciliation", "freight.allocation", "dashboards.company", "risk.ranking", "audit.advanced", "exports.advanced", "monthly.closing", "sped.preparation", "sintegra.preparation", "accountant.monthly_closing", "accountant.fiscal_book_preparation", "implementation.assistance", "accountant.multi_company", "accountant.portfolio_risk", "accountant.portfolio_reports", "accountant.productivity_dashboard", "support.specialized"] },
+] as const;
+
+async function seedSubscriptionCatalog() {
+  const features = new Map<string, string>();
+  for (const [code, name, valueType = "BOOLEAN", category = "feature"] of subscriptionFeatures) {
+    const feature = await prisma.subscriptionFeature.upsert({ where: { code }, update: { name, valueType, category, isActive: true }, create: { code, name, valueType, category } });
+    features.set(code, feature.id);
+  }
+  for (const planInput of subscriptionPlans) {
+    const plan = await prisma.subscriptionPlan.upsert({ where: { code: planInput.code }, update: { name: planInput.name, displayOrder: planInput.order, isActive: true, isPublic: true }, create: { code: planInput.code, name: planInput.name, displayOrder: planInput.order } });
+    const prices = [{ billingCycle: "MONTHLY" as const, amountCents: planInput.amountCents, discountPercentage: null }, { billingCycle: "ANNUAL" as const, amountCents: Math.round(planInput.amountCents * 12 * 0.83), discountPercentage: 17 }];
+    for (const price of prices) {
+      const existing = await prisma.subscriptionPlanPrice.findFirst({ where: { planId: plan.id, billingCycle: price.billingCycle, isActive: true, validFrom: null, validUntil: null } });
+      if (existing) await prisma.subscriptionPlanPrice.update({ where: { id: existing.id }, data: { amountCents: price.amountCents, discountPercentage: price.discountPercentage, currency: "BRL" } });
+      else await prisma.subscriptionPlanPrice.create({ data: { planId: plan.id, billingCycle: price.billingCycle, currency: "BRL", amountCents: price.amountCents, discountPercentage: price.discountPercentage } });
+    }
+    for (const [code, featureId] of features) {
+      const integerValue = code in planInput.limits ? planInput.limits[code as keyof typeof planInput.limits] : null;
+      await prisma.subscriptionPlanFeature.upsert({ where: { planId_featureId: { planId: plan.id, featureId } }, update: { enabled: integerValue !== null || planInput.enabled.includes(code as never), integerValue }, create: { planId: plan.id, featureId, enabled: integerValue !== null || planInput.enabled.includes(code as never), integerValue } });
+    }
+  }
+}
+
 function accessKey(index: number, issuerCnpj: string) {
   return `52${String(2606 + (index % 6)).padStart(4, "0")}${issuerCnpj}5500100${String(100000 + index).padStart(9, "0")}1`.slice(0, 44);
 }
@@ -60,6 +94,7 @@ async function clearDatabase() {
 
 async function main() {
   await clearDatabase();
+  await seedSubscriptionCatalog();
 
   const user = await prisma.user.create({
     data: {

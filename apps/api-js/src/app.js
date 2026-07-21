@@ -8,6 +8,7 @@ import { env } from "./config/env.js";
 import { logger } from "./config/logger.js";
 import { requireAuth } from "./middlewares/auth.middleware.js";
 import { requireCompanyAccess } from "./middlewares/company-access.middleware.js";
+import { requireSubscriptionCompanyContext } from "./middlewares/subscription-company-context.middleware.js";
 import { requireAccountantCompanyAccess } from "./middlewares/accountant-company-access.middleware.js";
 import { errorMiddleware } from "./middlewares/error.middleware.js";
 import { notFoundMiddleware } from "./middlewares/not-found.middleware.js";
@@ -43,6 +44,7 @@ import { nfeValidationRouter } from "./modules/nfe-validation/nfe-validation.rou
 import { fornecedoresRouter } from "./modules/fornecedores/fornecedores.routes.js";
 import { nfeRouter } from "./modules/nfe/nfe.routes.js";
 import { cteEntryRouter, nfeEntryRouter } from "./modules/nfe-entry/nfe-entry.routes.js";
+import { subscriptionRouter, internalSubscriptionRouter } from "./modules/subscription/subscription.routes.js";
 
 export const app = express();
 const allowedOrigins = env.CORS_ORIGIN.split(",").map((origin) => origin.trim());
@@ -119,6 +121,15 @@ companyApiRouter.use("/:companyId/nfe", nfeRouter);
 companyApiRouter.use("/:companyId/nfe-entry", nfeEntryRouter);
 companyApiRouter.use("/:companyId/cte-entry", cteEntryRouter);
 companyApiRouter.use("/:companyId", companyDocumentRequestsRouter);
+
+app.use(
+  "/api/subscription",
+  requireAuth,
+  requireSubscriptionCompanyContext,
+  subscriptionRouter,
+);
+
+app.use("/api/internal/subscriptions", requireAuth, internalSubscriptionRouter);
 
 app.use("/api/accountant/companies/:companyId", requireAuth, requireAccountantCompanyAccess, accountantDocumentsRouter);
 app.use("/api/accountant/companies/:companyId", requireAuth, requireAccountantCompanyAccess, accountantMonthlyClosingRouter);
