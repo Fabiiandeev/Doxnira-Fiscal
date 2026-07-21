@@ -1,0 +1,11 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import {readFile} from "node:fs/promises";
+const view=await readFile(new URL("../components/subscription/subscription-view.tsx",import.meta.url),"utf8");
+const service=await readFile(new URL("../lib/services/subscription-service.ts",import.meta.url),"utf8");
+const hooks=await readFile(new URL("../lib/services/subscription-hooks.ts",import.meta.url),"utf8");
+test("subscription UI possui loading, erro, vazio, trial e banners",()=>{for(const marker of ["Loading","Tentar novamente","ainda não possui assinatura","Período de avaliação","Mudança agendada","Cancelamento programado"])assert.match(view,new RegExp(marker));});
+test("subscription UI oferece upgrade, downgrade, cancelamento e reativacao sem optimistic update",()=>{for(const marker of ["Confirmar mudança","Cancelar no fim do período","Cancelar imediatamente","Reativar assinatura"])assert.match(view,new RegExp(marker));assert.doesNotMatch(hooks,/onMutate/);});
+test("subscription UI envia Idempotency-Key e nunca envia companyId no payload",()=>{assert.match(service,/Idempotency-Key/);assert.doesNotMatch(service,/JSON\.stringify\(\{[^}]*companyId/);});
+test("subscription UI bloqueia clique duplicado durante mutations",()=>{assert.match(view,/disabled=\{pending\}/);assert.match(view,/isPending/);});
+test("subscription UI usa catalogo da API sem precos comerciais hardcoded",()=>{assert.match(service,/\/catalog/);assert.doesNotMatch(view,/20000|45000|65000|85000/);});

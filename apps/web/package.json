@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit"
+    ,"test:subscription": "node --test test/subscription-ui.unit.test.mjs"
   },
   "dependencies": {
     "@fontsource/manrope": "^5.2.6",
