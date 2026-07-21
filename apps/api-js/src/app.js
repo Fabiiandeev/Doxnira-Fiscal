@@ -8,6 +8,7 @@ import { env } from "./config/env.js";
 import { logger } from "./config/logger.js";
 import { requireAuth } from "./middlewares/auth.middleware.js";
 import { requireCompanyAccess } from "./middlewares/company-access.middleware.js";
+import { requireSubscriptionCompanyContext } from "./middlewares/subscription-company-context.middleware.js";
 import { requireAccountantCompanyAccess } from "./middlewares/accountant-company-access.middleware.js";
 import { errorMiddleware } from "./middlewares/error.middleware.js";
 import { notFoundMiddleware } from "./middlewares/not-found.middleware.js";
@@ -119,8 +120,14 @@ companyApiRouter.use("/:companyId/nfe-validation", nfeValidationRouter);
 companyApiRouter.use("/:companyId/nfe", nfeRouter);
 companyApiRouter.use("/:companyId/nfe-entry", nfeEntryRouter);
 companyApiRouter.use("/:companyId/cte-entry", cteEntryRouter);
-companyApiRouter.use("/:companyId/subscription", subscriptionRouter);
 companyApiRouter.use("/:companyId", companyDocumentRequestsRouter);
+
+app.use(
+  "/api/subscription",
+  requireAuth,
+  requireSubscriptionCompanyContext,
+  subscriptionRouter,
+);
 
 app.use("/api/internal/subscriptions", requireAuth, internalSubscriptionRouter);
 

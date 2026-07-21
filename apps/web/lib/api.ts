@@ -46,6 +46,7 @@ export class ApiError extends Error {
   field?: string | null;
   suggestion?: string | null;
   autoFix?: { available: boolean; action: string | null; label: string | null } | null;
+  requestId?: string | null;
 
   constructor(
     message: string,
@@ -56,6 +57,7 @@ export class ApiError extends Error {
     field: string | null = null,
     suggestion: string | null = null,
     autoFix: { available: boolean; action: string | null; label: string | null } | null = null,
+    requestId: string | null = null,
   ) {
     super(message);
     this.name = "ApiError";
@@ -66,6 +68,7 @@ export class ApiError extends Error {
     this.field = field;
     this.suggestion = suggestion;
     this.autoFix = autoFix;
+    this.requestId = requestId;
   }
 }
 
@@ -158,10 +161,14 @@ export async function apiFetch<T>(
 ): Promise<T> {
   const headers = new Headers(init.headers);
   const token = getToken();
+  const companyId = getCompanyId();
   const isFormData = init.body instanceof FormData;
 
   if (token && !headers.has("authorization")) {
     headers.set("authorization", `Bearer ${token}`);
+  }
+  if (companyId && !headers.has("x-company-id")) {
+    headers.set("x-company-id", companyId);
   }
   if (isFormData) {
     headers.delete("content-type");
@@ -191,6 +198,7 @@ export async function apiFetch<T>(
       payload.field || null,
       payload.suggestion || null,
       payload.autoFix || null,
+      payload.requestId || response.headers.get("x-request-id"),
     );
   }
   return payload as T;

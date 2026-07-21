@@ -1,6 +1,130 @@
 import { prisma } from "../../config/prisma.js";
-import { SubscriptionConfigurationError, SubscriptionInvalidStateError, SubscriptionNotFoundError } from "./subscription.errors.js";
+import {
+  SubscriptionConfigurationError,
+  SubscriptionInvalidStateError,
+  SubscriptionNotFoundError,
+} from "./subscription.errors.js";
 import { resolvePlanFeatureMap } from "./subscription-plan.service.js";
 import { USABLE_SUBSCRIPTION_STATUSES } from "./subscription.constants.js";
 import { reconcileSubscription } from "./subscription-reconciliation.service.js";
-export async function getSubscriptionContext({companyId,actorId=null,requestId=null,at=new Date(),requireActive=false,reconcile=true,db=prisma}) { if(reconcile)await reconcileSubscription({companyId,actorId,requestId,now:at,db});const rows=await db.subscription.findMany({where:{companyId,status:{in:["TRIALING","ACTIVE","PAST_DUE","SUSPENDED"]}},include:{currentPlan:true,currentPrice:true,nextPlan:true,nextPrice:true}}); if(!rows.length) throw new SubscriptionNotFoundError({companyId}); if(rows.length!==1) throw new SubscriptionConfigurationError({companyId,reason:"multiple_current_subscriptions"}); const s=rows[0]; if(requireActive&&!USABLE_SUBSCRIPTION_STATUSES.has(s.status)) throw new SubscriptionInvalidStateError({status:s.status}); const features=await resolvePlanFeatureMap({planId:s.planId,db}); const limits=Object.fromEntries(Object.entries(features).filter(([k])=>k.endsWith('.limit')||k==='xml.retention.months')); const usageRows=await db.subscriptionUsageCounter.findMany({where:{subscriptionId:s.id,companyId,periodStart:s.currentPeriodStart,periodEnd:s.currentPeriodEnd}}); const usage=Object.fromEntries(usageRows.map(x=>[x.usageCode,x.quantity]));return {subscription:{id:s.id,status:s.status,provider:s.provider,billingCycle:s.billingCycle,currentPeriodStart:s.currentPeriodStart,currentPeriodEnd:s.currentPeriodEnd,trialEndsAt:s.trialEndsAt,cancelAtPeriodEnd:s.cancelAtPeriodEnd,canceledAt:s.canceledAt,endedAt:s.endedAt,nextPlanEffectiveAt:s.nextPlanEffectiveAt},plan:{id:s.currentPlan.id,code:s.currentPlan.code,name:s.currentPlan.name,displayOrder:s.currentPlan.displayOrder},price:{billingCycle:s.currentPrice.billingCycle,amountCents:s.currentPrice.amountCents,currency:s.currentPrice.currency},nextPlan:s.nextPlan&&s.nextPrice?{id:s.nextPlan.id,code:s.nextPlan.code,name:s.nextPlan.name,billingCycle:s.nextPrice.billingCycle,amountCents:s.nextPrice.amountCents,effectiveAt:s.nextPlanEffectiveAt}:null,entitlements:features,features,limits,usage,capabilities:{canUpgrade:USABLE_SUBSCRIPTION_STATUSES.has(s.status),canDowngrade:USABLE_SUBSCRIPTION_STATUSES.has(s.status),canChangeCycle:USABLE_SUBSCRIPTION_STATUSES.has(s.status),canCancel:USABLE_SUBSCRIPTION_STATUSES.has(s.status),canReactivate:USABLE_SUBSCRIPTION_STATUSES.has(s.status)&&s.cancelAtPeriodEnd}}; }
+
+const includePlans = {
+  currentPlan: true,
+  currentPrice: true,
+  nextPlan: true,
+  nextPrice: true,
+};
+
+export async function getSubscriptionContext({
+  companyId,
+  actorId = null,
+  requestId = null,
+  at = new Date(),
+  requireActive = false,
+  reconcile = true,
+  db = prisma,
+}) {
+  if (reconcile) {
+    await reconcileSubscription({ companyId, actorId, requestId, now: at, db });
+  }
+
+  let rows = await db.subscription.findMany({
+    where: {
+      companyId,
+      status: { in: ["TRIALING", "ACTIVE", "PAST_DUE", "SUSPENDED"] },
+    },
+    include: includePlans,
+  });
+
+  // A tela precisa continuar exibindo o encerramento real após cancelamento ou
+  // expiração. Gates com requireActive ainda rejeitam esses estados abaixo.
+  if (!rows.length) {
+    const terminal = await db.subscription.findFirst({
+      where: { companyId, status: { in: ["CANCELED", "EXPIRED"] } },
+      include: includePlans,
+      orderBy: { updatedAt: "desc" },
+    });
+    if (terminal) rows = [terminal];
+  }
+
+  if (!rows.length) throw new SubscriptionNotFoundError({ companyId });
+  if (rows.length !== 1) {
+    throw new SubscriptionConfigurationError({
+      companyId,
+      reason: "multiple_current_subscriptions",
+    });
+  }
+
+  const subscription = rows[0];
+  if (requireActive && !USABLE_SUBSCRIPTION_STATUSES.has(subscription.status)) {
+    throw new SubscriptionInvalidStateError({ status: subscription.status });
+  }
+
+  const features = await resolvePlanFeatureMap({ planId: subscription.planId, db });
+  const limits = Object.fromEntries(
+    Object.entries(features).filter(
+      ([code]) => code.endsWith(".limit") || code === "xml.retention.months",
+    ),
+  );
+  const usageRows = await db.subscriptionUsageCounter.findMany({
+    where: {
+      subscriptionId: subscription.id,
+      companyId,
+      periodStart: subscription.currentPeriodStart,
+      periodEnd: subscription.currentPeriodEnd,
+    },
+  });
+  const usage = Object.fromEntries(
+    usageRows.map((item) => [item.usageCode, item.quantity]),
+  );
+  const usable = USABLE_SUBSCRIPTION_STATUSES.has(subscription.status);
+
+  return {
+    subscription: {
+      id: subscription.id,
+      status: subscription.status,
+      provider: subscription.provider,
+      billingCycle: subscription.billingCycle,
+      currentPeriodStart: subscription.currentPeriodStart,
+      currentPeriodEnd: subscription.currentPeriodEnd,
+      trialEndsAt: subscription.trialEndsAt,
+      cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
+      canceledAt: subscription.canceledAt,
+      endedAt: subscription.endedAt,
+      nextPlanEffectiveAt: subscription.nextPlanEffectiveAt,
+    },
+    plan: {
+      id: subscription.currentPlan.id,
+      code: subscription.currentPlan.code,
+      name: subscription.currentPlan.name,
+      displayOrder: subscription.currentPlan.displayOrder,
+    },
+    price: {
+      billingCycle: subscription.currentPrice.billingCycle,
+      amountCents: subscription.currentPrice.amountCents,
+      currency: subscription.currentPrice.currency,
+    },
+    nextPlan:
+      subscription.nextPlan && subscription.nextPrice
+        ? {
+            id: subscription.nextPlan.id,
+            code: subscription.nextPlan.code,
+            name: subscription.nextPlan.name,
+            billingCycle: subscription.nextPrice.billingCycle,
+            amountCents: subscription.nextPrice.amountCents,
+            effectiveAt: subscription.nextPlanEffectiveAt,
+          }
+        : null,
+    entitlements: features,
+    features,
+    limits,
+    usage,
+    capabilities: {
+      canUpgrade: usable,
+      canDowngrade: usable,
+      canChangeCycle: usable,
+      canCancel: usable,
+      canReactivate: usable && subscription.cancelAtPeriodEnd,
+    },
+  };
+}
