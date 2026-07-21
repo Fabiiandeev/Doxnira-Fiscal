@@ -12,6 +12,7 @@ import { daysRemaining } from "../../utils/date.js";
 import { getPagination, paginationMeta } from "../../utils/pagination.js";
 import { asyncHandler, sendSuccess } from "../../utils/response.js";
 import { writeAudit } from "../audit/audit.service.js";
+import { requireSubscriptionFeature } from "../subscription/subscription-gates.middleware.js";
 
 export async function getReadiness(company) {
   const certificate = await getCurrentCertificate(company.id);
@@ -158,6 +159,7 @@ syncRouter.get("/readiness", asyncHandler(async (request, response) => {
 
 syncRouter.post(
   "/nfe",
+  requireSubscriptionFeature("dfe.sync"),
   rateLimit({ key: "sync", max: 10, windowMs: 60 * 60_000 }),
   asyncHandler(async (request, response) => {
     const readiness = await getReadiness(request.company);

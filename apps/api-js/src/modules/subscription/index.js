@@ -5,6 +5,8 @@ export * from "./subscription-context.service.js";
 export * from "./subscription-entitlement.service.js";
 export * from "./subscription-usage.service.js";
 export * from "./subscription-reconciliation.service.js";
+export * from "./subscription-feature-enforcement-map.js";
+export * from "./subscription-gates.middleware.js";
 export * from "./subscription-period.service.js";
 export * from "./subscription-billing-provider.js";
 export * from "./subscription-history.service.js";

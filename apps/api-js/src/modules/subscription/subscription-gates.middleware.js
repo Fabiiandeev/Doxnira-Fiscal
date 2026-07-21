@@ -1,0 +1,8 @@
+import { asyncHandler } from "../../utils/response.js";
+import { logger } from "../../config/logger.js";
+import { getSubscriptionContext } from "./subscription-context.service.js";
+import { assertFeature, assertWithinLimit } from "./subscription-entitlement.service.js";
+import { recordUsage } from "./subscription-usage.service.js";
+
+export function requireSubscriptionFeature(featureCode){return asyncHandler(async(request,_response,next)=>{try{const context=await getSubscriptionContext({companyId:request.company.id,actorId:request.user.id,requestId:request.id,requireActive:true});assertFeature(context,featureCode);request.subscriptionContext=context;next();}catch(error){logger.warn({companyId:request.company?.id,actorId:request.user?.id,requestId:request.id,featureCode,result:"denied"},"subscription.feature_denied");throw error;}});}
+export function requireUsageAvailability({featureCode,quantity=1,sourceType="HTTP",sourceId}){return asyncHandler(async(request,_response,next)=>{const context=request.subscriptionContext??await getSubscriptionContext({companyId:request.company.id,actorId:request.user.id,requestId:request.id,requireActive:true});try{assertWithinLimit(context,featureCode,quantity);request.subscriptionUsage={commit:()=>recordUsage({subscriptionId:context.subscription.id,companyId:request.company.id,usageCode:featureCode,quantity,idempotencyKey:`${sourceType}:${sourceId?.(request)??request.id}`,sourceType,sourceId:sourceId?.(request)??request.id})};next();}catch(error){logger.warn({subscriptionId:context.subscription.id,companyId:request.company.id,actorId:request.user.id,requestId:request.id,featureCode,result:"denied"},"subscription.usage_denied");throw error;}});}
