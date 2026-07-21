@@ -1,0 +1,6 @@
+import { SubscriptionConfigurationError, SubscriptionFeatureNotAvailableError, SubscriptionLimitExceededError } from "./subscription.errors.js";
+export function getEntitlement(context, code) { if (!(code in context.features) && !(code in context.limits)) throw new SubscriptionConfigurationError({ featureCode: code }); return context.features[code] ?? context.limits[code] ?? null; }
+export function hasFeature(context, code) { const value=getEntitlement(context, code); return value === true; }
+export function assertFeature(context, code) { if (!hasFeature(context, code)) throw new SubscriptionFeatureNotAvailableError({ feature:code,currentPlan:context.plan.code }); return true; }
+export function getLimit(context, code) { const value=getEntitlement(context, code); if (value !== null && !Number.isInteger(value)) throw new SubscriptionConfigurationError({ limitCode:code }); return value; }
+export function assertWithinLimit(context, code, requestedAmount=1, used=context.usage[code] ?? 0) { const allowed=getLimit(context, code); if (!Number.isInteger(requestedAmount)||requestedAmount<1) throw new SubscriptionConfigurationError({ limitCode:code,requestedAmount }); if (allowed === null || used+requestedAmount>allowed) throw new SubscriptionLimitExceededError({ limitCode:code,used,requested:requestedAmount,allowed,currentPlan:context.plan.code }); return true; }
