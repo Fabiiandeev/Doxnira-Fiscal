@@ -30,8 +30,8 @@ existentes. Não cria schema, migration, integrações bancárias nem pagamento 
 
 | Sprint | Tema | Estado |
 | --- | --- | --- |
-| 00 | Baseline, governança e arquitetura | Em certificação |
-| 01 | Domínio financeiro e migration canônica | Não iniciada |
+| 00 | Baseline e governança | Aprovada com ressalva |
+| 01 | API de consulta sobre `Payable` | Não iniciada |
 
 > O primeiro ciclo não altera schema. Qualquer expansão de domínio exige decisão
 > arquitetural e sprint própria.

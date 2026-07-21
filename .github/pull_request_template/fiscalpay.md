@@ -16,4 +16,4 @@ Estabelecer a baseline, governança, inventário técnico e arquitetura inicial 
 
 ## Sprint seguinte
 
-Sprint 01 — Domínio financeiro e migration canônica.
+Sprint 01 — API de consulta sobre `Payable`.

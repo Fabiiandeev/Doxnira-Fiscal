@@ -4,7 +4,8 @@
 
 - Branch: `feature/fiscalpay-s00-baseline-governance`
 - Origem: `master`
-- SHA inicial/final: `7f5e47cb8e9b102dc0c941a3a4bb3484af93df74`
+- SHA inicial: `7f5e47cb8e9b102dc0c941a3a4bb3484af93df74`
+- SHA final: `6cc792627c022ddaafded014efb0b9a92e7e47a4`
 - Tag de baseline: `fiscalpay-s00-baseline-20260720`
 - Remote: `origin` (`https://github.com/Fabiiandeev/Doxnira-Fiscal.git`)
 - Data: 20 de julho de 2026
@@ -21,11 +22,12 @@ As alterações de MDF-e encontradas antes da execução foram preservadas no st
 - Banco de teste detectado: `ns_fiscal_cloud_test` (host omitido)
 - Migrations existentes: de `20260618160000_init` a `20260720133000_add_mdfe_backend_foundation`
 
-## Governança externa pendente
+## Governança externa
 
-Milestone `FiscalPay V1`, labels, proteção da `master`, publicação da branch, tag e PR
-dependem de acesso/decisão no GitHub. Nenhuma configuração remota foi alterada nesta
-sprint local.
+- Branch `feature/fiscalpay-s00-baseline-governance`: publicada.
+- Tag `fiscalpay-s00-baseline-20260720`: publicada apontando para `7f5e47c`.
+- Pull request: pendente de abertura manual.
+- Milestone, labels e proteção da `master`: não alterados nesta sprint.
 
 ## Arquivos desta sprint
 

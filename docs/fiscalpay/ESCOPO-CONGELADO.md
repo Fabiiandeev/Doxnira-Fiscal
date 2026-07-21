@@ -14,53 +14,36 @@
 - Conta contábil, centro de custo, CT-e/NFS-e a pagar e lançamento sem NF-e.
 - Dados mock, nova tela/componente nesta sprint, endpoint, migration ou alteração de schema.
 
-## ADRs
+## Decisões do primeiro ciclo
 
-### ADR-001 — Fronteira financeira
+### ADR-001 — Base financeira existente
 
-Documentos fiscais são origem; `Payable` representa título/parcela. O FiscalPay não
-altera XML. Cancelamento fiscal deve gerar evento financeiro, e múltiplas origens só
-serão tratadas após evolução explícita do modelo.
+O primeiro ciclo utiliza `Payable` como título financeiro, sempre vinculado a uma
+`NfeEntry`. Não haverá múltiplas origens sem alteração futura e explicitamente
+autorizada do schema.
 
-### ADR-002 — Isolamento empresarial
+### ADR-002 — Isolamento por empresa
 
-`companyId` é obrigatório em consultas e mutações. Membership decide acesso; ausência
-de acesso retorna `403` ou `404`. Jobs e webhooks futuros também exigem contexto.
+Toda consulta e mutação deverá usar o `companyId` obtido do contexto autenticado. Não
+será aceito `companyId` fornecido livremente no body.
 
-### ADR-003 — Providers
+### ADR-003 — Reutilização
 
-Não haverá integração bancária direta antes de uma abstração `PaymentProvider`.
-Credenciais serão isoladas por empresa; provider real e webhooks ficam para Sprint 11.
+Validação, geração de contas, XML e DANFE deverão reutilizar as APIs existentes de
+NF-e de entrada. Não serão criados endpoints duplicados.
 
-### ADR-004 — Idempotência e eventos
+### ADR-004 — UI existente
 
-Operações críticas terão chave de idempotência. Eventos são imutáveis; repetição não
-duplica transição e eventos fora de ordem não podem regredir estado.
+O frontend deverá utilizar a rota `/finance` e o padrão visual atual do sistema, sem
+redesign ou criação de novo design system.
 
-### ADR-005 — Segregação de aprovação
+## Frontend autorizado
 
-Um usuário não executará dois níveis de aprovação; mudanças relevantes invalidarão a
-aprovação. Decisões guardarão usuário e versão da política.
+A entrada existente do módulo Financeiro é `/finance`.
 
-### ADR-006 — Limites da IA
+A implementação deverá reutilizar `PageHeader`, `Card`, `Button`, `Input`, `notify`,
+TanStack Query, a tabela e o painel lateral de NF-e Entrada, além dos badges `ok`,
+`warn`, `danger` e `muted`.
 
-IA pode classificar, detectar anomalia e sugerir conta; nunca aprova, cria pagamento
-ou executa provider. Toda sugestão será rastreável.
-
-## Arquitetura frontend planejada
-
-Sem criar placeholders, a estrutura futura é `app/financial/fiscal-pay`,
-`components/fiscal-pay`, `hooks/fiscal-pay`, `lib/fiscal-pay` e `types/fiscal-pay.ts`.
-Telas devem ter skeleton, erro compreensível com retry, estado vazio contextual,
-confirmação de ações críticas, toast, prevenção de duplo clique e paginação server-side.
-
-## Riscos
-
-| Risco | Prob. | Impacto | Mitigação | Sprint |
-| --- | --- | --- | --- | --- |
-| Duplicidade de obrigação | Alta | Crítico | Idempotência e chave única | 01/03 |
-| Acesso cruzado | Média | Crítico | `companyId` e testes negativos | 02 |
-| Pagamento duplicado | Média | Crítico | Idempotência, lock e provider | 10/11 |
-| Webhook falso/fora de ordem | Alta | Crítico | Assinatura e estado monotônico | 10/11 |
-| Credencial exposta | Baixa | Crítico | Criptografia e mascaramento | 11/15 |
-| IA financeira autônoma | Baixa | Crítico | Limite arquitetural explícito | 17 |
+A organização definitiva dos arquivos será confirmada na Sprint 02 por inspeção da
+estrutura atual. Não serão criados placeholders ou diretórios antecipados na Sprint 00.
