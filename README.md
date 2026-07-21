@@ -1,5 +1,11 @@
 # NS Fiscal Cloud
 
+## FiscalPay
+
+O baseline, o inventário técnico e o escopo congelado do módulo FiscalPay estão em
+[docs/fiscalpay/README.md](docs/fiscalpay/README.md). A Sprint 00 é exclusivamente
+documental e não altera o schema nem o runtime.
+
 Base visual do sistema fiscal da NS Sistemas, construída a partir da documentação
 técnica de sincronização NF-e e da especificação complementar de UX/UI.
 
@@ -164,4 +170,3 @@ build e checa `apps/web/.next/BUILD_ID`.
   provê templates e documentação do procedimento.
 - Migrations são aplicadas exclusivamente ao banco de teste em gates locais e
   no CI; nenhuma migração toca ambientes de produção ou o Supabase remoto.
-
