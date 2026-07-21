@@ -34,6 +34,7 @@
     "prisma:migrate": "prisma migrate dev --config prisma.config.js",
     "prisma:deploy": "prisma migrate deploy --config prisma.config.js",
     "prisma:seed": "prisma db seed --config prisma.config.js",
+    "prisma:seed:subscription-catalog": "tsx prisma/seed.ts --subscription-catalog-only",
     "db:seed": "tsx prisma/seed.ts",
     "worker:sync": "node src/modules/sync/sync.worker.js",
     "db:up": "node scripts/db-up.cjs",
