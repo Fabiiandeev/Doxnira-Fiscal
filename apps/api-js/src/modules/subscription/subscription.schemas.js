@@ -1,0 +1,6 @@
+import { z } from "zod";
+export const changeSubscriptionSchema=z.object({targetPlanCode:z.enum(["STARTER","PROFESSIONAL","BUSINESS","COMPANY"]),targetBillingCycle:z.enum(["MONTHLY","ANNUAL"]),reason:z.string().trim().max(500).optional()}).strict();
+export const cancelSubscriptionSchema=z.object({mode:z.enum(["IMMEDIATE","PERIOD_END"]),reason:z.string().trim().max(500).optional()}).strict();
+export const manualSubscriptionSchema=z.object({companyId:z.string().uuid(),planCode:z.enum(["STARTER","PROFESSIONAL","BUSINESS","COMPANY"]),billingCycle:z.enum(["MONTHLY","ANNUAL"]),trialDays:z.number().int().min(0).max(90).default(0),reason:z.string().trim().max(500).optional()}).strict();
+export function parse(schema,value){const result=schema.safeParse(value);if(!result.success){const error=new Error("Payload de assinatura inválido.");error.code="SUBSCRIPTION_PAYLOAD_INVALID";error.statusCode=400;error.details=result.error.flatten();throw error;}return result.data;}
+export function idempotencyKey(request){const raw=request.headers["idempotency-key"];if(typeof raw!=="string"||!raw.trim()||raw.trim().length>160){const error=new Error("Idempotency-Key é obrigatório e deve ter até 160 caracteres.");error.code="SUBSCRIPTION_IDEMPOTENCY_KEY_INVALID";error.statusCode=400;throw error;}return raw.trim();}

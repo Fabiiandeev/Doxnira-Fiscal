@@ -34,6 +34,7 @@ async function change({companyId,targetPlanCode,targetBillingCycle,actorId,reque
 }
 export const upgradeSubscription=(input)=>change({...input,mode:"UPGRADED"});
 export const schedulePlanChange=(input)=>change({...input,mode:"DOWNGRADE_SCHEDULED"});
+export async function changeSubscriptionPlan(input){const db=input.db??prisma;const previous=await db.subscriptionHistory.findFirst({where:{companyId:input.companyId,idempotencyKey:input.idempotencyKey}});if(previous?.changeType==="UPGRADED")return upgradeSubscription(input);if(previous?.changeType==="DOWNGRADE_SCHEDULED")return schedulePlanChange(input);const source=await db.subscription.findFirst({where:{companyId:input.companyId,status:{in:CURRENT_STATUSES}},include:{currentPlan:true}});if(!source)throw new SubscriptionNotFoundError({companyId:input.companyId});const selected=await plan(input.targetPlanCode,input.targetBillingCycle,db);return selected.displayOrder>source.currentPlan.displayOrder&&selected.id!==source.planId?upgradeSubscription(input):schedulePlanChange(input);}
 
 export async function applyScheduledPlanChange({subscriptionId,actorId,requestId,idempotencyKey,now=new Date(),db=prisma}) {
   requiredKey(idempotencyKey); const intent={changeType:"DOWNGRADED",subscriptionId};
