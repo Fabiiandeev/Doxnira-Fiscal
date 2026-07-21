@@ -474,7 +474,11 @@ async function main() {
   process.stdout.write(JSON.stringify(result, null, 2) + "\n");
 }
 
-main()
+const seedOperation = process.argv.includes("--subscription-catalog-only")
+  ? seedSubscriptionCatalog
+  : main;
+
+seedOperation()
   .catch((error) => {
     process.stderr.write("Seed failed: " + error.message + "\n");
     process.exitCode = 1;
