@@ -69,6 +69,9 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
+      - name: Prepare test environment file
+        run: touch apps/api-js/.env.test
+
       - name: Prisma validate
         run: pnpm --filter @ns-fiscal/api-js prisma:validate
 
