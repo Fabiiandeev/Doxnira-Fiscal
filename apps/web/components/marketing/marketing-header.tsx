@@ -14,7 +14,7 @@ export function MarketingHeader() {
 
   return (
     <header className="sticky top-0 z-50 border-b border-line bg-surface/85 backdrop-blur">
-      <div className="mx-auto flex h-16 max-w-[1400px] items-center justify-between gap-4 px-4 md:px-8">
+      <div className="mx-auto flex h-12 max-w-[1480px] items-center justify-between gap-4 px-4 md:px-8">
         <Link href="/" aria-label="Doxnira Fiscal - página inicial">
           <MarketingLogo />
         </Link>

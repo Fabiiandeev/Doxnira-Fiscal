@@ -1,100 +1,28 @@
+const metrics = [
+  ["Notas emitidas", "1.254", "↑ 18%", "text-lime-strong"],
+  ["Documentos", "2.856", "↑ 15%", "text-lime-strong"],
+  ["Economia fiscal", "R$ 4.320", "↑ 11%", "text-lime-strong"],
+  ["Pendências", "23", "↓ 5%", "text-red-500"],
+];
+
 export function MarketingHeroMockup() {
   return (
-    <div className="relative">
-      <div
-        aria-hidden="true"
-        className="absolute -right-10 -top-10 h-44 w-44 rounded-full bg-lime/30 blur-3xl"
-      />
-      <div
-        aria-hidden="true"
-        className="absolute -bottom-12 -left-8 h-44 w-44 rounded-full bg-lime-soft blur-3xl"
-      />
-      <div
-        role="img"
-        aria-label="Pré-visualização do painel Doxnira Fiscal com indicadores de risco fiscal, documentos recentes e score fiscal."
-        className="relative mx-auto w-full max-w-md overflow-hidden rounded-3xl border border-line bg-surface p-5 shadow-card lg:max-w-none"
-      >
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-[10px] font-extrabold uppercase tracking-[0.16em] text-subtle">
-              Painel fiscal
-            </p>
-            <p className="text-base font-extrabold text-ink">Visão geral</p>
+    <div role="img" aria-label="Pré-visualização do dashboard Doxnira Fiscal" className="overflow-hidden rounded-[24px] border border-line bg-white shadow-[0_24px_60px_rgba(20,24,20,0.13)]">
+      <div className="grid min-h-[270px] grid-cols-[110px_1fr] sm:grid-cols-[130px_1fr]">
+        <aside className="border-r border-line bg-[#fbfbf8] p-2">
+          <div className="mb-3 flex items-center gap-1.5 text-[10px] font-extrabold text-ink"><span className="grid h-5 w-5 place-items-center rounded-md bg-lime text-xs">D</span>Doxnira</div>
+          <nav className="space-y-0.5 text-[7px] font-bold text-ink-soft">
+            {["Dashboard", "Inteligência Fiscal", "Documentos", "Pedidos", "Produtos", "Relatórios", "Financeiro", "Portal Contábil", "Configurações"].map((item, index) => <div key={item} className={`rounded-md px-2 py-1.5 ${index === 0 ? "bg-lime text-ink" : ""}`}>{item}</div>)}
+          </nav>
+        </aside>
+        <div className="min-w-0 p-3">
+          <div className="flex items-center justify-between gap-3"><h3 className="text-sm font-extrabold text-ink">Dashboard</h3><span className="rounded-full border border-line px-3 py-1 text-[8px] font-bold text-ink-soft">Empresa Exemplo Ltda.</span></div>
+          <div className="mt-2 grid grid-cols-2 gap-2 xl:grid-cols-4">
+            {metrics.map(([label, value, change, tone]) => <div key={label} className="rounded-xl border border-line bg-white p-2.5"><p className="text-[8px] font-bold text-subtle">{label}</p><p className="mt-1 text-base font-extrabold text-ink">{value}</p><p className={`mt-1 text-[8px] font-bold ${tone}`}>{change} este mês</p></div>)}
           </div>
-          <div className="flex items-center gap-1 rounded-full bg-lime-soft px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-[0.08em] text-ink">
-            <span className="h-1.5 w-1.5 rounded-full bg-success" /> Operacional
-          </div>
-        </div>
-
-        <div className="mt-4 grid grid-cols-3 gap-3">
-          {[
-            { label: "Score fiscal", value: "92", suffix: "/100", tone: "success" },
-            { label: "Docs do mês", value: "1.284", tone: "ink" },
-            { label: "Rejeições", value: "3", tone: "danger" },
-          ].map((card) => (
-            <div key={card.label} className="rounded-2xl border border-line bg-muted p-3">
-              <p className="text-[9px] font-bold uppercase tracking-[0.08em] text-subtle">
-                {card.label}
-              </p>
-              <p className="mt-1.5 text-lg font-extrabold tracking-tight text-ink">
-                {card.value}
-                {card.suffix && <span className="ml-1 text-xs font-semibold text-subtle">{card.suffix}</span>}
-              </p>
-              <span
-                className={
-                  "mt-2 inline-block rounded-full px-1.5 py-0.5 text-[9px] font-bold " +
-                  (card.tone === "success"
-                    ? "bg-emerald-100 text-emerald-700"
-                    : card.tone === "danger"
-                      ? "bg-red-100 text-red-700"
-                      : "bg-white text-ink")
-                }
-              >
-                {card.tone === "success" ? "Saudável" : card.tone === "danger" ? "Atenção" : "Estável"}
-              </span>
-            </div>
-          ))}
-        </div>
-
-        <div className="mt-4 rounded-2xl border border-line bg-white p-4">
-          <div className="flex items-center justify-between">
-            <p className="text-xs font-bold text-ink">Documentos recentes</p>
-            <p className="text-[10px] font-semibold text-subtle">NF-e recebidas</p>
-          </div>
-          <ul className="mt-3 space-y-2">
-            {[
-              { code: "NFe · 52.260", status: "Autorizada", tone: "success" },
-              { code: "NFe · 52.261", status: "Pendente", tone: "warning" },
-              { code: "CTe · 52.262", status: "Importado", tone: "ink" },
-            ].map((row) => (
-              <li key={row.code} className="flex items-center justify-between text-[11px]">
-                <span className="font-semibold text-ink">{row.code}</span>
-                <span
-                  className={
-                    "rounded-full px-2 py-0.5 font-bold " +
-                    (row.tone === "success"
-                      ? "bg-emerald-100 text-emerald-700"
-                      : row.tone === "warning"
-                        ? "bg-amber-100 text-amber-700"
-                        : "bg-muted text-ink")
-                  }
-                >
-                  {row.status}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
-
-        <div className="mt-4 rounded-2xl bg-ink p-4 text-white">
-          <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-white/55">
-            Inteligência fiscal ·.next
-          </p>
-          <p className="mt-1 text-sm font-bold leading-5">
-            2 correções sugeridas pela IA podem evitar rejeições.
-          </p>
-          <div className="mt-3 inline-flex items-center gap-2 rounded-full bg-lime px-3 py-1 text-[10px] font-extrabold text-ink">
-            Aplicar correções sugeridas
+          <div className="mt-2 grid gap-2 lg:grid-cols-[1.1fr_0.9fr]">
+            <div className="rounded-xl border border-line p-2"><div className="flex justify-between text-[8px] font-bold text-ink"><span>Emissões por mês</span><span className="text-subtle">Últimos 6 meses</span></div><div className="mt-2 flex h-16 items-end justify-between gap-2">{[35, 50, 65, 55, 84, 67, 91, 75, 88, 100].map((height, index) => <span key={index} className="w-full rounded-t bg-lime" style={{ height: `${height}%` }} />)}</div><div className="mt-1 flex justify-between text-[6px] text-subtle"><span>Jan</span><span>Fev</span><span>Mar</span><span>Abr</span><span>Mai</span><span>Jun</span></div></div>
+            <div className="rounded-xl border border-line p-3"><p className="text-[9px] font-extrabold text-ink">Alertas inteligentes</p>{["CFOP incompatível detectado", "NCM sem benefício fiscal", "Retenção de imposto pendente"].map((item, index) => <div key={item} className="mt-3 flex items-center justify-between gap-2 text-[8px]"><span className="font-semibold text-ink">⚠ {item}</span><span className={`rounded-full px-1.5 py-0.5 font-bold ${index === 1 ? "bg-amber-50 text-amber-600" : "bg-red-50 text-red-500"}`}>{index === 1 ? "Médio" : "Alto"}</span></div>)}</div>
           </div>
         </div>
       </div>

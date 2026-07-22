@@ -18,6 +18,12 @@ const PLAN_LABEL_BY_CODE: Record<string, string> = {
   COMPANY: "Empresa",
 };
 
+const PLAN_CTA_BY_CODE: Record<string, string> = {
+  STARTER: "Começar com Starter",
+  PROFESSIONAL: "Escolher Professional",
+  BUSINESS: "Escolher Business",
+};
+
 export function CheckoutButton({
   planCode,
   billingCycle,
@@ -71,7 +77,7 @@ export function CheckoutButton({
           openContact({ planCode, intent: "lead" as Intent });
         }}
       >
-        Falar com nosso time
+        {PLAN_CTA_BY_CODE[planCode] ?? "Falar com nosso time"}
       </Button>
     );
   }
