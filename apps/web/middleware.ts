@@ -21,9 +21,11 @@ export async function middleware(request: NextRequest) {
 
   const hasCustomToken = request.cookies.get("ns-fiscal-token")?.value;
 
-  const publicPaths = ["/login", "/register", "/auth", "/onboarding"];
+  const publicPaths = ["/", "/login", "/register", "/auth", "/onboarding", "/contato", "/sitemap.xml", "/robots.txt"];
   const isPublic = publicPaths.some((p) =>
-    request.nextUrl.pathname.startsWith(p),
+    p === "/"
+      ? request.nextUrl.pathname === "/"
+      : request.nextUrl.pathname.startsWith(p),
   );
 
   if (!hasCustomToken && !isPublic) {
