@@ -76,6 +76,23 @@ enum BillingProviderEventStatus {
   IGNORED
 }
 
+enum MarketingLeadInterest {
+  PLAN_INFO
+  DEMO
+  INTEGRATION
+  COMMERCE
+  PORTAL_CONTABIL
+  SUPPORT
+  OTHER
+}
+
+enum MarketingLeadStatus {
+  NEW
+  CONTACTED
+  QUALIFIED
+  CLOSED
+}
+
 enum MdfeStatus {
   DRAFT
   PENDING_VALIDATION
@@ -1395,6 +1412,30 @@ model SubscriptionPlanFeature {
 
   @@unique([planId, featureId])
   @@map("subscription_plan_features")
+}
+
+model MarketingLead {
+  id          String                @id @default(uuid()) @db.Uuid
+  name        String                @db.VarChar(100)
+  email       String                @db.VarChar(150)
+  phone       String?               @db.VarChar(30)
+  companyName String                @map("company_name") @db.VarChar(150)
+  document    String?               @db.VarChar(18)
+  interest    MarketingLeadInterest
+  planCode    SubscriptionPlanCode? @map("plan_code")
+  subject     String?               @db.VarChar(200)
+  message     String?               @db.Text
+  source      String?               @db.VarChar(200)
+  status      MarketingLeadStatus   @default(NEW)
+  requestId   String                @map("request_id") @db.VarChar(80)
+  ipHash      String?               @map("ip_hash") @db.VarChar(64)
+  createdAt   DateTime              @default(now()) @map("created_at")
+  updatedAt   DateTime              @updatedAt @map("updated_at")
+
+  @@index([email, createdAt])
+  @@index([planCode, createdAt])
+  @@index([requestId])
+  @@map("marketing_leads")
 }
 
 model Subscription {
