@@ -1,0 +1,186 @@
+name: ns-fiscal-homologation
+
+x-api-environment: &api-environment
+  NODE_ENV: production
+  PORT: "3333"
+  DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/ns_fiscal_cloud_homologation?schema=public
+  REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+  CORS_ORIGIN: https://${WEB_HOST}
+  WEB_ORIGIN: https://${WEB_HOST}
+  API_ORIGIN: https://${API_HOST}
+  CORS_ALLOWED_ORIGINS: https://${WEB_HOST}
+  SESSION_COOKIE_SECURE: "true"
+  SESSION_COOKIE_SAME_SITE: lax
+  SESSION_COOKIE_DOMAIN: ${SESSION_COOKIE_DOMAIN:-}
+  SESSION_TTL_SECONDS: "604800"
+  TRUST_PROXY: "1"
+  WORKER_REQUIRED: "true"
+  WORKER_HEARTBEAT_TTL_SECONDS: "30"
+  JWT_SECRET: ${JWT_SECRET}
+  JWT_EXPIRES_IN: 1h
+  CSRF_SECRET: ${CSRF_SECRET}
+  CERT_ENCRYPTION_KEY: ${CERT_ENCRYPTION_KEY}
+  MARKETPLACE_TOKEN_ENCRYPTION_KEY: ${MARKETPLACE_TOKEN_ENCRYPTION_KEY}
+  MERCADO_LIVRE_CLIENT_ID: ${MERCADO_LIVRE_CLIENT_ID:-}
+  MERCADO_LIVRE_CLIENT_SECRET: ${MERCADO_LIVRE_CLIENT_SECRET:-}
+  MERCADO_LIVRE_REDIRECT_URI: https://${API_HOST}/api/commerce/marketplaces/mercado-livre/callback
+  MERCADO_LIVRE_WEBHOOK_URL: https://${API_HOST}/api/webhooks/marketplaces/mercado-livre
+  PAYMENT_PROVIDER: INFINITEPAY
+  INFINITEPAY_HANDLE: ${INFINITEPAY_HANDLE:-phfabian}
+  INFINITEPAY_API_BASE_URL: https://api.checkout.infinitepay.io
+  INFINITEPAY_REDIRECT_URL: https://${WEB_HOST}/settings/subscription/payment-return
+  INFINITEPAY_WEBHOOK_URL: https://${API_HOST}/api/webhooks/infinitepay
+  UPLOAD_MAX_SIZE_MB: "8"
+  SEFAZ_INTEGRATION_ENABLED: "false"
+  SEFAZ_MANIFESTATION_ENABLED: "false"
+  CTE_INTEGRATION_ENABLED: "false"
+  ALLOW_PRODUCTION_SEFAZ: "false"
+  SEFAZ_ENVIRONMENT: homologation
+  SEFAZ_DIST_DFE_PROD_URL: https://test.invalid/sefaz-dist-prod
+  SEFAZ_DIST_DFE_HOM_URL: https://test.invalid/sefaz-dist-hom
+  SEFAZ_EVENT_PROD_URL: https://test.invalid/sefaz-event-prod
+  SEFAZ_EVENT_HOM_URL: https://test.invalid/sefaz-event-hom
+  CTE_DIST_DFE_PROD_URL: ""
+  CTE_DIST_DFE_HOM_URL: ""
+  LOG_LEVEL: info
+
+services:
+  postgres:
+    image: postgres:16.9-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ns_fiscal_cloud_homologation
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks: [private]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ns_fiscal_cloud_homologation"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7.4.2-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD}"]
+    volumes:
+      - redis_data:/data
+    networks: [private]
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "--no-auth-warning", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  migrate:
+    build:
+      context: ../..
+      dockerfile: apps/api-js/Dockerfile
+      target: build
+    environment: *api-environment
+    command: ["pnpm", "--filter", "@ns-fiscal/api-js", "prisma:deploy"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [private]
+    restart: "no"
+
+  api:
+    build:
+      context: ../..
+      dockerfile: apps/api-js/Dockerfile
+    restart: unless-stopped
+    environment: *api-environment
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    networks: [private]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3333/api/health/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  worker:
+    build:
+      context: ../..
+      dockerfile: apps/api-js/Dockerfile
+    restart: unless-stopped
+    environment: *api-environment
+    command: ["node", "apps/api-js/src/modules/sync/sync.worker.js"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    networks: [private]
+
+  web:
+    build:
+      context: ../..
+      dockerfile: apps/web/Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: https://${API_HOST}/api
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_URL: https://${API_HOST}/api
+    networks: [private]
+
+  proxy:
+    image: caddy:2.10.0-alpine
+    restart: unless-stopped
+    environment:
+      WEB_HOST: ${WEB_HOST}
+      API_HOST: ${API_HOST}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+      web:
+        condition: service_started
+    networks: [private, public]
+
+  backup:
+    image: postgres:16.9-alpine
+    restart: unless-stopped
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        while true; do
+          stamp=$$(date -u +%Y%m%dT%H%M%SZ)
+          pg_dump -h postgres -U ${POSTGRES_USER} -d ns_fiscal_cloud_homologation -Fc -f /backups/homologation-$${stamp}.dump
+          find /backups -type f -name '*.dump' -mtime +7 -delete
+          sleep 86400
+        done
+    volumes:
+      - postgres_backups:/backups
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [private]
+
+networks:
+  public:
+  private:
+    internal: true
+
+volumes:
+  postgres_data:
+  postgres_backups:
+  redis_data:
+  caddy_data:
+  caddy_config:
