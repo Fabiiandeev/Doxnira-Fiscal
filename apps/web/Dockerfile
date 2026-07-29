@@ -13,7 +13,7 @@ ARG NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 ENV NEXT_OUTPUT_STANDALONE=true
 COPY apps/web apps/web
-RUN pnpm --filter @ns-fiscal/web build
+RUN mkdir -p apps/web/public && pnpm --filter @ns-fiscal/web build
 
 FROM base AS runtime
 ENV NODE_ENV=production

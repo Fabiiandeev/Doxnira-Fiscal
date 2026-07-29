@@ -22,4 +22,3 @@ Corpus controlado para validar o NVIDIA RAG do FiscalAI.
 - `corpus/`: documentos Markdown efetivamente ingeridos;
 - `train.json`: perguntas e respostas esperadas para avaliação;
 - `manifest.sha256`: integridade dos documentos do corpus.
-

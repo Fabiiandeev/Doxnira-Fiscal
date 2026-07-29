@@ -16,6 +16,7 @@
     "test:unit": "node --env-file=.env.test --test --test-force-exit test/unit/security-hardening.unit.test.js test/unit/settings.unit.test.js test/unit/accountant-core.unit.test.js test/unit/operation-automation.unit.test.js test/unit/purchase-sales.unit.test.js test/unit/inventory.unit.test.js test/unit/marketplace-operations.unit.test.js test/unit/commerce.unit.test.js test/unit/financial.unit.test.js test/unit/nfe-entry-rules.unit.test.js test/unit/cte-allocation-rules.unit.test.js test/unit/test-database-safety.unit.test.js test/unit/marketplace.unit.test.js test/unit/intelligence.unit.test.js test/unit/fiscal-ai.unit.test.js test/unit/catalogs.unit.test.js test/unit/fiscal-emission.unit.test.js test/unit/fiscal-ops.unit.test.js test/unit/fiscal-compliance.unit.test.js",
     "test:plans": "node --env-file=.env.test --test test/unit/plans.unit.test.js",
     "test:payments": "node --env-file=.env.test --test test/unit/subscription-payments.unit.test.js",
+    "test:mdfe": "node --env-file=.env.test --test --test-force-exit test/unit/mdfe.unit.test.js test/unit/mdfe-auto.unit.test.js test/unit/mdfe-auto-frontend.unit.test.js test/integration/mdfe.integration.test.js test/integration/mdfe-auto.integration.test.js test/e2e/mdfe-http.e2e.test.js",
     "test:integration:payments": "node --env-file=.env.test --test test/integration/subscription-payments.integration.test.js",
     "test:cte-allocation": "node --env-file=.env.test --test test/unit/cte-allocation-rules.unit.test.js test/unit/cte-allocation-service.unit.test.js",
     "test:integration": "node --env-file=.env.test --test test/integration/rate-limit-multiprocess.integration.test.js test/integration/operation-automation.integration.test.js test/integration/purchase-sales.integration.test.js test/integration/inventory.integration.test.js test/integration/incoming-nfe.integration.test.js test/integration/marketplace.integration.test.js",
@@ -38,6 +39,7 @@
     "preflight:test-database": "node scripts/preflight-test-database.cjs",
     "preflight:e2e": "node scripts/preflight-e2e.cjs",
     "audit:external-migrations": "node scripts/audit-external-migrations.mjs",
+    "audit:mdfe-external-preflight": "node scripts/audit-mdfe-external-preflight.mjs",
     "env:status": "node scripts/environment-status.mjs",
     "smoke:readonly": "node scripts/smoke-readonly.mjs",
     "prisma:generate": "prisma generate --config prisma.config.js",
@@ -71,7 +73,9 @@
     "pg": "8.16.3",
     "pino": "10.1.0",
     "pino-http": "11.0.0",
+    "qrcode": "1.5.4",
     "xml-crypto": "6.1.2",
+    "xmllint-wasm": "5.2.0",
     "zod": "4.1.12"
   },
   "devDependencies": {

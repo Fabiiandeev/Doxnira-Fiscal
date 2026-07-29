@@ -49,8 +49,8 @@ export function getFiscalAiProviderConfig(environment = process.env) {
     timeoutMs: parseInteger(environment.FISCAL_AI_TIMEOUT_MS, DEFAULT_TIMEOUT_MS, 1_000, 120_000),
     collections: collections.length ? collections : [DEFAULT_COLLECTION],
     enableQueryRewriting: parseBoolean(environment.FISCAL_AI_RAG_ENABLE_QUERY_REWRITING),
-    rerankerTopK: parseInteger(environment.FISCAL_AI_RAG_RERANKER_TOP_K, 10, 1, 25),
-    vdbTopK: parseInteger(environment.FISCAL_AI_RAG_VDB_TOP_K, 100, 1, 400),
+    rerankerTopK: parseInteger(environment.FISCAL_AI_RAG_RERANKER_TOP_K, 3, 1, 25),
+    vdbTopK: parseInteger(environment.FISCAL_AI_RAG_VDB_TOP_K, 15, 1, 400),
     configured: Boolean(providerUrl && (provider === "NVIDIA_RAG" || apiKey)),
   };
 }

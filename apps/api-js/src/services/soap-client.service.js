@@ -1,6 +1,16 @@
+import { readFileSync } from "node:fs";
 import { request as httpsRequest } from "node:https";
+import { rootCertificates } from "node:tls";
 
 import { AppError } from "../utils/app-error.js";
+
+// Official ICP-Brasil SSL root published by ITI:
+// https://acraiz.icpbrasil.gov.br/credenciadas/RAIZ/ICP-Brasilv10.crt
+const icpBrasilV10Root = readFileSync(
+  new URL("../certificates/icp-brasil-v10.pem", import.meta.url),
+  "utf8",
+);
+const sefazTrustedRoots = [...rootCertificates, icpBrasilV10Root];
 
 export function postSoap({ url, action, body, pfx, passphrase, timeoutMs = 30_000 }) {
   const endpoint = new URL(url);
@@ -14,6 +24,7 @@ export function postSoap({ url, action, body, pfx, passphrase, timeoutMs = 30_00
         method: "POST",
         pfx,
         passphrase,
+        ca: sefazTrustedRoots,
         minVersion: "TLSv1.2",
         rejectUnauthorized: true,
         timeout: timeoutMs,

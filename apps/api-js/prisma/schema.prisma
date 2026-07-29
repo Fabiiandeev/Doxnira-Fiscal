@@ -339,14 +339,22 @@ enum Environment {
 
 enum MdfeStatus {
   DRAFT
-  PENDING_VALIDATION
-  VALIDATED
-  READY_TO_TRANSMIT
-  PROCESSING
+  VALIDATING
+  VALIDATION_FAILED
+  READY_TO_AUTHORIZE
+  SIGNING
+  SIGNED
+  AUTHORIZING
   AUTHORIZED
+  IN_TRANSIT
   REJECTED
+  DENIED
+  CANCELLING
   CANCELLED
+  CLOSING
   CLOSED
+  CONTINGENCY
+  ERROR
 }
 
 enum MdfeDocumentType {
@@ -354,48 +362,138 @@ enum MdfeDocumentType {
   CTE
 }
 
+enum MdfeNfeEligibilityStatus {
+  PENDING_EVALUATION
+  ELIGIBLE
+  INELIGIBLE
+  RESERVED
+  LINKED_TO_DRAFT
+  LINKED_TO_ACTIVE_MDFE
+  COMPLETED
+  RELEASED
+}
+
+enum MdfeNfeReservationStatus {
+  AVAILABLE
+  RESERVED
+  LINKED_TO_DRAFT
+  LINKED_TO_ACTIVE_MDFE
+  RELEASED
+  COMPLETED
+}
+
 model MdfeDraft {
   id              String      @id @default(uuid()) @db.Uuid
   companyId       String      @map("company_id") @db.Uuid
+  establishmentId String?     @map("establishment_id") @db.Uuid
   model           String      @default("58") @db.VarChar(2)
   series          String      @default("1") @db.VarChar(10)
   number          String?     @db.VarChar(30)
+  accessKey       String?     @unique @map("access_key") @db.VarChar(44)
+  numericCode     String?     @map("numeric_code") @db.Char(8)
+  checkDigit      String?     @map("check_digit") @db.Char(1)
   environment     Environment @default(homologation)
   emissionType    String      @default("NORMAL") @map("emission_type") @db.VarChar(30)
   issuerType      String      @map("issuer_type") @db.VarChar(30)
   carrierType     String      @map("carrier_type") @db.VarChar(30)
+  modal           String      @default("RODOVIARIO") @db.VarChar(30)
   emissionDate    DateTime?   @map("emission_date")
+  tripStartAt     DateTime?   @map("trip_start_at")
+  loadingAfter    Boolean     @default(false) @map("loading_after")
+  processVersion  String      @default("DoxniraFiscal-1.0") @map("process_version") @db.VarChar(60)
   loadingState    String?     @map("loading_state") @db.Char(2)
   unloadingState  String?     @map("unloading_state") @db.Char(2)
   loadingCityCode String?     @map("loading_city_code") @db.VarChar(7)
   status          MdfeStatus  @default(DRAFT)
+  statusCode      String?     @map("status_code") @db.VarChar(10)
+  statusReason    String?     @map("status_reason") @db.Text
+  protocol        String?     @db.VarChar(80)
+  authorizedAt    DateTime?   @map("authorized_at")
   currentStep     Int         @default(1) @map("current_step")
   version         Int         @default(1)
+  totalCargoCents Decimal     @default(0) @map("total_cargo_cents") @db.Decimal(20, 0)
+  totalWeightKg   Decimal     @default(0) @map("total_weight_kg") @db.Decimal(15, 3)
+  cargoUnit       String      @default("01") @map("cargo_unit") @db.VarChar(2)
+  cargoQuantity   Decimal     @default(0) @map("cargo_quantity") @db.Decimal(15, 4)
+  predominantProduct String?  @map("predominant_product") @db.VarChar(255)
+  predominantCargoType String? @map("predominant_cargo_type") @db.VarChar(10)
+  predominantNcm String?      @map("predominant_ncm") @db.VarChar(8)
+  predominantProductMetadata Json? @map("predominant_product_metadata")
+  totalNetWeightKg Decimal    @default(0) @map("total_net_weight_kg") @db.Decimal(15, 3)
+  totalPackageQuantity Decimal @default(0) @map("total_package_quantity") @db.Decimal(15, 3)
+  routeSource     String?     @map("route_source") @db.VarChar(80)
+  routeConfidence String?     @map("route_confidence") @db.VarChar(20)
+  routeConfirmedAt DateTime?  @map("route_confirmed_at")
+  automaticPreparationKey String? @map("automatic_preparation_key") @db.VarChar(120)
+  loadingCep      String?     @map("loading_cep") @db.VarChar(8)
+  unloadingCep    String?     @map("unloading_cep") @db.VarChar(8)
   additionalInfo  String?     @map("additional_info") @db.Text
   fiscalInfo      String?     @map("fiscal_info") @db.Text
+  internalInfo    String?     @map("internal_info") @db.Text
+  internalReference String?   @map("internal_reference") @db.VarChar(160)
+  tags            Json?
+  deletedAt       DateTime?   @map("deleted_at")
   createdById     String      @map("created_by_id") @db.Uuid
   updatedById     String?     @map("updated_by_id") @db.Uuid
   createdAt       DateTime    @default(now()) @map("created_at")
   updatedAt       DateTime    @updatedAt @map("updated_at")
 
   company   Company @relation(fields: [companyId], references: [id])
+  establishment FiscalEstablishment? @relation(fields: [establishmentId], references: [id])
   createdBy User    @relation("MdfeDraftCreatedBy", fields: [createdById], references: [id])
   updatedBy User?   @relation("MdfeDraftUpdatedBy", fields: [updatedById], references: [id])
   routeStates MdfeRouteState[]
+  loadingMunicipalities MdfeLoadingMunicipality[]
   unloadingCities MdfeUnloadingCity[]
   vehicle     MdfeVehicle?
+  trailers    MdfeTrailer[]
   drivers     MdfeDriver[]
   fiscalDocuments MdfeFiscalDocumentLink[]
-  insurance   MdfeInsurance?
+  contractors MdfeContractor[]
+  ciots       MdfeCiot[]
+  tollVouchers MdfeTollVoucher[]
+  payments    MdfePayment[]
+  insurances  MdfeInsurance[]
+  seals       MdfeSeal[]
   validationRuns MdfeValidationRun[]
   events      MdfeEvent[]
+  transmissionAttempts MdfeTransmissionAttempt[]
+  xmlArtifacts MdfeXmlArtifact[]
   auditLogs   MdfeAuditLog[]
+  nfeReservations MdfeNfeReservation[]
 
   @@unique([companyId, series, number])
+  @@unique([companyId, automaticPreparationKey])
   @@index([companyId, status])
+  @@index([companyId, establishmentId, status])
   @@index([companyId, emissionDate(sort: Desc)])
   @@index([companyId, series, number])
+  @@index([companyId, accessKey])
+  @@index([companyId, deletedAt])
   @@map("mdfe_drafts")
+}
+
+model MdfeLoadingMunicipality {
+  id          String   @id @default(uuid()) @db.Uuid
+  companyId   String   @map("company_id") @db.Uuid
+  mdfeDraftId String   @map("mdfe_draft_id") @db.Uuid
+  stateCode   String   @map("state_code") @db.Char(2)
+  cityCode    String   @map("city_code") @db.VarChar(7)
+  cityName    String   @map("city_name") @db.VarChar(120)
+  expectedAt  DateTime? @map("expected_at")
+  internalNote String? @map("internal_note") @db.Text
+  sequence    Int
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  company   Company   @relation(fields: [companyId], references: [id])
+  mdfeDraft MdfeDraft @relation(fields: [mdfeDraftId], references: [id], onDelete: Cascade)
+
+  @@unique([mdfeDraftId, cityCode])
+  @@unique([mdfeDraftId, sequence])
+  @@index([companyId])
+  @@index([mdfeDraftId, sequence])
+  @@map("mdfe_loading_municipalities")
 }
 
 model MdfeRouteState {
@@ -430,6 +528,7 @@ model MdfeUnloadingCity {
 
   company   Company   @relation(fields: [companyId], references: [id])
   mdfeDraft MdfeDraft @relation(fields: [mdfeDraftId], references: [id], onDelete: Cascade)
+  fiscalDocuments MdfeFiscalDocumentLink[]
 
   @@unique([mdfeDraftId, cityCode])
   @@unique([mdfeDraftId, sequence])
@@ -468,12 +567,44 @@ model MdfeVehicle {
   @@map("mdfe_vehicles")
 }
 
+model MdfeTrailer {
+  id                    String   @id @default(uuid()) @db.Uuid
+  companyId             String   @map("company_id") @db.Uuid
+  mdfeDraftId           String   @map("mdfe_draft_id") @db.Uuid
+  plate                 String   @db.VarChar(7)
+  plateState            String?  @map("plate_state") @db.Char(2)
+  renavam               String?  @db.VarChar(20)
+  rntrc                 String?  @db.VarChar(20)
+  tareWeight             Decimal? @map("tare_weight") @db.Decimal(15, 3)
+  capacityKg             Decimal? @map("capacity_kg") @db.Decimal(15, 3)
+  capacityM3             Decimal? @map("capacity_m3") @db.Decimal(15, 3)
+  bodyType               String?  @map("body_type") @db.VarChar(30)
+  ownerType              String?  @map("owner_type") @db.VarChar(30)
+  ownerName              String?  @map("owner_name") @db.VarChar(255)
+  ownerCpfCnpj           String?  @map("owner_cpf_cnpj") @db.VarChar(20)
+  ownerStateRegistration String?  @map("owner_state_registration") @db.VarChar(40)
+  sequence               Int
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
+
+  company   Company   @relation(fields: [companyId], references: [id])
+  mdfeDraft MdfeDraft @relation(fields: [mdfeDraftId], references: [id], onDelete: Cascade)
+
+  @@unique([mdfeDraftId, plate])
+  @@unique([mdfeDraftId, sequence])
+  @@index([companyId])
+  @@index([plate])
+  @@map("mdfe_trailers")
+}
+
 model MdfeDriver {
   id          String   @id @default(uuid()) @db.Uuid
   companyId   String   @map("company_id") @db.Uuid
   mdfeDraftId String   @map("mdfe_draft_id") @db.Uuid
   cpf         String   @db.VarChar(11)
   name        String   @db.VarChar(160)
+  phone       String?  @db.VarChar(20)
+  isPrimary   Boolean  @default(false) @map("is_primary")
   sequence    Int
   isActive    Boolean  @default(true) @map("is_active")
   createdAt   DateTime @default(now()) @map("created_at")
@@ -496,7 +627,9 @@ model MdfeFiscalDocumentLink {
   mdfeDraftId       String           @map("mdfe_draft_id") @db.Uuid
   documentType      MdfeDocumentType @map("document_type")
   nfeEntryId        String?          @map("nfe_entry_id") @db.Uuid
+  nfeDocumentId     String?          @map("nfe_document_id") @db.Uuid
   cteEntryId        String?          @map("cte_entry_id") @db.Uuid
+  unloadingCityId   String?          @map("unloading_city_id") @db.Uuid
   accessKey         String           @map("access_key") @db.VarChar(44)
   documentNumber    String?          @map("document_number") @db.VarChar(30)
   series            String?          @db.VarChar(10)
@@ -511,26 +644,227 @@ model MdfeFiscalDocumentLink {
   company   Company   @relation(fields: [companyId], references: [id])
   mdfeDraft MdfeDraft @relation(fields: [mdfeDraftId], references: [id], onDelete: Cascade)
   nfeEntry  NfeEntry? @relation(fields: [nfeEntryId], references: [id])
+  nfeDocument NfeDocument? @relation(fields: [nfeDocumentId], references: [id])
   cteEntry  CteEntry? @relation(fields: [cteEntryId], references: [id])
+  unloadingCity MdfeUnloadingCity? @relation(fields: [unloadingCityId], references: [id])
 
   @@unique([mdfeDraftId, documentType, accessKey])
   @@unique([mdfeDraftId, sequence])
   @@index([companyId])
   @@index([accessKey])
   @@index([nfeEntryId])
+  @@index([nfeDocumentId])
   @@index([cteEntryId])
+  @@index([unloadingCityId])
   @@map("mdfe_fiscal_document_links")
+}
+
+model MdfeNfeEligibility {
+  id                    String                   @id @default(uuid()) @db.Uuid
+  companyId             String                   @map("company_id") @db.Uuid
+  establishmentId       String?                  @map("establishment_id") @db.Uuid
+  nfeDocumentId         String                   @unique @map("nfe_document_id") @db.Uuid
+  status                MdfeNfeEligibilityStatus @default(PENDING_EVALUATION)
+  reasonCode            String?                  @map("reason_code") @db.VarChar(80)
+  reasonMessage         String?                  @map("reason_message") @db.VarChar(500)
+  establishmentKey      String?                  @map("establishment_key") @db.VarChar(120)
+  loadingCityCode       String?                  @map("loading_city_code") @db.VarChar(7)
+  loadingCityName       String?                  @map("loading_city_name") @db.VarChar(120)
+  loadingState          String?                  @map("loading_state") @db.Char(2)
+  destinationCityCode   String?                  @map("destination_city_code") @db.VarChar(7)
+  destinationCityName   String?                  @map("destination_city_name") @db.VarChar(120)
+  destinationState      String?                  @map("destination_state") @db.Char(2)
+  cargoOwnershipType    String                   @default("OWN_CARGO") @map("cargo_ownership_type") @db.VarChar(30)
+  issuerType            String                   @default("CARGA_PROPRIA") @map("issuer_type") @db.VarChar(30)
+  transportMode         String                   @default("RODOVIARIO") @map("transport_mode") @db.VarChar(30)
+  contractorId          String?                  @map("contractor_id") @db.Uuid
+  evaluatedAt           DateTime?                @map("evaluated_at")
+  version               Int                      @default(1)
+  createdAt             DateTime                 @default(now()) @map("created_at")
+  updatedAt             DateTime                 @updatedAt @map("updated_at")
+
+  company       Company                    @relation(fields: [companyId], references: [id])
+  establishment FiscalEstablishment?       @relation(fields: [establishmentId], references: [id])
+  nfeDocument   NfeDocument                @relation(fields: [nfeDocumentId], references: [id], onDelete: Cascade)
+  history       MdfeNfeEligibilityHistory[]
+
+  @@index([companyId, status, destinationState])
+  @@index([companyId, establishmentId, status])
+  @@index([companyId, establishmentKey, status])
+  @@index([companyId, evaluatedAt(sort: Desc)])
+  @@map("mdfe_nfe_eligibilities")
+}
+
+model MdfeNfeEligibilityHistory {
+  id             String                   @id @default(uuid()) @db.Uuid
+  companyId      String                   @map("company_id") @db.Uuid
+  eligibilityId  String                   @map("eligibility_id") @db.Uuid
+  previousStatus MdfeNfeEligibilityStatus? @map("previous_status")
+  nextStatus     MdfeNfeEligibilityStatus @map("next_status")
+  reasonCode     String?                  @map("reason_code") @db.VarChar(80)
+  reasonMessage  String?                  @map("reason_message") @db.VarChar(500)
+  metadata       Json?
+  createdAt      DateTime                 @default(now()) @map("created_at")
+
+  company     Company            @relation(fields: [companyId], references: [id])
+  eligibility MdfeNfeEligibility @relation(fields: [eligibilityId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, createdAt(sort: Desc)])
+  @@index([eligibilityId, createdAt(sort: Desc)])
+  @@map("mdfe_nfe_eligibility_history")
+}
+
+model MdfeNfeReservation {
+  id             String                   @id @default(uuid()) @db.Uuid
+  companyId      String                   @map("company_id") @db.Uuid
+  nfeDocumentId  String                   @unique @map("nfe_document_id") @db.Uuid
+  mdfeDraftId    String?                  @map("mdfe_draft_id") @db.Uuid
+  userId         String                   @map("user_id") @db.Uuid
+  status         MdfeNfeReservationStatus @default(RESERVED)
+  idempotencyKey String                   @map("idempotency_key") @db.VarChar(120)
+  reservedAt     DateTime                 @default(now()) @map("reserved_at")
+  expiresAt      DateTime                 @map("expires_at")
+  releasedAt     DateTime?                @map("released_at")
+  releaseReason  String?                  @map("release_reason") @db.VarChar(500)
+  createdAt      DateTime                 @default(now()) @map("created_at")
+  updatedAt      DateTime                 @updatedAt @map("updated_at")
+
+  company     Company       @relation(fields: [companyId], references: [id])
+  nfeDocument NfeDocument   @relation(fields: [nfeDocumentId], references: [id], onDelete: Cascade)
+  mdfeDraft   MdfeDraft?    @relation(fields: [mdfeDraftId], references: [id], onDelete: SetNull)
+  user        User          @relation(fields: [userId], references: [id])
+
+  @@unique([companyId, idempotencyKey, nfeDocumentId])
+  @@index([companyId, status, expiresAt])
+  @@index([mdfeDraftId, status])
+  @@map("mdfe_nfe_reservations")
+}
+
+model MdfeContractor {
+  id          String   @id @default(uuid()) @db.Uuid
+  companyId   String   @map("company_id") @db.Uuid
+  mdfeDraftId String   @map("mdfe_draft_id") @db.Uuid
+  taxId       String   @map("tax_id") @db.VarChar(20)
+  name        String?  @db.VarChar(255)
+  role        String?  @db.VarChar(40)
+  sequence    Int
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  company   Company   @relation(fields: [companyId], references: [id])
+  mdfeDraft MdfeDraft @relation(fields: [mdfeDraftId], references: [id], onDelete: Cascade)
+  ciots       MdfeCiot[]
+  payments    MdfePayment[]
+
+  @@unique([mdfeDraftId, taxId])
+  @@unique([mdfeDraftId, sequence])
+  @@index([companyId])
+  @@map("mdfe_contractors")
+}
+
+model MdfeCiot {
+  id             String   @id @default(uuid()) @db.Uuid
+  companyId      String   @map("company_id") @db.Uuid
+  mdfeDraftId    String   @map("mdfe_draft_id") @db.Uuid
+  contractorId   String?  @map("contractor_id") @db.Uuid
+  number         String   @db.VarChar(20)
+  responsibleTaxId String @map("responsible_tax_id") @db.VarChar(20)
+  status         String?  @db.VarChar(30)
+  internalNote   String?  @map("internal_note") @db.Text
+  sequence       Int
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  company    Company        @relation(fields: [companyId], references: [id])
+  mdfeDraft  MdfeDraft      @relation(fields: [mdfeDraftId], references: [id], onDelete: Cascade)
+  contractor MdfeContractor? @relation(fields: [contractorId], references: [id])
+
+  @@unique([mdfeDraftId, number])
+  @@unique([mdfeDraftId, sequence])
+  @@index([companyId])
+  @@index([contractorId])
+  @@map("mdfe_ciots")
+}
+
+model MdfeTollVoucher {
+  id             String   @id @default(uuid()) @db.Uuid
+  companyId      String   @map("company_id") @db.Uuid
+  mdfeDraftId    String   @map("mdfe_draft_id") @db.Uuid
+  providerName   String?  @map("provider_name") @db.VarChar(255)
+  providerCnpj   String   @map("provider_cnpj") @db.VarChar(20)
+  purchaseNumber String   @map("purchase_number") @db.VarChar(80)
+  amountCents    Decimal  @map("amount_cents") @db.Decimal(20, 0)
+  paymentDevice  String?  @map("payment_device") @db.VarChar(80)
+  category       String?  @db.VarChar(30)
+  sequence       Int
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  company   Company   @relation(fields: [companyId], references: [id])
+  mdfeDraft MdfeDraft @relation(fields: [mdfeDraftId], references: [id], onDelete: Cascade)
+
+  @@unique([mdfeDraftId, providerCnpj, purchaseNumber])
+  @@unique([mdfeDraftId, sequence])
+  @@index([companyId])
+  @@map("mdfe_toll_vouchers")
+}
+
+model MdfePayment {
+  id              String   @id @default(uuid()) @db.Uuid
+  companyId       String   @map("company_id") @db.Uuid
+  mdfeDraftId     String   @map("mdfe_draft_id") @db.Uuid
+  contractorId    String?  @map("contractor_id") @db.Uuid
+  responsibleTaxId String? @map("responsible_tax_id") @db.VarChar(20)
+  paymentMethod   String?  @map("payment_method") @db.VarChar(10)
+  paymentTiming   String?  @map("payment_timing") @db.VarChar(20)
+  amountCents     Decimal  @default(0) @map("amount_cents") @db.Decimal(20, 0)
+  bankCode        String?  @map("bank_code") @db.VarChar(10)
+  branchCode      String?  @map("branch_code") @db.VarChar(10)
+  accountNumber   String?  @map("account_number") @db.VarChar(30)
+  sequence        Int
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  company    Company        @relation(fields: [companyId], references: [id])
+  mdfeDraft  MdfeDraft      @relation(fields: [mdfeDraftId], references: [id], onDelete: Cascade)
+  contractor MdfeContractor? @relation(fields: [contractorId], references: [id])
+  components MdfePaymentComponent[]
+
+  @@unique([mdfeDraftId, sequence])
+  @@index([companyId])
+  @@index([contractorId])
+  @@map("mdfe_payments")
+}
+
+model MdfePaymentComponent {
+  id          String   @id @default(uuid()) @db.Uuid
+  companyId   String   @map("company_id") @db.Uuid
+  paymentId   String   @map("payment_id") @db.Uuid
+  type        String   @db.VarChar(10)
+  description String?  @db.VarChar(160)
+  amountCents Decimal  @map("amount_cents") @db.Decimal(20, 0)
+  sequence    Int
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  company Company     @relation(fields: [companyId], references: [id])
+  payment MdfePayment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  @@unique([paymentId, sequence])
+  @@index([companyId])
+  @@map("mdfe_payment_components")
 }
 
 model MdfeInsurance {
   id                  String   @id @default(uuid()) @db.Uuid
   companyId           String   @map("company_id") @db.Uuid
-  mdfeDraftId         String   @unique @map("mdfe_draft_id") @db.Uuid
+  mdfeDraftId         String   @map("mdfe_draft_id") @db.Uuid
   responsibleType     String   @map("responsible_type") @db.VarChar(30)
   responsibleCpfCnpj  String?  @map("responsible_cpf_cnpj") @db.VarChar(14)
   insurerName         String   @map("insurer_name") @db.VarChar(255)
   insurerCnpj         String   @map("insurer_cnpj") @db.VarChar(14)
   policyNumber        String   @map("policy_number") @db.VarChar(80)
+  sequence            Int      @default(1)
   createdAt           DateTime @default(now()) @map("created_at")
   updatedAt           DateTime @updatedAt @map("updated_at")
 
@@ -541,7 +875,27 @@ model MdfeInsurance {
   @@index([companyId])
   @@index([insurerCnpj])
   @@index([policyNumber])
+  @@unique([mdfeDraftId, policyNumber])
   @@map("mdfe_insurances")
+}
+
+model MdfeSeal {
+  id          String   @id @default(uuid()) @db.Uuid
+  companyId   String   @map("company_id") @db.Uuid
+  mdfeDraftId String   @map("mdfe_draft_id") @db.Uuid
+  number      String   @db.VarChar(60)
+  note        String?  @db.VarChar(255)
+  sequence    Int
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  company   Company   @relation(fields: [companyId], references: [id])
+  mdfeDraft MdfeDraft @relation(fields: [mdfeDraftId], references: [id], onDelete: Cascade)
+
+  @@unique([mdfeDraftId, number])
+  @@unique([mdfeDraftId, sequence])
+  @@index([companyId])
+  @@map("mdfe_seals")
 }
 
 model MdfeInsuranceEndorsement {
@@ -628,6 +982,12 @@ model MdfeEvent {
   metadata       Json?
   userId         String?  @map("user_id") @db.Uuid
   requestId      String?  @map("request_id") @db.VarChar(80)
+  idempotencyKey String?  @map("idempotency_key") @db.VarChar(120)
+  eventSequence  Int?     @map("event_sequence")
+  protocol       String?  @db.VarChar(80)
+  statusCode     String?  @map("status_code") @db.VarChar(10)
+  responseReason String?  @map("response_reason") @db.Text
+  xmlArtifactId  String?  @map("xml_artifact_id") @db.Uuid
   createdAt      DateTime @default(now()) @map("created_at")
 
   company   Company   @relation(fields: [companyId], references: [id])
@@ -638,7 +998,53 @@ model MdfeEvent {
   @@index([mdfeDraftId, createdAt(sort: Desc)])
   @@index([type])
   @@index([requestId])
+  @@unique([mdfeDraftId, type, idempotencyKey])
   @@map("mdfe_events")
+}
+
+model MdfeTransmissionAttempt {
+  id             String   @id @default(uuid()) @db.Uuid
+  companyId      String   @map("company_id") @db.Uuid
+  mdfeDraftId    String   @map("mdfe_draft_id") @db.Uuid
+  idempotencyKey String   @map("idempotency_key") @db.VarChar(120)
+  operation      String   @db.VarChar(40)
+  status         String   @db.VarChar(30)
+  requestHash    String?  @map("request_hash") @db.Char(64)
+  statusCode     String?  @map("status_code") @db.VarChar(10)
+  responseReason String?  @map("response_reason") @db.Text
+  responsePayload Json?   @map("response_payload")
+  startedAt      DateTime @default(now()) @map("started_at")
+  completedAt    DateTime? @map("completed_at")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  company   Company   @relation(fields: [companyId], references: [id])
+  mdfeDraft MdfeDraft @relation(fields: [mdfeDraftId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, idempotencyKey])
+  @@index([mdfeDraftId, createdAt(sort: Desc)])
+  @@index([companyId, operation, status])
+  @@map("mdfe_transmission_attempts")
+}
+
+model MdfeXmlArtifact {
+  id             String   @id @default(uuid()) @db.Uuid
+  companyId      String   @map("company_id") @db.Uuid
+  mdfeDraftId    String   @map("mdfe_draft_id") @db.Uuid
+  kind           String   @db.VarChar(40)
+  layoutVersion  String   @map("layout_version") @db.VarChar(20)
+  schemaVersion  String   @map("schema_version") @db.VarChar(30)
+  processVersion String   @map("process_version") @db.VarChar(60)
+  content        String   @db.Text
+  hashSha256     String   @map("hash_sha256") @db.Char(64)
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  company   Company   @relation(fields: [companyId], references: [id])
+  mdfeDraft MdfeDraft @relation(fields: [mdfeDraftId], references: [id], onDelete: Cascade)
+
+  @@unique([mdfeDraftId, kind, hashSha256])
+  @@index([companyId])
+  @@index([mdfeDraftId, createdAt(sort: Desc)])
+  @@map("mdfe_xml_artifacts")
 }
 
 model MdfeAuditLog {
@@ -740,6 +1146,7 @@ model User {
   accountantRequestEvents AccountantDocumentRequestEvent[] @relation("RequestEventActor")
   mdfeDraftsCreated MdfeDraft[] @relation("MdfeDraftCreatedBy")
   mdfeDraftsUpdated MdfeDraft[] @relation("MdfeDraftUpdatedBy")
+  mdfeNfeReservations MdfeNfeReservation[]
   mdfeValidationRunsRequested MdfeValidationRun[] @relation("MdfeValidationRequestedBy")
   mdfeEvents MdfeEvent[] @relation("MdfeEventUser")
   mdfeAuditLogs MdfeAuditLog[] @relation("MdfeAuditUser")
@@ -939,6 +1346,11 @@ model Company {
 
   owner                   User                     @relation(fields: [ownerId], references: [id])
   certificates            DigitalCertificate[]
+  establishments           FiscalEstablishment[]
+  drivers                  Driver[]
+  fleetVehicles            FleetVehicle[]
+  mdfeOperationalSettings  MdfeOperationalSetting[]
+  nfeAuthorizedEvents      NfeAuthorizedEvent[]
   fiscalDocuments         FiscalDocument[]
   fiscalEvents            FiscalEvent[]
   syncLogs                SyncLog[]
@@ -962,6 +1374,9 @@ model Company {
   transportadoras         Transportadora[]
   fornecedores            Fornecedor[]
   nfeDocuments            NfeDocument[]
+  mdfeNfeEligibilities    MdfeNfeEligibility[]
+  mdfeNfeEligibilityHistory MdfeNfeEligibilityHistory[]
+  mdfeNfeReservations     MdfeNfeReservation[]
   nfeNumberSequences      NfeNumberSequence[]
   nfeValidationRuns       NfeValidationRun[]
   nfeItems                NfeItem[]
@@ -1029,6 +1444,7 @@ model Company {
   accountantRequests      AccountantDocumentRequest[]
   accountantRequestEvents AccountantDocumentRequestEvent[]
   mdfeDrafts            MdfeDraft[]
+  mdfeLoadingMunicipalities MdfeLoadingMunicipality[]
   marketplaceConnections MarketplaceConnection[]
   marketplaceSyncJobs MarketplaceSyncJob[]
   marketplaceSyncEvents MarketplaceSyncEvent[]
@@ -1040,13 +1456,22 @@ model Company {
   mdfeRouteStates       MdfeRouteState[]
   mdfeUnloadingCities   MdfeUnloadingCity[]
   mdfeVehicles          MdfeVehicle[]
+  mdfeTrailers          MdfeTrailer[]
   mdfeDrivers           MdfeDriver[]
   mdfeFiscalDocumentLinks MdfeFiscalDocumentLink[]
+  mdfeContractors       MdfeContractor[]
+  mdfeCiots             MdfeCiot[]
+  mdfeTollVouchers      MdfeTollVoucher[]
+  mdfePayments          MdfePayment[]
+  mdfePaymentComponents MdfePaymentComponent[]
   mdfeInsurances        MdfeInsurance[]
   mdfeInsuranceEndorsements MdfeInsuranceEndorsement[]
+  mdfeSeals             MdfeSeal[]
   mdfeValidationRuns      MdfeValidationRun[]
   mdfeValidationIssues    MdfeValidationIssue[]
   mdfeEvents              MdfeEvent[]
+  mdfeTransmissionAttempts MdfeTransmissionAttempt[]
+  mdfeXmlArtifacts         MdfeXmlArtifact[]
   mdfeAuditLogs           MdfeAuditLog[]
 
   @@index([ownerId])
@@ -1070,9 +1495,154 @@ model DigitalCertificate {
   updatedAt         DateTime  @updatedAt @map("updated_at")
 
   company Company @relation(fields: [companyId], references: [id])
+  establishments FiscalEstablishment[]
 
   @@index([companyId])
   @@map("digital_certificates")
+}
+
+model FiscalEstablishment {
+  id                String   @id @default(uuid()) @db.Uuid
+  companyId         String   @map("company_id") @db.Uuid
+  code              String   @db.VarChar(40)
+  legalName         String   @map("legal_name") @db.VarChar(255)
+  tradeName         String?  @map("trade_name") @db.VarChar(255)
+  taxId             String   @map("tax_id") @db.VarChar(20)
+  stateRegistration String?  @map("state_registration") @db.VarChar(40)
+  municipalRegistration String? @map("municipal_registration") @db.VarChar(40)
+  cityCode          String?  @map("city_code") @db.VarChar(7)
+  city              String?  @db.VarChar(120)
+  state             String?  @db.Char(2)
+  postalCode        String?  @map("postal_code") @db.VarChar(8)
+  street            String?  @db.VarChar(255)
+  number            String?  @db.VarChar(30)
+  complement        String?  @db.VarChar(120)
+  district          String?  @db.VarChar(120)
+  isHeadquarters    Boolean  @default(false) @map("is_headquarters")
+  isActive          Boolean  @default(true) @map("is_active")
+  certificateId     String?  @map("certificate_id") @db.Uuid
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  company            Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  certificate        DigitalCertificate? @relation(fields: [certificateId], references: [id], onDelete: SetNull)
+  nfeDocuments       NfeDocument[]
+  mdfeDrafts         MdfeDraft[]
+  mdfeEligibilities  MdfeNfeEligibility[]
+  operationalSettings MdfeOperationalSetting[]
+  authorizedEvents   NfeAuthorizedEvent[]
+
+  @@unique([companyId, code])
+  @@unique([companyId, taxId])
+  @@index([companyId, isActive])
+  @@map("fiscal_establishments")
+}
+
+model Driver {
+  id          String    @id @default(uuid()) @db.Uuid
+  companyId   String    @map("company_id") @db.Uuid
+  name        String    @db.VarChar(160)
+  cpf         String    @db.VarChar(11)
+  phone       String?   @db.VarChar(20)
+  license     String?   @db.VarChar(30)
+  licenseType String?   @map("license_type") @db.VarChar(10)
+  isActive    Boolean   @default(true) @map("is_active")
+  deletedAt   DateTime? @map("deleted_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  company         Company                  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  defaultSettings MdfeOperationalSetting[] @relation("DefaultDriver")
+
+  @@unique([companyId, cpf])
+  @@index([companyId, isActive, deletedAt])
+  @@map("drivers")
+}
+
+model FleetVehicle {
+  id              String    @id @default(uuid()) @db.Uuid
+  companyId       String    @map("company_id") @db.Uuid
+  plate           String    @db.VarChar(7)
+  plateState      String?   @map("plate_state") @db.Char(2)
+  renavam         String?   @db.VarChar(20)
+  rntrc           String?   @db.VarChar(20)
+  tareWeight      Decimal?  @map("tare_weight") @db.Decimal(15, 3)
+  capacityKg      Decimal?  @map("capacity_kg") @db.Decimal(15, 3)
+  capacityM3      Decimal?  @map("capacity_m3") @db.Decimal(15, 3)
+  wheelType       String?   @map("wheel_type") @db.VarChar(30)
+  bodyType        String?   @map("body_type") @db.VarChar(30)
+  ownerType       String?   @map("owner_type") @db.VarChar(30)
+  ownerName       String?   @map("owner_name") @db.VarChar(255)
+  ownerCpfCnpj    String?   @map("owner_cpf_cnpj") @db.VarChar(20)
+  ownerStateRegistration String? @map("owner_state_registration") @db.VarChar(40)
+  isActive        Boolean   @default(true) @map("is_active")
+  deletedAt       DateTime? @map("deleted_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  company         Company                  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  defaultSettings MdfeOperationalSetting[] @relation("DefaultVehicle")
+
+  @@unique([companyId, plate])
+  @@index([companyId, isActive, deletedAt])
+  @@map("fleet_vehicles")
+}
+
+model MdfeOperationalSetting {
+  id               String        @id @default(uuid()) @db.Uuid
+  companyId        String        @map("company_id") @db.Uuid
+  establishmentId  String?       @map("establishment_id") @db.Uuid
+  defaultVehicleId String?       @map("default_vehicle_id") @db.Uuid
+  defaultDriverId  String?       @map("default_driver_id") @db.Uuid
+  defaultSeries    String        @default("1") @map("default_series") @db.VarChar(10)
+  issuerType       String        @default("TRANSPORTADOR_CARGA_PROPRIA") @map("issuer_type") @db.VarChar(30)
+  carrierType      String        @default("PROPRIO") @map("carrier_type") @db.VarChar(30)
+  modal            String        @default("RODOVIARIO") @db.VarChar(30)
+  environment      Environment?
+  routeProvider    String        @default("DETERMINISTIC_IBGE") @map("route_provider") @db.VarChar(80)
+  quickModeEnabled Boolean       @default(true) @map("quick_mode_enabled")
+  rntrc            String?       @db.VarChar(20)
+  isActive         Boolean       @default(true) @map("is_active")
+  createdAt        DateTime      @default(now()) @map("created_at")
+  updatedAt        DateTime      @updatedAt @map("updated_at")
+
+  company       Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  establishment FiscalEstablishment? @relation(fields: [establishmentId], references: [id], onDelete: Cascade)
+  defaultVehicle FleetVehicle?       @relation("DefaultVehicle", fields: [defaultVehicleId], references: [id], onDelete: SetNull)
+  defaultDriver Driver?              @relation("DefaultDriver", fields: [defaultDriverId], references: [id], onDelete: SetNull)
+
+  @@unique([companyId, establishmentId])
+  @@index([companyId, isActive])
+  @@map("mdfe_operational_settings")
+}
+
+model NfeAuthorizedEvent {
+  id             String    @id @default(uuid()) @db.Uuid
+  eventId        String    @unique @map("event_id") @db.VarChar(160)
+  companyId      String    @map("company_id") @db.Uuid
+  establishmentId String?  @map("establishment_id") @db.Uuid
+  nfeDocumentId  String    @map("nfe_document_id") @db.Uuid
+  accessKey      String    @map("access_key") @db.VarChar(44)
+  protocol       String    @db.VarChar(80)
+  environment    String    @db.VarChar(1)
+  source         String    @default("SEFAZ") @db.VarChar(30)
+  authorizedAt   DateTime  @map("authorized_at")
+  xmlArtifactId  String?   @map("xml_artifact_id") @db.Uuid
+  status         String    @default("PENDING") @db.VarChar(30)
+  attemptCount   Int       @default(0) @map("attempt_count")
+  lastError      String?   @map("last_error") @db.Text
+  processedAt    DateTime? @map("processed_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  company       Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  establishment FiscalEstablishment? @relation(fields: [establishmentId], references: [id], onDelete: SetNull)
+  nfeDocument   NfeDocument          @relation(fields: [nfeDocumentId], references: [id], onDelete: Cascade)
+
+  @@unique([nfeDocumentId, protocol])
+  @@index([companyId, status, authorizedAt])
+  @@index([establishmentId, status])
+  @@map("nfe_authorized_events")
 }
 
 model FiscalDocument {
@@ -2230,6 +2800,7 @@ model Fornecedor {
 model NfeDocument {
   id                String    @id @default(uuid()) @db.Uuid
   companyId         String    @map("company_id") @db.Uuid
+  establishmentId   String?   @map("establishment_id") @db.Uuid
   userId            String    @map("user_id") @db.Uuid
   status            String    @default("RASCUNHO") @db.VarChar(30)
   numero            Int?
@@ -2274,6 +2845,7 @@ model NfeDocument {
   updatedAt         DateTime  @updatedAt @map("updated_at")
 
   company              Company                  @relation(fields: [companyId], references: [id])
+  establishment        FiscalEstablishment?     @relation(fields: [establishmentId], references: [id])
   user                 User                     @relation(fields: [userId], references: [id])
   items                NfeItem[]
   totals               NfeTotal?
@@ -2287,9 +2859,14 @@ model NfeDocument {
   authorization        NfeAuthorization?
   files                NfeFile[]
   logs                 NfeLog[]
+  mdfeEligibility      MdfeNfeEligibility?
+  mdfeReservation      MdfeNfeReservation?
+  mdfeFiscalDocumentLinks MdfeFiscalDocumentLink[]
+  authorizedEvents     NfeAuthorizedEvent[]
 
   @@unique([companyId, modelo, serie, ambiente, numero], map: "nfe_documents_company_model_serie_ambiente_numero_key")
   @@index([companyId])
+  @@index([companyId, establishmentId])
   @@index([companyId, status])
   @@index([chaveAcesso])
   @@index([numero, serie])
@@ -3594,19 +4171,26 @@ model Payable {
   recurrence        String?   @db.VarChar(30)
   status            String    @default("PENDING") @db.VarChar(30)
   source            String    @default("NFE_ENTRY") @db.VarChar(30)
+  sourceType        String?   @map("source_type") @db.VarChar(40)
+  sourceId          String?   @map("source_id") @db.Uuid
   paidAt            DateTime? @map("paid_at")
   createdAt         DateTime  @default(now()) @map("created_at")
   updatedAt         DateTime  @updatedAt @map("updated_at")
 
-  company  Company     @relation(fields: [companyId], references: [id])
-  nfeEntry NfeEntry?   @relation(fields: [nfeEntryId], references: [id], onDelete: Cascade)
-  supplier Fornecedor? @relation(fields: [supplierId], references: [id])
+  company          Company                @relation(fields: [companyId], references: [id])
+  nfeEntry         NfeEntry?              @relation(fields: [nfeEntryId], references: [id], onDelete: Cascade)
+  supplier         Fornecedor?            @relation(fields: [supplierId], references: [id])
 
   @@unique([nfeEntryId, installmentNumber])
   @@unique([companyId, externalKey, installmentNumber])
+  @@unique([companyId, sourceType, sourceId, installmentNumber])
   @@index([companyId, dueDate])
+  @@index([companyId, status, dueDate])
   @@index([supplierId])
   @@index([nfeEntryId])
+  @@index([categoryId])
+  @@index([costCenterId])
+  @@index([financialAccountId])
   @@map("payables")
 }
 

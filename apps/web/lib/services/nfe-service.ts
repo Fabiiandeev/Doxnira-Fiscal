@@ -108,11 +108,10 @@ export async function validateNfe(nfeId: string): Promise<NfeActionResponse> {
   return apiFetch(`/companies/${companyId}/nfe/${nfeId}/validate`, { method: "POST" });
 }
 
-export async function transmitNfe(nfeId: string, payload: Record<string, unknown> = { mock: true }): Promise<NfeActionResponse> {
+export async function transmitNfe(nfeId: string): Promise<NfeActionResponse> {
   const companyId = getActiveCompanyId();
   return apiFetch(`/companies/${companyId}/nfe/${nfeId}/transmit`, {
     method: "POST",
-    body: JSON.stringify(payload),
   });
 }
 

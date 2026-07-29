@@ -52,6 +52,7 @@ test("configura NVIDIA RAG sem exigir chave para endpoint privado", () => {
   assert.equal(config.configured, true);
   assert.deepEqual(config.collections, ["fiscal_public", "tenant_rules"]);
   assert.equal(config.rerankerTopK, 25);
+  assert.equal(config.vdbTopK, 15);
   assert.deepEqual(fiscalAiProviderStatus({
     FISCAL_AI_PROVIDER: "NVIDIA_RAG",
     FISCAL_AI_PROVIDER_URL: "http://rag.internal:8081",

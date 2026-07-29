@@ -121,6 +121,7 @@ const navGroups: NavGroup[] = [
       { label: "Serviços", href: "/services", icon: ClipboardCheck },
       { label: "Fornecedores", href: "/fornecedores", icon: Package },
       { label: "Transportadoras", href: "/transportadoras", icon: Truck },
+      { label: "Condutores", href: "/drivers", icon: Users },
     ],
   },
   {
@@ -133,7 +134,9 @@ const navGroups: NavGroup[] = [
       { label: "NFC-e", href: "/nfce", icon: CreditCard },
       { label: "NFS-e", href: "/nfse-national", icon: BookOpen },
       { label: "CT-e", href: "/cte", icon: Truck },
-      { label: "MDF-e", href: "/mdfe", icon: Route, permission: "mdfe:read" },
+      { label: "Manifestos MDF-e", href: "/mdfe", icon: Route, permission: "fiscal.mdfe.read" },
+      { label: "Emitir MDF-e", href: "/mdfe/novo", icon: FileOutput, permission: "fiscal.mdfe.create" },
+      { label: "MDF-e não encerrados", href: "/mdfe/nao-encerrados", icon: Route, permission: "fiscal.mdfe.read" },
       { label: "XML Fiscal", href: "/xml-center", icon: FileBarChart },
       { label: "Rejeições", href: "/rejections", icon: AlertTriangle },
       { label: "SPED", href: "/sped", icon: FileBarChart },
@@ -204,6 +207,7 @@ const navGroups: NavGroup[] = [
       { label: "Plano e assinatura", href: "/settings/subscription", icon: CreditCard },
       { label: "Empresa", href: "/settings/company", icon: Building2 },
       { label: "Fiscal", href: "/settings/fiscal", icon: FileText },
+      { label: "Operação MDF-e", href: "/settings/mdfe", icon: Route },
       { label: "Certificado", href: "/settings/certificate", icon: FileKey2 },
       { label: "Integrações", href: "/settings/integrations", icon: FolderSync },
       { label: "Usuários", href: "/settings/users", icon: Users },
@@ -657,7 +661,7 @@ function Breadcrumbs() {
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const { isAuthenticated, signOut, user } = useAuth();
+  const { isAuthenticated, isLoading: isAuthLoading, signOut, user } = useAuth();
   const {
     activeCompany,
     activeCompanyId,
@@ -666,15 +670,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     selectCompany,
   } = useCompanyContext();
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [ready, setReady] = useState(true);
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
+    if (isAuthLoading) return;
     if (!isAuthenticated) {
       router.replace("/login");
       return;
     }
     setReady(true);
-  }, [isAuthenticated, router]);
+  }, [isAuthenticated, isAuthLoading, router]);
 
   useEffect(() => {
     if (

@@ -219,9 +219,13 @@ export async function storeValidatedCertificate({ company, file, password }) {
   });
 }
 
-export async function loadCertificateSecret(companyId) {
+export async function loadCertificateSecret(companyId, certificateId = null) {
   const certificate = await prisma.digitalCertificate.findFirst({
-    where: { companyId, status: "active" },
+    where: {
+      companyId,
+      status: "active",
+      ...(certificateId ? { id: certificateId } : {}),
+    },
     orderBy: { createdAt: "desc" },
   });
   if (!certificate) {
@@ -234,8 +238,8 @@ export async function loadCertificateSecret(companyId) {
   };
 }
 
-export async function loadCertificateSigningMaterial(companyId) {
-  const secret = await loadCertificateSecret(companyId);
+export async function loadCertificateSigningMaterial(companyId, certificateId = null) {
+  const secret = await loadCertificateSecret(companyId, certificateId);
   try {
     const binary = forge.util.createBuffer(secret.pfx.toString("binary"));
     const asn1 = forge.asn1.fromDer(binary);

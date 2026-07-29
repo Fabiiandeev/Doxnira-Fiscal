@@ -2,6 +2,7 @@
 
 import { type LucideIcon, AlertTriangle, ArrowLeft, ArrowRight, Ban, Calendar, Check, CheckCircle2, ChevronDown, CircleDollarSign, Clock, Copy, Download, Edit2, Eye, ExternalLink, FileDown, FileText, Grid2X2, Info, ListChecks, MoreHorizontal, Package, Plus, Printer, RefreshCw, Save, Search, Send, ShieldCheck, Trash2, Truck } from "lucide-react";
 import { Fragment, type ReactNode, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { notify } from "@/components/toast-viewport";
@@ -3703,6 +3704,15 @@ function AutorizacaoPage({ note, goBack, onFinish }: { note: NfeDocumentDetail; 
       main={
         <div className="space-y-3">
           <SuccessBanner note={note} />
+          <Panel
+            title="NF-e elegível para transporte"
+            subtitle={`A autorização será avaliada em segundo plano e disponibilizada na fila MDF-e para ${note.destinatarioUf || "a UF de destino"}.`}
+          >
+            <div className="flex flex-wrap gap-2">
+              <Link className="rounded-md bg-[#84cc16] px-4 py-2 text-[12px] font-extrabold text-[#17210b]" href={`/mdfe/novo?nfeId=${note.id}`}>Emitir MDF-e agora</Link>
+              <Link className="rounded-md border border-[#d6dee9] bg-white px-4 py-2 text-[12px] font-bold" href="/mdfe/novo">Adicionar à fila de transporte</Link>
+            </div>
+          </Panel>
           <div className="grid gap-3 xl:grid-cols-[0.85fr_1.15fr]">
             <InvoiceSummaryCard note={note} />
             <AuthorizationInfoCard note={note} title="Informações da Autorização" badge={note.authorization?.cStat || statusLabel(note.status)} />

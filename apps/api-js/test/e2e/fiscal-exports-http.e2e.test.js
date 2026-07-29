@@ -23,7 +23,16 @@ before(async () => {
   office = await prisma.accountantOffice.create({ data: { name: "Office exports", cnpj: "5".repeat(14) } }); const membership = await prisma.accountantMembership.create({ data: { officeId: office.id, userId: user.id, role: "ADMIN", status: "ACTIVE" } });
   await prisma.accountantCompanyLink.createMany({ data: [{ officeId: office.id, companyId: company.id, status: "ACTIVE" }, { officeId: office.id, companyId: otherCompany.id, status: "ACTIVE" }] }); await prisma.accountantUserCompanyAccess.createMany({ data: [{ membershipId: membership.id, companyId: company.id, accessLevel: "FULL", permissions: [] }, { membershipId: membership.id, companyId: otherCompany.id, accessLevel: "FULL", permissions: [] }] });
   preparation = await seedPreparation(); server = createServer(app); await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve)); baseUrl = `http://127.0.0.1:${server.address().port}`;
-  const login = await request("/api/auth/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email: user.email, password: "TestPassword#2026" }) }); token = login.body.token;
+  const login = await request("/api/auth/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email: user.email, password: "TestPassword#2026" }) });
+  const setCookies = login.response.headers.getSetCookie?.()
+    || [login.response.headers.get("set-cookie") || ""];
+  const sessionCookie = setCookies
+    .flatMap((value) => value.split(/,(?=\s*ns-fiscal-)/))
+    .find((value) => value.trim().startsWith("ns-fiscal-token="));
+  token = sessionCookie
+    ? decodeURIComponent(sessionCookie.trim().split(";")[0].slice("ns-fiscal-token=".length))
+    : null;
+  assert.ok(token, "login deve emitir cookie de sessão HttpOnly");
 });
 after(async () => { if (server) { server.closeAllConnections?.(); await new Promise((resolve) => server.close(resolve)); } await prisma.$executeRawUnsafe('TRUNCATE TABLE "fiscal_exports", "fiscal_book_preparation_items", "fiscal_book_preparation_documents", "fiscal_book_issues", "fiscal_book_preparations", "monthly_tax_closings", "accountant_user_company_access", "accountant_company_links", "accountant_memberships", "accountant_offices", "companies", "users" CASCADE'); await disconnectDatabase(); });
 

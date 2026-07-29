@@ -12,8 +12,10 @@ export const logger = pino({
     paths: [
       "req.headers.authorization",
       "req.headers.cookie",
+      "res.headers.set-cookie",
       "request.headers.authorization",
       "request.headers.cookie",
+      "response.headers.set-cookie",
       "*.password",
       "*.certificate",
       "*.pfx",

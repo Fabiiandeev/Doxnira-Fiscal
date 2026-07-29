@@ -8,6 +8,11 @@ import { lookupCompanyFiscalData, resolveIbgeCode } from "../../services/cnpj-lo
 import { loadCertificateSigningMaterial } from "../../services/certificate-vault.service.js";
 import { signNfeXml } from "../../services/xml-signature.service.js";
 import { asyncHandler, sendSuccess } from "../../utils/response.js";
+import {
+  recordNfeAuthorizedEvent,
+  scheduleNfeAuthorizedEvent,
+} from "./nfe-authorization-event.service.js";
+import { svrsNfeAuthorizationGateway } from "./nfe-authorization.gateway.js";
 
 export const nfeRouter = Router();
 
@@ -360,23 +365,50 @@ async function findNfeOrThrow(companyId, nfeId, includeItems = false) {
           }
         : false,
       _count: { select: { items: true } },
+      establishment: true,
     },
   });
   if (!note) throw new AppError("NF-e nao encontrada.", "NFE_NOT_FOUND", 404);
   return note;
 }
 
-async function loadCompanyEmitter(companyId) {
+async function loadCompanyEmitter(companyId, establishmentId = null) {
   const company = await prisma.company.findUnique({
     where: { id: companyId },
-    include: { taxSettings: true },
+    include: {
+      taxSettings: true,
+      establishments: establishmentId
+        ? { where: { id: establishmentId, isActive: true }, take: 1 }
+        : false,
+    },
   });
   if (!company) return null;
-  const emitter = toEmitter(company, company.taxSettings);
-  emitter.codigoIbge = await resolveIbgeCode(company.city, company.uf, null);
-  emitter.address = { city: company.city, uf: company.uf };
+  const establishment = company.establishments?.[0];
+  const emitter = {
+    ...toEmitter(company, company.taxSettings),
+    ...(establishment ? {
+      legalName: establishment.legalName,
+      tradeName: establishment.tradeName,
+      cnpj: establishment.taxId,
+      stateRegistration: establishment.stateRegistration,
+      city: establishment.city,
+      uf: establishment.state,
+    } : {}),
+  };
+  emitter.codigoIbge = establishment?.cityCode
+    || await resolveIbgeCode(emitter.city, emitter.uf, establishment?.postalCode);
+  emitter.address = establishment ? {
+    street: establishment.street,
+    number: establishment.number,
+    complement: establishment.complement,
+    district: establishment.district,
+    city: establishment.city,
+    uf: establishment.state,
+    cep: establishment.postalCode,
+  } : { city: company.city, uf: company.uf };
+  if (establishment?.street && establishment?.district) return emitter;
   try {
-    const fiscalData = await lookupCompanyFiscalData(company.cnpj);
+    const fiscalData = await lookupCompanyFiscalData(emitter.cnpj);
     const address = fiscalData?.empresa || {};
     emitter.address = {
       street: address.endereco,
@@ -771,11 +803,11 @@ function buildValidationPayload(note, company, emitter) {
 
 function assertEmitterReady(company, emitter) {
   const missing = [];
-  if (!digits(company.cnpj) || digits(company.cnpj).length !== 14) missing.push("CNPJ do emitente");
-  if (!company.legalName) missing.push("Razao social do emitente");
-  if (!company.uf) missing.push("UF do emitente");
-  if (!company.city) missing.push("Municipio do emitente");
-  if (!company.stateRegistration) missing.push("Inscricao Estadual do emitente");
+  if (!digits(emitter?.cnpj) || digits(emitter?.cnpj).length !== 14) missing.push("CNPJ do emitente");
+  if (!emitter?.legalName) missing.push("Razao social do emitente");
+  if (!emitter?.uf) missing.push("UF do emitente");
+  if (!emitter?.city) missing.push("Municipio do emitente");
+  if (!emitter?.stateRegistration) missing.push("Inscricao Estadual do emitente");
   if (!emitter?.crt) missing.push("CRT do emitente");
   if (missing.length) {
     throw new AppError("Cadastro do emitente incompleto para emissao de NF-e.", "EMITTER_INCOMPLETE", 400, missing.map((message) => ({ field: "emitente", message })));
@@ -1292,6 +1324,241 @@ async function performMockTransmission({ request, note, emitter }) {
   };
 }
 
+async function performRealTransmission({ request, note, emitter }) {
+  const recipient = note.destinatarioId
+    ? await prisma.client.findFirst({
+        where: { id: note.destinatarioId, companyId: request.company.id },
+      })
+    : null;
+  const accessKey = buildMockNfeAccessKey({
+    uf: emitter.uf,
+    issuerCnpj: emitter.cnpj,
+    invoiceNumber: note.numero,
+    series: note.serie,
+    model: note.modelo,
+    issuedAt: note.dataEmissao || new Date(),
+    seed: note.id,
+  });
+  const unsignedXml = appendNfePaymentXml(
+    completeNfePreviewTotals(
+      buildNfePreviewXml(note, emitter, recipient, accessKey),
+      note.totals,
+    ),
+    note,
+  );
+  const material = await loadCertificateSigningMaterial(
+    request.company.id,
+    note.establishment?.certificateId || null,
+  );
+  const signedXml = signNfeXml(
+    unsignedXml,
+    material.privateKeyPem,
+    material.certificatePem,
+  );
+  const lotId = String(Date.now()).slice(-15);
+  const result = await svrsNfeAuthorizationGateway.authorize({
+    signedXml,
+    environment: note.ambiente,
+    pfx: material.pfx,
+    passphrase: material.passphrase,
+    lotId,
+  });
+  const returnedAt = new Date();
+
+  if (!result.authorized) {
+    await prisma.$transaction(async (tx) => {
+      await tx.nfeTransmissionAttempt.create({
+        data: {
+          nfeDocumentId: note.id,
+          companyId: request.company.id,
+          userId: request.user.id,
+          status: "REJECTED",
+          xmlEnviado: signedXml,
+          cStat: result.authorizationStatus || result.outerStatus,
+          xMotivo: result.authorizationReason || result.outerReason,
+          nRec: result.receipt || null,
+          ambiente: note.ambiente,
+          uf: emitter.uf,
+          retornoEm: returnedAt,
+        },
+      });
+      await tx.nfeSefazReturn.upsert({
+        where: { nfeDocumentId: note.id },
+        create: {
+          nfeDocumentId: note.id,
+          companyId: request.company.id,
+          cStat: result.outerStatus,
+          xMotivo: result.outerReason,
+          nRec: result.receipt || null,
+          ambiente: note.ambiente,
+          uf: emitter.uf,
+          xmlRetorno: result.responseXml,
+          dhRecebto: returnedAt,
+        },
+        update: {
+          cStat: result.outerStatus,
+          xMotivo: result.outerReason,
+          nRec: result.receipt || null,
+          xmlRetorno: result.responseXml,
+          dhRecebto: returnedAt,
+        },
+      });
+      await tx.nfeDocument.update({
+        where: { id: note.id },
+        data: {
+          status: "REJEITADA",
+          canTransmit: false,
+          chaveAcesso: accessKey,
+          xmlAssinado: signedXml,
+          xmlTransmitido: signedXml,
+          xmlRetorno: result.responseXml,
+          cStat: result.authorizationStatus || result.outerStatus,
+          xMotivo: result.authorizationReason || result.outerReason,
+          nRec: result.receipt || null,
+          logs: {
+            create: {
+              companyId: request.company.id,
+              userId: request.user.id,
+              action: "nfe.sefaz.rejected",
+              details: {
+                outerStatus: result.outerStatus,
+                authorizationStatus: result.authorizationStatus,
+              },
+            },
+          },
+        },
+      });
+    });
+    throw new AppError(
+      result.authorizationReason || result.outerReason || "NF-e rejeitada pela SEFAZ.",
+      "NFE_SEFAZ_REJECTED",
+      422,
+      [{
+        cStat: result.authorizationStatus || result.outerStatus,
+        xMotivo: result.authorizationReason || result.outerReason,
+      }],
+    );
+  }
+
+  const transactionResult = await prisma.$transaction(async (tx) => {
+    const billing = await ensureBillingForNote(tx, {
+      note,
+      companyId: request.company.id,
+      userId: request.user.id,
+    });
+    await tx.nfeTransmissionAttempt.create({
+      data: {
+        nfeDocumentId: note.id,
+        companyId: request.company.id,
+        userId: request.user.id,
+        status: "AUTHORIZED",
+        xmlEnviado: signedXml,
+        cStat: result.authorizationStatus,
+        xMotivo: result.authorizationReason,
+        nRec: result.receipt || null,
+        ambiente: note.ambiente,
+        uf: emitter.uf,
+        retornoEm: returnedAt,
+      },
+    });
+    await tx.nfeSefazReturn.upsert({
+      where: { nfeDocumentId: note.id },
+      create: {
+        nfeDocumentId: note.id,
+        companyId: request.company.id,
+        cStat: result.outerStatus,
+        xMotivo: result.outerReason,
+        nRec: result.receipt || null,
+        protocolo: result.protocol,
+        ambiente: note.ambiente,
+        uf: emitter.uf,
+        xmlRetorno: result.responseXml,
+        dhRecebto: result.receivedAt,
+      },
+      update: {
+        cStat: result.outerStatus,
+        xMotivo: result.outerReason,
+        nRec: result.receipt || null,
+        protocolo: result.protocol,
+        xmlRetorno: result.responseXml,
+        dhRecebto: result.receivedAt,
+      },
+    });
+    await tx.nfeAuthorization.upsert({
+      where: { nfeDocumentId: note.id },
+      create: {
+        nfeDocumentId: note.id,
+        companyId: request.company.id,
+        cStat: result.authorizationStatus,
+        xMotivo: result.authorizationReason,
+        protocolo: result.protocol,
+        ambiente: note.ambiente,
+        dataAutorizacao: result.receivedAt,
+        xmlProtocolo: result.authorizedXml,
+      },
+      update: {
+        cStat: result.authorizationStatus,
+        xMotivo: result.authorizationReason,
+        protocolo: result.protocol,
+        ambiente: note.ambiente,
+        dataAutorizacao: result.receivedAt,
+        xmlProtocolo: result.authorizedXml,
+      },
+    });
+    const xmlFile = await upsertNfeFile(tx, {
+      note,
+      companyId: request.company.id,
+      tipo: "XML_AUTORIZADO",
+      storageKey: `database://nfe/${note.id}/xml-autorizado`,
+      mimeType: "application/xml",
+      content: result.authorizedXml,
+    });
+    await tx.nfeDocument.update({
+      where: { id: note.id },
+      data: {
+        status: "AUTORIZADA",
+        canTransmit: false,
+        chaveAcesso: accessKey,
+        protocolo: result.protocol,
+        xmlAssinado: signedXml,
+        xmlTransmitido: signedXml,
+        xmlRetorno: result.responseXml,
+        xmlProtocolo: result.authorizedXml,
+        cStat: result.authorizationStatus,
+        xMotivo: result.authorizationReason,
+        nRec: result.receipt || null,
+        logs: {
+          create: {
+            companyId: request.company.id,
+            userId: request.user.id,
+            action: "nfe.sefaz.authorized",
+            details: { accessKey, protocol: result.protocol, lotId },
+          },
+        },
+      },
+    });
+    const event = await recordNfeAuthorizedEvent(tx, {
+      companyId: request.company.id,
+      establishmentId: note.establishmentId,
+      nfeDocumentId: note.id,
+      accessKey,
+      protocol: result.protocol,
+      environment: note.ambiente,
+      authorizedAt: result.receivedAt,
+      xmlArtifactId: xmlFile.id,
+      source: "SEFAZ",
+    });
+    return { billing, eventId: event.id };
+  });
+  scheduleNfeAuthorizedEvent(transactionResult.eventId);
+  return {
+    updated: await findNfeOrThrow(request.company.id, note.id, true),
+    billing: transactionResult.billing,
+    protocol: result.protocol,
+    accessKey,
+  };
+}
+
 async function claimTransmission(note) {
   const claim = await prisma.nfeDocument.updateMany({
     where: {
@@ -1626,7 +1893,7 @@ async function updateMockAuthorizationStage({ request, noteId, emitter, accessKe
   if (!["TRANSMITINDO", "PROCESSANDO_SEFAZ"].includes(note.status)) return null;
 
   const authorizedAt = new Date();
-  const billing = await prisma.$transaction(async (tx) => {
+  const transactionResult = await prisma.$transaction(async (tx) => {
     const nextBilling = await ensureBillingForNote(tx, {
       note,
       companyId: request.company.id,
@@ -1683,7 +1950,7 @@ async function updateMockAuthorizationStage({ request, noteId, emitter, accessKe
       },
     });
 
-    await upsertNfeFile(tx, {
+    const authorizedXmlFile = await upsertNfeFile(tx, {
       note,
       companyId: request.company.id,
       tipo: "XML_AUTORIZADO",
@@ -1744,10 +2011,26 @@ async function updateMockAuthorizationStage({ request, noteId, emitter, accessKe
       },
     });
 
-    return nextBilling;
+    const authorizationEvent = await recordNfeAuthorizedEvent(tx, {
+      companyId: request.company.id,
+      establishmentId: note.establishmentId,
+      nfeDocumentId: note.id,
+      accessKey,
+      protocol,
+      environment: note.ambiente,
+      authorizedAt,
+      xmlArtifactId: authorizedXmlFile.id,
+      source: "MOCK_EXPLICIT",
+    });
+
+    return { billing: nextBilling, authorizationEventId: authorizationEvent.id };
   });
 
-  return { note: await findNfeOrThrow(request.company.id, noteId, true), billing };
+  scheduleNfeAuthorizedEvent(transactionResult.authorizationEventId);
+  return {
+    note: await findNfeOrThrow(request.company.id, noteId, true),
+    billing: transactionResult.billing,
+  };
 }
 
 nfeRouter.get(
@@ -1799,10 +2082,29 @@ nfeRouter.post(
     const payload = request.body || {};
     const serie = parseSmallInt(payload.serie ?? payload.series, 1);
     const ambiente = normalizeEnvironment(payload.ambiente ?? payload.environment) || environmentFromCompany(company);
+    const establishmentId = cleanString(payload.establishmentId)
+      || (await prisma.fiscalEstablishment.findFirst({
+        where: { companyId: company.id, isHeadquarters: true, isActive: true },
+        select: { id: true },
+      }))?.id;
+    if (!establishmentId) {
+      throw new AppError(
+        "Cadastre um estabelecimento fiscal ativo antes de emitir NF-e.",
+        "ESTABLISHMENT_REQUIRED",
+        409,
+      );
+    }
+    const establishment = await prisma.fiscalEstablishment.findFirst({
+      where: { id: establishmentId, companyId: company.id, isActive: true },
+    });
+    if (!establishment) {
+      throw new AppError("Estabelecimento fiscal inválido.", "ESTABLISHMENT_NOT_FOUND", 404);
+    }
     const defaultCfop = await prisma.cfop.findFirst({ where: { codigo: "5102", ativo: true } });
     const numero = await prisma.$transaction((tx) =>
       reserveNumber(tx, {
         companyId: company.id,
+        establishmentId: establishment.id,
         documentModel: "55",
         serie,
         environment: ambiente,
@@ -1828,7 +2130,7 @@ nfeRouter.post(
         additionalInfo: defaultCfop?.defaultAdditionalInfo || null,
         ambiente,
         dataEmissao: new Date(),
-        destinatarioUf: company.uf || null,
+        destinatarioUf: establishment.state || company.uf || null,
         totals: {
           create: {
             companyId: company.id,
@@ -1845,7 +2147,11 @@ nfeRouter.post(
             companyId: company.id,
             userId: request.user.id,
             action: "nfe.draft.created",
-            details: { source: "nfe-list", sequence: { serie, ambiente, numero } },
+            details: {
+              source: "nfe-list",
+              establishmentId: establishment.id,
+              sequence: { serie, ambiente, numero },
+            },
           },
         },
       },
@@ -1896,7 +2202,7 @@ nfeRouter.get(
   "/:nfeId/xml-preview",
   asyncHandler(async (request, response) => {
     const note = await findNfeOrThrow(request.company.id, request.params.nfeId, true);
-    const emitter = await loadCompanyEmitter(request.company.id);
+    const emitter = await loadCompanyEmitter(request.company.id, note.establishmentId);
     const recipient = note.destinatarioId
       ? await prisma.client.findFirst({ where: { id: note.destinatarioId, companyId: request.company.id } })
       : null;
@@ -2035,7 +2341,7 @@ nfeRouter.post(
       throw new AppError("Esta NF-e nao pode ser validada neste status.", "NFE_STATUS_LOCKED", 409);
     }
 
-    const emitter = await loadCompanyEmitter(request.company.id);
+    const emitter = await loadCompanyEmitter(request.company.id, note.establishmentId);
     assertEmitterReady(request.company, emitter);
 
     const validationPayload = buildValidationPayload(note, request.company, emitter);
@@ -2065,7 +2371,7 @@ nfeRouter.post(
       throw new AppError("Esta NF-e nao pode receber correcoes neste status.", "NFE_STATUS_LOCKED", 409);
     }
 
-    const emitter = await loadCompanyEmitter(request.company.id);
+    const emitter = await loadCompanyEmitter(request.company.id, note.establishmentId);
     assertEmitterReady(request.company, emitter);
 
     const validationPayload = buildValidationPayload(note, request.company, emitter);
@@ -2322,7 +2628,7 @@ nfeRouter.post(
   "/:nfeId/transmit",
   asyncHandler(async (request, response) => {
     const note = await findNfeOrThrow(request.company.id, request.params.nfeId, true);
-    const emitter = await loadCompanyEmitter(request.company.id);
+    const emitter = await loadCompanyEmitter(request.company.id, note.establishmentId);
     assertEmitterReady(request.company, emitter);
 
     if (!note.canTransmit || note.status !== "PRONTA_TRANSMISSAO") {
@@ -2350,7 +2656,7 @@ nfeRouter.post(
     await claimTransmission(note);
     let result;
     try {
-      result = await performMockTransmission({ request, note, emitter });
+      result = await performRealTransmission({ request, note, emitter });
     } catch (error) {
       await releaseTransmissionClaim(note);
       throw error;
@@ -2358,7 +2664,7 @@ nfeRouter.post(
 
     sendSuccess(response, {
       data: toListItem(result.updated),
-      message: "Lote recebido pela SEFAZ. Processamento assíncrono iniciado.",
+      message: "NF-e autorizada pela SEFAZ e evento fiscal registrado.",
       protocol: result.protocol || undefined,
       accessKey: result.accessKey,
       financial: {
@@ -2372,7 +2678,7 @@ nfeRouter.post(
   "/:nfeId/transmit-mock",
   asyncHandler(async (request, response) => {
     const note = await findNfeOrThrow(request.company.id, request.params.nfeId, true);
-    const emitter = await loadCompanyEmitter(request.company.id);
+    const emitter = await loadCompanyEmitter(request.company.id, note.establishmentId);
     assertEmitterReady(request.company, emitter);
 
     if (!note.canTransmit || note.status !== "PRONTA_TRANSMISSAO") {
@@ -2641,6 +2947,7 @@ nfeRouter.post(
     const duplicated = await prisma.nfeDocument.create({
       data: {
         companyId: request.company.id,
+        establishmentId: note.establishmentId,
         userId: request.user.id,
         status: "RASCUNHO",
         numero,

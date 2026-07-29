@@ -1,16 +1,16 @@
 {
     "ingestion_metrics_list": [],
     "evaluation_metrics": {
-        "nv_accuracy": 0.5357142857142857,
-        "nv_context_relevance": 0.9375,
-        "nv_response_groundedness": 0.8125
+        "nv_accuracy": 0.90625,
+        "nv_context_relevance": 1.0,
+        "nv_response_groundedness": 1.0
     },
     "token_usage": {
-        "total_tokens": 24971,
-        "prompt_tokens": 22579,
-        "completion_tokens": 2392,
+        "total_tokens": 15469,
+        "prompt_tokens": 14098,
+        "completion_tokens": 1371,
         "sample_count": 8,
-        "mean_prompt_tokens": 2822.375,
-        "mean_completion_tokens": 299.0
+        "mean_prompt_tokens": 1762.25,
+        "mean_completion_tokens": 171.375
     }
 }

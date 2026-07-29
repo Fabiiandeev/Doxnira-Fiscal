@@ -17,6 +17,7 @@ import { getStoredUser, logout, type AuthUser } from "@/lib/services/auth-servic
 type AuthContextValue = {
   user: AuthUser | null;
   isAuthenticated: boolean;
+  isLoading: boolean;
   refreshSession: () => Promise<void>;
   signOut: () => Promise<void>;
 };
@@ -30,6 +31,7 @@ function readSession() {
 export function AuthProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const [session, setSession] = useState(readSession);
+  const [isSessionResolved, setIsSessionResolved] = useState(false);
 
   const refreshSession = useCallback(async () => {
     try {
@@ -39,6 +41,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch {
       setSessionUser(null);
       setSession({ user: null });
+    } finally {
+      setIsSessionResolved(true);
     }
   }, []);
 
@@ -54,10 +58,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     () => ({
       ...session,
       isAuthenticated: Boolean(session.user),
+      isLoading: !isSessionResolved,
       refreshSession,
       signOut,
     }),
-    [refreshSession, session, signOut],
+    [isSessionResolved, refreshSession, session, signOut],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

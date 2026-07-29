@@ -51,7 +51,31 @@ const envSchema = z.object({
     .enum(["true", "false"])
     .default("false")
     .transform((value) => value === "true"),
+  NFE_AUTHORIZATION_ENABLED: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((value) => value === "true"),
+  NFE_AUTHORIZATION_PROD_URL: z.string().url().default(
+    "https://nfe.svrs.rs.gov.br/ws/NfeAutorizacao/NFeAutorizacao4.asmx",
+  ),
+  NFE_AUTHORIZATION_HOM_URL: z.string().url().default(
+    "https://nfe-homologacao.svrs.rs.gov.br/ws/NfeAutorizacao/NFeAutorizacao4.asmx",
+  ),
+  NFE_AUTHORIZATION_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(120_000).default(30_000),
   CTE_INTEGRATION_ENABLED: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((value) => value === "true"),
+  MDFE_PROVIDER: z.enum(["SVRS_DIRECT"]).default("SVRS_DIRECT"),
+  MDFE_ENVIRONMENT: z.enum(["HOMOLOGATION", "PRODUCTION"]).default("HOMOLOGATION"),
+  MDFE_INTEGRATION_ENABLED: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((value) => value === "true"),
+  MDFE_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(120_000).default(30_000),
+  MDFE_SCHEMA_VERSION: z.string().trim().min(1).default("3.00b-NT2025.001-v1.05"),
+  MDFE_PROCESS_VERSION: z.string().trim().min(1).max(60).default("DoxniraFiscal-1.0"),
+  MDFE_STORE_RAW_SOAP: z
     .enum(["true", "false"])
     .default("false")
     .transform((value) => value === "true"),

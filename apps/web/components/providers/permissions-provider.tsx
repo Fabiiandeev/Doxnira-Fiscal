@@ -13,8 +13,17 @@ type PermissionContextValue = {
 const rolePermissions: Record<string, string[]> = {
   OWNER: ["*"],
   ADMIN: ["*"],
-  ACCOUNTANT: ["dashboard:read", "fiscal:read", "accountant:write", "reports:read", "mdfe:read"],
-  OPERATOR: ["dashboard:read", "fiscal:write", "commerce:write", "mdfe:read", "mdfe:create", "mdfe:update", "mdfe:validate"],
+  PLATFORM_ADMIN: ["*"],
+  PLATFORM_SUPER_ADMIN: ["*"],
+  ACCOUNTANT: [
+    "dashboard:read", "fiscal:read", "accountant:write", "reports:read",
+    "fiscal.mdfe.read", "fiscal.mdfe.download_xml", "fiscal.mdfe.download_damdfe",
+  ],
+  OPERATOR: [
+    "dashboard:read", "fiscal:write", "commerce:write",
+    "fiscal.mdfe.read", "fiscal.mdfe.create", "fiscal.mdfe.update",
+    "fiscal.mdfe.events", "fiscal.mdfe.download_xml", "fiscal.mdfe.download_damdfe",
+  ],
   VIEWER: ["dashboard:read", "reports:read"],
 };
 

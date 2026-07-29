@@ -58,6 +58,7 @@ import { servicesRouter } from "./modules/services/services.routes.js";
 import { fiscalEmissionRouter } from "./modules/fiscal-emission/fiscal-emission.routes.js";
 import { fiscalOpsRouter } from "./modules/fiscal-ops/fiscal-ops.routes.js";
 import { mdfeRouter } from "./modules/mdfe/mdfe.routes.js";
+import { mdfeOperationalRouter } from "./modules/mdfe/mdfe-operational.routes.js";
 import { fiscalComplianceRouter } from "./modules/fiscal-compliance/fiscal-compliance.routes.js";
 import { financialRouter } from "./modules/financial/financial.routes.js";
 import { commerceRouter } from "./modules/commerce/commerce.routes.js";
@@ -97,7 +98,7 @@ app.use(
     },
     credentials: true,
     methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["content-type", "authorization", "x-csrf-token", "x-company-id", "x-accountant-office-id", "x-accountant-context", "x-request-id"],
+    allowedHeaders: ["content-type", "authorization", "x-csrf-token", "x-company-id", "x-accountant-office-id", "x-accountant-context", "x-request-id", "idempotency-key"],
   }),
 );
 app.use(express.json({ limit: "2mb" }));
@@ -126,6 +127,7 @@ companyApiRouter.use("/:companyId/services", servicesRouter);
 companyApiRouter.use("/:companyId/fiscal-emission", fiscalEmissionRouter);
 companyApiRouter.use("/:companyId/fiscal-ops", fiscalOpsRouter);
 companyApiRouter.use("/:companyId/mdfe", mdfeRouter);
+companyApiRouter.use("/:companyId", mdfeOperationalRouter);
 companyApiRouter.use("/:companyId/fiscal-compliance", fiscalComplianceRouter);
 companyApiRouter.use("/:companyId/financial", rateLimit({ policy: "SENSITIVE_WRITE" }), financialRouter);
 companyApiRouter.use("/:companyId/commerce", commerceRouter);

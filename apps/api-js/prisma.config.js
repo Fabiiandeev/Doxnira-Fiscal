@@ -11,7 +11,9 @@ if (process.env.NODE_ENV === "test") {
 }
 
 const args = process.argv.slice(2);
-const isNonDevMigrateCommand = args.includes("migrate") && !args.includes("dev");
+const isMigrateDiffCommand = args.includes("migrate") && args.includes("diff");
+const isNonDevMigrateCommand =
+  args.includes("migrate") && !args.includes("dev") && !isMigrateDiffCommand;
 const isTestEnvironment = process.env.NODE_ENV === "test";
 const datasourceUrl = isTestEnvironment
   ? process.env.DATABASE_URL_TEST
