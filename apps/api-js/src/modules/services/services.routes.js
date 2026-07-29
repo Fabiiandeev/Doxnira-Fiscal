@@ -1,0 +1,14 @@
+import { Router } from "express";
+import { AppError } from "../../utils/app-error.js";
+import { asyncHandler, sendSuccess } from "../../utils/response.js";
+import { serviceSchema } from "./services.schemas.js";
+import * as service from "./services.service.js";
+export const servicesRouter = Router({ mergeParams: true });
+const write = (req) => { if (req.user.role === "VIEWER") throw new AppError("Permissão insuficiente.", "FORBIDDEN", 403); };
+const parse = (schema, body) => { const result = schema.safeParse(body); if (!result.success) throw new AppError(result.error.issues[0].message, "VALIDATION_ERROR", 400, result.error.issues); return result.data; };
+servicesRouter.get("/", asyncHandler(async (req,res)=>sendSuccess(res,await service.listServices(req.company.id,req.query))));
+servicesRouter.post("/", asyncHandler(async (req,res)=>{write(req);sendSuccess(res,await service.createService(req.company.id,req.user.id,parse(serviceSchema,req.body)),201);}));
+servicesRouter.get("/:id", asyncHandler(async (req,res)=>sendSuccess(res,await service.getService(req.company.id,req.params.id))));
+servicesRouter.put("/:id", asyncHandler(async (req,res)=>{write(req);sendSuccess(res,await service.updateService(req.company.id,req.user.id,req.params.id,parse(serviceSchema.partial(),req.body)));}));
+servicesRouter.patch("/:id/status", asyncHandler(async (req,res)=>{write(req);sendSuccess(res,await service.updateService(req.company.id,req.user.id,req.params.id,{active:Boolean(req.body.active)}));}));
+servicesRouter.delete("/:id", asyncHandler(async (req,res)=>{write(req);await service.deleteService(req.company.id,req.user.id,req.params.id);res.status(204).end();}));

@@ -1,0 +1,1 @@
+"use client";import{use}from"react";import{AutomationDetail}from"@/components/operation/automation/automation-detail";export default function Page({params}:{params:Promise<{runId:string}>}){return <AutomationDetail id={use(params).runId} run/>}

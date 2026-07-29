@@ -1,0 +1,82 @@
+{
+    "nv_accuracy": [
+        0.75,
+        1.0,
+        1.0,
+        NaN,
+        1.0,
+        0.0,
+        0.0,
+        0.0
+    ],
+    "nv_context_relevance": [
+        1.0,
+        0.75,
+        1.0,
+        0.75,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+    ],
+    "nv_response_groundedness": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        0.5,
+        0.5,
+        0.5
+    ],
+    "token_usage": {
+        "total_tokens": 24971,
+        "prompt_tokens": 22579,
+        "completion_tokens": 2392,
+        "sample_count": 8,
+        "mean_prompt_tokens": 2822.375,
+        "mean_completion_tokens": 299.0
+    },
+    "token_usage_per_sample": [
+        {
+            "total_tokens": 2743,
+            "prompt_tokens": 2572,
+            "completion_tokens": 171
+        },
+        {
+            "total_tokens": 2935,
+            "prompt_tokens": 2877,
+            "completion_tokens": 58
+        },
+        {
+            "total_tokens": 3487,
+            "prompt_tokens": 3143,
+            "completion_tokens": 344
+        },
+        {
+            "total_tokens": 3326,
+            "prompt_tokens": 3217,
+            "completion_tokens": 109
+        },
+        {
+            "total_tokens": 3183,
+            "prompt_tokens": 2887,
+            "completion_tokens": 296
+        },
+        {
+            "total_tokens": 3528,
+            "prompt_tokens": 3016,
+            "completion_tokens": 512
+        },
+        {
+            "total_tokens": 2956,
+            "prompt_tokens": 2467,
+            "completion_tokens": 489
+        },
+        {
+            "total_tokens": 2813,
+            "prompt_tokens": 2400,
+            "completion_tokens": 413
+        }
+    ]
+}

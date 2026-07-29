@@ -1,7 +1,7 @@
-import { AccountantValueReportView } from "@/components/accountant/accountant-value-report-view";
+import { AccountantOfficeView } from "@/components/accountant/accountant-office-view";
 
 export const metadata = { title: "Relatorio de Valor" };
 
 export default function AccountantValueReportPage() {
-  return <AccountantValueReportView />;
+  return <AccountantOfficeView kind="value" />;
 }

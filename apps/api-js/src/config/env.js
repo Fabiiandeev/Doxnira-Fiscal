@@ -20,7 +20,23 @@ const envSchema = z.object({
   CORS_ORIGIN: z.string().min(1).default("http://localhost:3000"),
   JWT_SECRET: z.string().min(32),
   JWT_EXPIRES_IN: z.string().default("7d"),
+  SESSION_TTL_SECONDS: z.coerce.number().int().min(300).max(2592000).default(604800),
+  SESSION_COOKIE_DOMAIN: z.string().default(""),
+  SESSION_COOKIE_SECURE: z.enum(["true", "false"]).default("false").transform((value) => value === "true"),
+  SESSION_COOKIE_SAME_SITE: z.enum(["lax", "strict", "none"]).default("lax"),
+  CSRF_SECRET: z.string().min(32).default("development-csrf-secret-change-me-32"),
+  WEB_ORIGIN: z.string().url().default("http://localhost:3000"),
+  API_ORIGIN: z.string().url().default("http://localhost:3333"),
+  CORS_ALLOWED_ORIGINS: z.string().default("http://localhost:3000"),
+  TRUST_PROXY: z.coerce.number().int().min(0).max(10).default(0),
+  WORKER_REQUIRED: z.enum(["true", "false"]).default("false").transform((value) => value === "true"),
+  WORKER_HEARTBEAT_TTL_SECONDS: z.coerce.number().int().min(10).max(300).default(30),
   REDIS_URL: z.string().url().default("redis://localhost:6379"),
+  PAYMENT_PROVIDER: z.enum(["INFINITEPAY"]).default("INFINITEPAY"),
+  INFINITEPAY_HANDLE: z.string().trim().default("phfabian"),
+  INFINITEPAY_API_BASE_URL: z.string().url().default("https://api.checkout.infinitepay.io"),
+  INFINITEPAY_REDIRECT_URL: z.string().url().or(z.literal("")).default(""),
+  INFINITEPAY_WEBHOOK_URL: z.string().url().or(z.literal("")).default(""),
   CERT_ENCRYPTION_KEY: z.string().min(32),
   UPLOAD_MAX_SIZE_MB: z.coerce.number().positive().max(50).default(10),
   NSU_WAIT_137_MS: z.coerce.number().int().positive().default(3_600_000),
@@ -63,6 +79,19 @@ if (!parsedEnv.success) {
     .join("; ");
 
   throw new Error(`Invalid environment configuration: ${errors}`);
+}
+
+if (parsedEnv.data.NODE_ENV === "production") {
+  const productionErrors = [];
+  if (!parsedEnv.data.SESSION_COOKIE_SECURE) productionErrors.push("SESSION_COOKIE_SECURE must be true in production");
+  if (parsedEnv.data.CSRF_SECRET === "development-csrf-secret-change-me-32") productionErrors.push("CSRF_SECRET must be configured in production");
+  if (parsedEnv.data.CORS_ALLOWED_ORIGINS.split(",").map((value) => value.trim()).includes("*")) productionErrors.push("CORS_ALLOWED_ORIGINS cannot contain *");
+  if (!parsedEnv.data.INFINITEPAY_REDIRECT_URL) productionErrors.push("INFINITEPAY_REDIRECT_URL must be configured in production");
+  if (!parsedEnv.data.INFINITEPAY_WEBHOOK_URL) productionErrors.push("INFINITEPAY_WEBHOOK_URL must be configured in production");
+  if (productionErrors.length) throw new Error(`Invalid production security configuration: ${productionErrors.join("; ")}`);
+}
+if (parsedEnv.data.SESSION_COOKIE_SAME_SITE === "none" && !parsedEnv.data.SESSION_COOKIE_SECURE) {
+  throw new Error("SESSION_COOKIE_SAME_SITE=none requires SESSION_COOKIE_SECURE=true");
 }
 
 export const env = Object.freeze(parsedEnv.data);

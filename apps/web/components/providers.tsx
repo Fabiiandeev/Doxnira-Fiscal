@@ -24,13 +24,11 @@ export function Providers({
 }: {
   children: React.ReactNode;
   initialSession?: {
-    token: string | null;
     companyId: string | null;
     user: SessionUser | null;
   };
 }) {
   primeSession({
-    token: initialSession?.token ?? null,
     companyId: initialSession?.companyId ?? null,
     user: initialSession?.user ?? null,
   });
@@ -57,7 +55,7 @@ export function Providers({
         <ThemeProvider>
           <AuthProvider>
             <PermissionProvider>
-              <CompanyProvider>
+              <CompanyProvider initialCompanyId={initialSession?.companyId}>
                 <LoadingProvider>
                   <ModalProvider>
                     <ConfirmDialogProvider>

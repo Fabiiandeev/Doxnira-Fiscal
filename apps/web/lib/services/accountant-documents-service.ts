@@ -1,4 +1,4 @@
-import { apiFetch, getToken } from "@/lib/api";
+import { apiFetch } from "@/lib/api";
 
 export type AccountantCompany = {
   office: { id: string; name: string };
@@ -41,7 +41,7 @@ export function validateFiscalExport(input: AccountantRequest & { preparationId:
 export function createFiscalExport(input: AccountantRequest & { preparationId: string; type: FiscalExport["type"] }) { return apiFetch<FiscalExport>(`/accountant/companies/${input.companyId}/fiscal-exports`, { method: "POST", headers: headers(input), body: JSON.stringify({ preparationId: input.preparationId, type: input.type }) }); }
 export function listFiscalExports(input: AccountantRequest & { preparationId?: string }) { const params = new URLSearchParams(); if (input.preparationId) params.set("preparationId", input.preparationId); return apiFetch<{ data: FiscalExport[]; pagination: { page: number; total: number; totalPages: number } }>(`/accountant/companies/${input.companyId}/fiscal-exports?${params}`, { headers: headers(input) }); }
 export async function downloadFiscalExport(input: AccountantRequest & { exportId: string; fileName: string }) {
-  const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3333/api"}/accountant/companies/${input.companyId}/fiscal-exports/${input.exportId}/download`, { headers: { authorization: `Bearer ${getToken()}`, "x-accountant-office-id": input.officeId } });
+  const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3333/api"}/accountant/companies/${input.companyId}/fiscal-exports/${input.exportId}/download`, { credentials: "include", headers: { "x-accountant-office-id": input.officeId } });
   if (!response.ok) throw new Error("Falha ao baixar exportação fiscal.");
   const url = URL.createObjectURL(await response.blob()); const anchor = document.createElement("a"); anchor.href = url; anchor.download = input.fileName; anchor.click(); URL.revokeObjectURL(url);
 }
@@ -108,10 +108,9 @@ type AccountantTransportDetail = {
 export type { AccountantTransportDetail };
 
 export async function downloadAccountantTransportXml(input: DocumentActionInput) {
-  const token = getToken();
   const params = new URLSearchParams({ companyId: input.companyId, officeId: input.officeId });
   const url = `${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3333/api"}/accountant/companies/${input.companyId}/transport-documents/${input.documentId}/download-xml`;
-  const response = await fetch(url, { headers: { authorization: `Bearer ${token}`, "x-accountant-office-id": input.officeId, "x-accountant-context": params.toString() } });
+  const response = await fetch(url, { credentials: "include", headers: { "x-accountant-office-id": input.officeId, "x-accountant-context": params.toString() } });
   if (!response.ok) {
     const payload = await response.json().catch(() => ({}));
     throw new Error(payload.message || "Falha ao baixar XML do CT-e.");

@@ -1,30 +1,13 @@
-﻿import type { FiscalAiResponse } from "@/lib/fiscal-types";
-
-export async function askFiscalAI(question: string): Promise<FiscalAiResponse> {
-  await new Promise(resolve => setTimeout(resolve, 400));
-
-  void question;
-
-  return {
-    answer: "Nenhum dado fiscal encontrado para analise. Sincronize documentos ou cadastre informacoes fiscais para gerar diagnostico.",
-    suggestions: [],
-    actions: [],
-    confidence: 0,
-    sources: [],
-  };
+import { ApiError, apiFetch, getCompanyId } from "@/lib/api";
+import type { FiscalAiProviderStatus, FiscalAiResponse } from "@/lib/fiscal-types";
+const endpoint = () => { const id = getCompanyId(); if (!id) throw new Error("Selecione uma empresa."); return `/companies/${id}/fiscal-ai`; };
+export async function getFiscalAiStatus(): Promise<FiscalAiProviderStatus> {
+  return apiFetch<FiscalAiProviderStatus>(`${endpoint()}/chat/status`);
 }
-
-export async function getQuickQuestions(): Promise<string[]> {
-  return [
-    "Quais pendencias fiscais existem?",
-    "Minha empresa esta pronta para fechamento?",
-    "Quais documentos bloqueiam o SPED?",
-    "Existe nota rejeitada?",
-    "O que posso corrigir automaticamente?",
-  ];
+export async function askFiscalAI(question: string, conversationId?: string): Promise<FiscalAiResponse> {
+  const result = await apiFetch<FiscalAiResponse & { configured?: boolean; message?: string }>(`${endpoint()}/chat/messages`, { method: "POST", body: JSON.stringify({ message: question, ...(conversationId ? { conversationId } : {}) }) });
+  if (result.configured === false) throw new ApiError(result.message || "Configuração de IA necessária", "AI_CONFIGURATION_REQUIRED", 503);
+  return result;
 }
-
-export async function applyAISuggestions(suggestionIds: string[]): Promise<{ success: number; failed: number }> {
-  await new Promise(resolve => setTimeout(resolve, 500));
-  return { success: suggestionIds.length, failed: 0 };
-}
+export async function getQuickQuestions() { return ["Quais pendências fiscais existem?", "Minha empresa está pronta para fechamento?", "Quais documentos bloqueiam o SPED?", "Existe nota rejeitada?", "O que posso corrigir automaticamente?"]; }
+export async function applyAISuggestions(ids: string[]) { return apiFetch<{ success: number; failed: number }>(`${endpoint()}/autopilot/actions`, { method: "POST", body: JSON.stringify({ issueIds: ids, action: "AUTO_CONFIRM" }) }); }

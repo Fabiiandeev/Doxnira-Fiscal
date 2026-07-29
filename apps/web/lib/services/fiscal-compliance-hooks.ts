@@ -1,0 +1,10 @@
+"use client";
+import{useMutation,useQuery,useQueryClient}from"@tanstack/react-query";
+import{fiscalCompliance}from"./fiscal-compliance";
+export const usePreparations=()=>useQuery({queryKey:["fiscal-preparations"],queryFn:fiscalCompliance.preparations});
+export const useExports=(type:string)=>useQuery({queryKey:["fiscal-exports",type],queryFn:()=>fiscalCompliance.exports(type)});
+export const usePrepare=()=>{const c=useQueryClient();return useMutation({mutationFn:fiscalCompliance.prepare,onSuccess:()=>c.invalidateQueries({queryKey:["fiscal-preparations"]})})};
+export const useGenerateExport=()=>{const c=useQueryClient();return useMutation({mutationFn:({id,type}:{id:string;type:string})=>fiscalCompliance.generate(id,type),onSuccess:()=>c.invalidateQueries({queryKey:["fiscal-exports"]})})};
+export const useForecast=(year:number,month:number)=>useQuery({queryKey:["tax-forecast",year,month],queryFn:()=>fiscalCompliance.forecast(year,month),retry:1});
+export const useGuides=(status:string,page:number)=>useQuery({queryKey:["tax-guides",status,page],queryFn:()=>fiscalCompliance.guides(status,page)});
+export const useGuideMutation=()=>{const c=useQueryClient();return useMutation({mutationFn:({id,body}:{id?:string;body:Record<string,unknown>})=>id?fiscalCompliance.updateGuide(id,body):fiscalCompliance.createGuide(body),onSuccess:()=>c.invalidateQueries({queryKey:["tax-guides"]})})};

@@ -6,15 +6,10 @@ import { logger } from "./config/logger.js";
 import { disconnectDatabase } from "./config/prisma.js";
 import { closeQueues } from "./config/queue.js";
 import { disconnectRedis } from "./config/redis.js";
-import {
-  closeSyncWorker,
-  createSyncWorker,
-} from "./modules/sync/sync.worker.js";
+import { runtimeState } from "./config/runtime-state.js";
 
 const server = createServer(app);
 let isShuttingDown = false;
-
-createSyncWorker();
 
 server.listen(env.PORT, () => {
   logger.info(
@@ -29,6 +24,7 @@ server.listen(env.PORT, () => {
 async function shutdown(signal) {
   if (isShuttingDown) return;
   isShuttingDown = true;
+  runtimeState.beginShutdown();
 
   logger.info({ signal }, "Shutting down API");
 
@@ -49,7 +45,6 @@ async function shutdown(signal) {
   });
 
   const results = await Promise.allSettled([
-    closeSyncWorker(),
     closeQueues(),
     disconnectRedis(),
     disconnectDatabase(),

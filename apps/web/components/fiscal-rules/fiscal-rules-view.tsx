@@ -1,113 +1,33 @@
 "use client";
 
-import { AlertTriangle, CheckCircle2, RefreshCw, Shield } from "lucide-react";
+import { useState } from "react";
+import { CheckCircle2, FlaskConical, Pencil, Plus, Power, RefreshCw } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { notify } from "@/components/toast-viewport";
+import { useFiscalRules, useRuleMutation } from "@/lib/services/fiscal/fiscal-ai-hooks";
+import { fiscalRulesService, type FiscalRule } from "@/lib/services/fiscal/fiscal-rules-service";
+
+const empty = { taxRegime: "SIMPLES_NACIONAL", taxType: "ICMS", rate: "0", uf: "", cfop: "", ncm: "", effectiveFrom: new Date().toISOString().slice(0, 10) };
 
 export function FiscalRulesView() {
-  const mockRules = [
-    {
-      id: "rule-1",
-      code: "MOC_NFE_12_3",
-      name: "IBGE obrigatorio",
-      source: "MOC_NFE v3.10",
-      type: "VALIDACAO",
-      severity: "HIGH",
-      autoFix: true,
-      description: "Cliente deve ter codigo IBGE do municipio"
-    },
-    {
-      id: "rule-2",
-      code: "MOC_NFE_8_1",
-      name: "XML duplicado",
-      source: "MOC_NFE v3.10",
-      type: "DUPLICIDADE",
-      severity: "MEDIUM",
-      autoFix: true,
-      description: "Remover XMLs com mesma chave de acesso"
-    },
-    {
-      id: "rule-3",
-      code: "MOC_NFE_15_2",
-      name: "Total divergente",
-      source: "MOC_NFE v3.10",
-      type: "CALCULO",
-      severity: "HIGH",
-      autoFix: true,
-      description: "Total da nota deve igualar soma dos itens"
-    },
-    {
-      id: "rule-4",
-      code: "TIPI_8517",
-      name: "NCM Smartphone",
-      source: "TIPI 2024",
-      type: "CLASSIFICACAO",
-      severity: "MEDIUM",
-      autoFix: true,
-      description: "NCM 8517.12.00 para smartphones"
-    }
-  ];
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-extrabold">Regras Fiscais</h1>
-          <p className="text-sm text-subtle">Regras de validacao e classificacao fiscal (MOC, TIPI, LC 116)</p>
-        </div>
-        <Button variant="lime" onClick={() => notify({ title: "Atualizando regras..." })}>
-          <RefreshCw className="h-4 w-4" />
-          Atualizar base
-        </Button>
-      </div>
-      <Card className="p-4">
-        <Input placeholder="Buscar por codigo, nome, fonte..." className="max-w-sm" />
-      </Card>
-      <Card className="overflow-hidden">
-        <table className="w-full">
-          <thead>
-            <tr className="bg-muted/50 text-xs font-bold uppercase text-subtle">
-              <th className="px-4 py-3">Codigo</th>
-              <th className="px-4 py-3">Nome</th>
-              <th className="px-4 py-3">Fonte</th>
-              <th className="px-4 py-3">Tipo</th>
-              <th className="px-4 py-3">Severidade</th>
-              <th className="px-4 py-3">Auto-fix</th>
-              <th className="px-4 py-3">Descricao</th>
-              <th className="px-4 py-3">Acoes</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-line">
-            {mockRules.map((r) => (
-              <tr key={r.id} className="hover:bg-muted/grid/{r.id} hover:bg-muted/30">
-                <td className="px-4 py-3 font-mono text-sm">{r.code}</td>,
-                <td className="px-4 py-3 font-medium">{r.name}</td>,
-                <td className="px-4 py-3"><Badge variant="outline">{r.source}</Badge></td>,
-                <td className="px-4 py-3">{r.type}</td>,
-                <td className="px-4 py-3"><Badge variant={r.severity === "HIGH" ? "destructive" : "warning"}>{r.severity}</Badge></td>,
-                <td className="px-4 py-3">{r.severity}</td>,
-                <td className="px-4 py-3">
-                  {r.autoFix ? (
-                    <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-                  ) : (
-                    <AlertTriangle className="h-4 w-4 text-yellow-500" />
-                  )}
-                </td>,
-                <td className="px-4 py-3 text-sm text-subtle">{r.description}</td>,
-                <td className="px-4 py-3">
-                  <div className="flex gap-1">
-                    <Button variant="outline" size="sm">Editar</Button>,
-                    <Button variant="ghost" size="icon"><Shield className="h-4 w-4" /></Button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </Card>
-    </div>
-  );
+  const [search, setSearch] = useState(""); const [page, setPage] = useState(1);
+  const [editing, setEditing] = useState<FiscalRule | null>(null); const [form, setForm] = useState(empty);
+  const query = useFiscalRules(search, page); const mutation = useRuleMutation();
+  const save = async () => {
+    const data = { ...form, rate: Number(form.rate), uf: form.uf || null, cfop: form.cfop || null, ncm: form.ncm || null, effectiveFrom: new Date(form.effectiveFrom).toISOString(), creditAllowed: false, debitAllowed: false };
+    try { await mutation.mutateAsync({ op: editing ? "update" : "create", id: editing?.id, data }); setEditing(null); setForm(empty); notify({ title: "Regra salva", tone: "success" }); } catch (e) { notify({ title: "Erro ao salvar", description: e instanceof Error ? e.message : "Falha", tone: "error" }); }
+  };
+  const edit = (r: FiscalRule) => { setEditing(r); setForm({ taxRegime: r.taxRegime, taxType: r.taxType, rate: String(r.rate), uf: r.uf || "", cfop: r.cfop || "", ncm: r.ncm || "", effectiveFrom: r.effectiveFrom.slice(0, 10) }); };
+  const op = async (name: "toggle" | "version", id: string) => { try { await mutation.mutateAsync({ op: name, id }); notify({ title: name === "toggle" ? "Status atualizado" : "Nova versão criada", tone: "success" }); } catch (e) { notify({ title: "Falha", description: e instanceof Error ? e.message : "Erro", tone: "error" }); } };
+  const test = async (r: FiscalRule) => { const result = await fiscalRulesService.test(r.id, { cfop: r.cfop || undefined, ncm: r.ncm || undefined }); notify({ title: result.matched ? "Regra compatível" : "Regra não aplicável", description: `Alíquota: ${result.rate}%` }); };
+  return <div className="space-y-4">
+    <div className="flex flex-wrap items-center justify-between gap-3"><div><h1 className="text-2xl font-extrabold">Regras Fiscais</h1><p className="text-sm text-subtle">Regras reais, versionadas e isoladas por empresa.</p></div><Button variant="outline" onClick={() => query.refetch()}><RefreshCw className={`h-4 w-4 ${query.isFetching ? "animate-spin" : ""}`} />Atualizar</Button></div>
+    <Card className="p-4"><div className="grid gap-3 md:grid-cols-4"><Input placeholder="Regime" value={form.taxRegime} onChange={(e) => setForm({ ...form, taxRegime: e.target.value })}/><Input placeholder="Tributo" value={form.taxType} onChange={(e) => setForm({ ...form, taxType: e.target.value })}/><Input type="number" placeholder="Alíquota" value={form.rate} onChange={(e) => setForm({ ...form, rate: e.target.value })}/><Input type="date" value={form.effectiveFrom} onChange={(e) => setForm({ ...form, effectiveFrom: e.target.value })}/><Input placeholder="UF" value={form.uf} onChange={(e) => setForm({ ...form, uf: e.target.value.toUpperCase().slice(0, 2) })}/><Input placeholder="CFOP" value={form.cfop} onChange={(e) => setForm({ ...form, cfop: e.target.value })}/><Input placeholder="NCM" value={form.ncm} onChange={(e) => setForm({ ...form, ncm: e.target.value })}/><Button variant="lime" onClick={save} disabled={mutation.isPending}><Plus className="h-4 w-4"/>{editing ? "Salvar edição" : "Criar regra"}</Button></div></Card>
+    <Card className="p-4"><Input placeholder="Pesquisar por tributo, CFOP ou NCM..." value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }}/></Card>
+    {query.isLoading ? <Card className="h-64 animate-pulse bg-muted"/> : query.error ? <Card className="p-8 text-center"><p>{query.error.message}</p><Button className="mt-3" onClick={() => query.refetch()}>Tentar novamente</Button></Card> :
+    <Card className="overflow-x-auto"><table className="w-full text-sm"><thead className="bg-muted"><tr>{["Tributo","Regime","UF","CFOP","NCM","Alíquota","Status","Ações"].map((h)=><th className="p-3 text-left" key={h}>{h}</th>)}</tr></thead><tbody>{query.data?.data.length ? query.data.data.map((r)=><tr className="border-t" key={r.id}><td className="p-3 font-bold">{r.taxType}</td><td className="p-3">{r.taxRegime}</td><td className="p-3">{r.uf || "Todas"}</td><td className="p-3">{r.cfop || "Todos"}</td><td className="p-3">{r.ncm || "Todos"}</td><td className="p-3">{r.rate}%</td><td className="p-3"><Badge variant={r.effectiveUntil ? "outline" : "success"}>{r.effectiveUntil ? "Inativa" : "Ativa"}</Badge></td><td className="p-3"><div className="flex gap-1"><Button title="Editar" size="icon" variant="ghost" onClick={()=>edit(r)}><Pencil className="h-4 w-4"/></Button><Button title="Ativar/desativar" size="icon" variant="ghost" onClick={()=>op("toggle",r.id)}><Power className="h-4 w-4"/></Button><Button title="Versionar" size="icon" variant="ghost" onClick={()=>op("version",r.id)}><CheckCircle2 className="h-4 w-4"/></Button><Button title="Testar impacto" size="icon" variant="ghost" onClick={()=>test(r)}><FlaskConical className="h-4 w-4"/></Button></div></td></tr>) : <tr><td colSpan={8} className="p-8 text-center text-subtle">Nenhuma regra fiscal cadastrada.</td></tr>}</tbody></table><div className="flex justify-end gap-2 border-t p-3"><Button variant="outline" disabled={page===1} onClick={()=>setPage(page-1)}>Anterior</Button><span className="p-2 text-xs">Página {page}</span><Button variant="outline" disabled={(query.data?.data.length || 0)<20} onClick={()=>setPage(page+1)}>Próxima</Button></div></Card>}
+  </div>;
 }

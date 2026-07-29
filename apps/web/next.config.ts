@@ -2,6 +2,12 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  ...(process.env.NEXT_OUTPUT_STANDALONE === "true"
+    ? {
+        output: "standalone" as const,
+        outputFileTracingRoot: process.cwd().replace(/[\\/]apps[\\/]web$/, ""),
+      }
+    : {}),
   async rewrites() {
     return [
       // Temporary dev-time rewrite to ensure legacy relative page imports

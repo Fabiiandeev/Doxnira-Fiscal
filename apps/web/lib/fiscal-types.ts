@@ -79,11 +79,21 @@ export interface FiscalIssue {
 }
 
 export interface FiscalAiResponse {
+  conversationId?: string;
   answer: string;
   suggestions: FiscalAiSuggestion[];
   actions: FiscalAiAction[];
   confidence: number;
   sources: string[];
+  provider?: "GENERIC" | "NVIDIA_RAG";
+  knowledgeBaseUsed?: boolean;
+}
+
+export interface FiscalAiProviderStatus {
+  configured: boolean;
+  provider: "GENERIC" | "NVIDIA_RAG";
+  knowledgeBaseEnabled: boolean;
+  collectionCount: number;
 }
 
 export interface FiscalAiSuggestion {

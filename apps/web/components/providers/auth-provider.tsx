@@ -6,45 +6,54 @@ import {
   useContext,
   useMemo,
   useState,
+  useEffect,
   type ReactNode,
 } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 
-import { getToken } from "@/lib/api";
+import { apiFetch, setSessionUser } from "@/lib/api";
 import { getStoredUser, logout, type AuthUser } from "@/lib/services/auth-service";
 
 type AuthContextValue = {
   user: AuthUser | null;
-  token: string | null;
   isAuthenticated: boolean;
-  refreshSession: () => void;
+  refreshSession: () => Promise<void>;
   signOut: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 function readSession() {
-  return {
-    user: getStoredUser(),
-    token: getToken(),
-  };
+  return { user: getStoredUser() };
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const queryClient = useQueryClient();
   const [session, setSession] = useState(readSession);
 
-  const refreshSession = useCallback(() => {
-    setSession(readSession());
+  const refreshSession = useCallback(async () => {
+    try {
+      const result = await apiFetch<{ user: AuthUser }>("/auth/me");
+      setSessionUser(result.user);
+      setSession({ user: result.user });
+    } catch {
+      setSessionUser(null);
+      setSession({ user: null });
+    }
   }, []);
+
+  useEffect(() => { void refreshSession(); }, [refreshSession]);
 
   const signOut = useCallback(async () => {
     await logout();
-    refreshSession();
-  }, [refreshSession]);
+    queryClient.clear();
+    setSession({ user: null });
+  }, [queryClient]);
 
   const value = useMemo<AuthContextValue>(
     () => ({
       ...session,
-      isAuthenticated: Boolean(session.token),
+      isAuthenticated: Boolean(session.user),
       refreshSession,
       signOut,
     }),

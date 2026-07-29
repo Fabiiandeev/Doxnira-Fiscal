@@ -6,6 +6,7 @@ import { AppError } from "../../utils/app-error.js";
 import { asyncHandler, sendSuccess } from "../../utils/response.js";
 import { isValidCnpj, normalizeCnpj } from "../../utils/cnpj.js";
 import { normalizeCpf, isValidCpf } from "../../utils/cpf.js";
+import { protectCatalogWrites } from "../../middlewares/catalog-write.middleware.js";
 
 const TRANSPORTADORA_PRISMA_FIELDS = new Set([
   "tipoPessoa", "nome", "razaoSocial", "nomeFantasia",
@@ -52,6 +53,7 @@ const parseJson = (v) => {
 
 export const transportadorasRouter = Router();
 transportadorasRouter.use(requireAuth);
+transportadorasRouter.use(protectCatalogWrites("CARRIER"));
 
 transportadorasRouter.post(
   "/",
@@ -167,11 +169,15 @@ transportadorasRouter.get(
       where = { ...where, OR: orConditions };
     }
 
-    const items = await prisma.transportadora.findMany({
+    const page = Math.max(1, Number(request.query.page || 1));
+    const pageSize = Math.min(100, Math.max(1, Number(request.query.pageSize || 20)));
+    const [items, total] = await Promise.all([prisma.transportadora.findMany({
       where,
       orderBy: { updatedAt: "desc" },
-    });
-    sendSuccess(response, { data: items });
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    }), prisma.transportadora.count({ where })]);
+    sendSuccess(response, { data: items, total, page, pageSize });
   }),
 );
 

@@ -27,14 +27,20 @@ type CompanyContextValue = {
 
 const CompanyContext = createContext<CompanyContextValue | null>(null);
 
-export function CompanyProvider({ children }: { children: ReactNode }) {
+export function CompanyProvider({
+  children,
+  initialCompanyId = null,
+}: {
+  children: ReactNode;
+  initialCompanyId?: string | null;
+}) {
   const queryClient = useQueryClient();
-  const { token } = useAuth();
-  const [activeCompanyId, setActiveCompanyId] = useState<string | null>(() => getCompanyId());
+  const { isAuthenticated } = useAuth();
+  const [activeCompanyId, setActiveCompanyId] = useState<string | null>(initialCompanyId);
   const companiesQuery = useQuery({
     queryKey: ["companies"],
     queryFn: listCompanies,
-    enabled: Boolean(token),
+    enabled: isAuthenticated,
   });
 
   const companies = useMemo(() => companiesQuery.data?.data ?? [], [companiesQuery.data?.data]);
@@ -47,6 +53,11 @@ export function CompanyProvider({ children }: { children: ReactNode }) {
     },
     [queryClient],
   );
+
+  useEffect(() => {
+    const storedCompanyId = getCompanyId();
+    if (!activeCompanyId && storedCompanyId) setActiveCompanyId(storedCompanyId);
+  }, [activeCompanyId]);
 
   useEffect(() => {
     const firstCompanyId = companies[0]?.id;

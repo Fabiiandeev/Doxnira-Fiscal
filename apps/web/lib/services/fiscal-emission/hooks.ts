@@ -1,0 +1,3 @@
+"use client";import{useMutation,useQuery,useQueryClient}from"@tanstack/react-query";import{fiscalEmissionService}from"./service";import type{FiscalEmissionKind}from"./types";
+export const useFiscalEmission=(k:FiscalEmissionKind)=>useQuery({queryKey:["fiscal-emission",k],queryFn:()=>fiscalEmissionService.list(k)});
+export const useFiscalEmissionMutation=(k:FiscalEmissionKind)=>{const c=useQueryClient();return useMutation({mutationFn:(x:{op:"save"|"transmit";id?:string;payload?:Record<string,unknown>})=>x.op==="save"?fiscalEmissionService.save(k,x.payload||{}):fiscalEmissionService.transmit(k,x.id!),onSuccess:()=>c.invalidateQueries({queryKey:["fiscal-emission",k]})})};

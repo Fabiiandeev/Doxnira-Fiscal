@@ -1,0 +1,1 @@
+import{prisma}from"../../config/prisma.js";import{pricing}from"./commerce-calculations.js";export async function simulatePricing(companyId,input,name){const result=pricing(input);if(name)await prisma.commercePricingStrategy.create({data:{companyId,name,inputs:input,result}});return result}

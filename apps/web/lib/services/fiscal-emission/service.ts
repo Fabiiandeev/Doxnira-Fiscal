@@ -1,0 +1,3 @@
+import{apiFetch,getCompanyId}from"@/lib/api";import type{FiscalEmissionKind,PreparedDocument}from"./types";
+const path=(k:FiscalEmissionKind)=>{const id=getCompanyId();if(!id)throw new Error("Selecione uma empresa.");return`/companies/${id}/fiscal-emission/${k}`};
+export const fiscalEmissionService={list:(k:FiscalEmissionKind)=>apiFetch<{data:PreparedDocument[]}>(path(k)),save:(k:FiscalEmissionKind,p:Record<string,unknown>)=>apiFetch<PreparedDocument>(path(k),{method:"POST",body:JSON.stringify(p)}),transmit:(k:FiscalEmissionKind,id:string)=>apiFetch<PreparedDocument>(`${path(k)}/${id}/transmit`,{method:"POST",headers:{"idempotency-key":crypto.randomUUID()},body:"{}"})};

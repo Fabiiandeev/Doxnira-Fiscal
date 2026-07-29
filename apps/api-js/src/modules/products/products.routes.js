@@ -11,6 +11,7 @@ import { asyncHandler, sendSuccess } from "../../utils/response.js";
 import { analyzeNcm } from "./ncm-analysis.service.js";
 import { simulateTaxDecision } from "../../services/fiscal-ai/simulate-tax-decision.js";
 import { loadCompanyFiscalConfig } from "../../services/company-fiscal-config.service.js";
+import { protectCatalogWrites } from "../../middlewares/catalog-write.middleware.js";
 
 export const productsRouter = Router();
 export const productsStandaloneRouter = Router();
@@ -91,6 +92,8 @@ async function resolveProductCompany(request, _response, next) {
 
 productsStandaloneRouter.use(requireAuth);
 productsStandaloneRouter.use(asyncHandler(resolveProductCompany));
+productsStandaloneRouter.use(protectCatalogWrites("PRODUCT"));
+productsRouter.use(protectCatalogWrites("PRODUCT"));
 
 const PRISMA_FIELDS = new Set([
   "name", "code", "barcode", "brand", "unit", "weight", "length", "width", "height",
@@ -564,7 +567,6 @@ const createSchema = z.object({
   obsFiscal: optionalStr,
   price: optionalNum,
   costPrice: optionalNum,
-  stock: optionalInt,
   stockMin: optionalInt,
   stockMax: optionalInt,
   active: z.boolean().optional(),
@@ -607,7 +609,6 @@ const updateSchema = z.object({
   obsFiscal: nullableStr,
   price: optionalNum,
   costPrice: optionalNum.nullable(),
-  stock: optionalInt,
   stockMin: optionalInt.nullable(),
   stockMax: optionalInt.nullable(),
   active: z.boolean().optional(),
@@ -1202,14 +1203,20 @@ productsRouter.get(
     });
     if (!product) throw new AppError("Produto não encontrado.", "NOT_FOUND", 404);
     const stockSettings = jsonObject(productSettings(product).stock);
-    const reserved = Number(stockSettings.reserved ?? 0);
+    const balances = await prisma.inventoryBalance.findMany({
+      where: { companyId: request.company.id, productId: product.id },
+      include: { warehouse: true },
+    });
+    const physical = balances.reduce((sum, item) => sum + Number(item.physicalQuantity), 0);
+    const reserved = balances.reduce((sum, item) => sum + Number(item.reservedQuantity), 0);
     sendSuccess(response, {
-      stock: product.stock,
+      stock: physical,
       stockMin: product.stockMin,
       stockMax: product.stockMax,
-      critical: product.stockMin != null ? product.stock <= product.stockMin : false,
-      available: Math.max(0, Number(product.stock || 0) - reserved),
+      critical: product.stockMin != null ? physical - reserved <= product.stockMin : false,
+      available: physical - reserved,
       committed: reserved,
+      balances,
       settings: stockSettings,
     });
   }),
@@ -1222,11 +1229,7 @@ productsRouter.patch(
       where: { id: request.params.id, companyId: request.company.id },
     });
     if (!product) throw new AppError("Produto não encontrado.", "NOT_FOUND", 404);
-    const data = sanitizeProductUpdate({
-      stock: request.body.stock,
-      stockMin: request.body.stockMin,
-      stockMax: request.body.stockMax,
-    });
+    const data = sanitizeProductUpdate({ stockMin: request.body.stockMin, stockMax: request.body.stockMax });
     const settings = productSettings(product);
     const stockSettings = {
       ...jsonObject(settings.stock),

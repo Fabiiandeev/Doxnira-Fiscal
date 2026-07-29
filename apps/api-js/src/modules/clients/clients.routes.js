@@ -11,6 +11,7 @@ import { normalizeCpf, isValidCpf } from "../../utils/cpf.js";
 import { ensureCodigoUfIbgeColumn } from "../../services/cnpj-lookup.service.js";
 import { resolveCnpjData } from "../../services/data-resolver.service.js";
 import { validarClienteParaEmissao } from "../../lib/fiscal/validar-cliente-para-emissao.js";
+import { protectCatalogWrites } from "../../middlewares/catalog-write.middleware.js";
 
 const BOOLEAN_STRING_FIELDS = [
   "optanteSimples",
@@ -117,6 +118,7 @@ function computeTipoContribuinte(contribuinteIcms, contribuinteIss) {
 
 export const clientesRouter = Router();
 clientesRouter.use(requireAuth);
+clientesRouter.use(protectCatalogWrites("CLIENT"));
 
 export const clientesPublicRouter = Router();
 export const customersRouter = Router();
@@ -417,6 +419,7 @@ clientesPublicRouter.get(
 );
 
 customersRouter.use(requireAuth);
+customersRouter.use(protectCatalogWrites("CLIENT"));
 customersRouter.use(asyncHandler(resolveCustomerCompany));
 
 customersRouter.post(

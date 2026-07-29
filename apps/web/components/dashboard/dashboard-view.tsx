@@ -24,7 +24,7 @@ import {
 } from "@/components/dashboard/dashboard-charts";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { getCompanyId } from "@/lib/api";
+import { useCompanyContext } from "@/components/providers/company-provider";
 import { getDashboard } from "@/lib/services/dashboard-service";
 import { formatCurrency, formatDate, maskCnpj } from "@/lib/utils";
 
@@ -38,7 +38,7 @@ const pendingLabels: Record<string, string> = {
 };
 
 export function DashboardView() {
-  const companyId = getCompanyId();
+  const { activeCompanyId: companyId } = useCompanyContext();
   const query = useQuery({
     queryKey: ["accounting-dashboard", companyId],
     queryFn: () => getDashboard(companyId ?? ""),

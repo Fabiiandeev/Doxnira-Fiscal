@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { cookies, headers } from "next/headers";
+import { cookies } from "next/headers";
 
 import { Providers } from "@/components/providers";
 import type { SessionUser } from "@/lib/api";
@@ -65,43 +65,9 @@ const storageShimScript = `
 `;
 
 async function readBootstrapSession() {
-  const headerStore = await headers();
-  const headerToken = headerStore.get("x-ns-session-token");
-  const headerUser = headerStore.get("x-ns-session-user");
-  const headerCompanyId = headerStore.get("x-ns-session-company-id");
-
-  if (headerToken) {
-    let user: SessionUser | null = null;
-    if (headerUser) {
-      try {
-        user = JSON.parse(headerUser) as SessionUser;
-      } catch {
-        user = null;
-      }
-    }
-
-    return {
-      token: headerToken,
-      companyId: headerCompanyId,
-      user,
-    };
-  }
-
   const cookieStore = await cookies();
-  const token = cookieStore.get("ns-fiscal-token")?.value ?? null;
   const companyId = cookieStore.get("ns-fiscal-company-id")?.value ?? null;
-  const userCookie = cookieStore.get("ns-fiscal-user")?.value ?? null;
-
-  let user: SessionUser | null = null;
-  if (userCookie) {
-    try {
-      user = JSON.parse(userCookie) as SessionUser;
-    } catch {
-      user = null;
-    }
-  }
-
-  return { token, companyId, user };
+  return { companyId, user: null as SessionUser | null };
 }
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {

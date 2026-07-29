@@ -1,0 +1,23 @@
+"use client";
+import Link from "next/link";
+import { useState } from "react";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { useOperationDashboard } from "@/lib/services/operation/operation-dashboard-hooks";
+
+const labels: Record<string,string> = { inventoryValue:"Valor do estoque",productsWithStock:"Produtos com estoque",productsOutOfStock:"Produtos zerados",productsBelowMinimum:"Abaixo do mínimo",activeReservations:"Reservas ativas",movements:"Movimentações",purchaseDrafts:"Compras em rascunho",purchasePendingApproval:"Compras em aprovação",purchasePendingReceipt:"Aguardando recebimento",saleDrafts:"Vendas em rascunho",salePendingApproval:"Vendas em aprovação",saleReserved:"Vendas reservadas",salePendingInvoice:"Aguardando faturamento",marketplacePending:"Marketplace pendente",purchasePayables:"Contas a pagar",salesReceivables:"Contas a receber",activeAutomations:"Automações ativas",failedRuns:"Execuções falhas",operationalAlerts:"Alertas operacionais" };
+export function OperationDashboard() {
+  const [from,setFrom]=useState(new Date(new Date().getFullYear(),new Date().getMonth(),1).toISOString().slice(0,10)),[to,setTo]=useState(new Date().toISOString().slice(0,10));
+  const query=useOperationDashboard(`from=${from}&to=${to}`);
+  return <div className="space-y-5"><div className="flex flex-wrap items-end justify-between gap-3"><div><h1 className="text-2xl font-extrabold">Dashboard Operacional</h1><p className="text-sm text-subtle">Visão consolidada e real da operação da empresa.</p></div><div className="flex gap-2"><Link href="/operacao/estoque"><Button variant="outline">Abrir estoque</Button></Link><Link href="/operacao/automacao"><Button variant="outline">Automações</Button></Link><Button onClick={()=>query.refetch()}>Atualizar</Button></div></div>
+    <Card className="flex flex-wrap gap-3 p-4"><label className="text-xs">De<Input type="date" value={from} onChange={e=>setFrom(e.target.value)}/></label><label className="text-xs">Até<Input type="date" value={to} onChange={e=>setTo(e.target.value)}/></label></Card>
+    {query.isLoading?<div className="grid gap-3 md:grid-cols-4">{Array.from({length:12},(_,i)=><div key={i} className="h-24 animate-pulse rounded-xl bg-muted"/>)}</div>:query.isError?<Card className="p-8 text-center"><p>Erro ao carregar indicadores.</p><Button className="mt-3" onClick={()=>query.refetch()}>Tentar novamente</Button></Card>:!query.data?<Card className="p-8">Nenhum dado operacional.</Card>:<>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">{Object.entries(query.data.indicators).map(([key,value])=><Card key={key} className="p-4"><p className="text-xs text-subtle">{labels[key]||key}</p><p className="mt-2 text-xl font-extrabold">{key==="inventoryValue"?value.toLocaleString("pt-BR",{style:"currency",currency:"BRL"}):value}</p></Card>)}</div>
+      <div className="grid gap-4 lg:grid-cols-3"><Chart title="Entradas e saídas" rows={query.data.movementSeries.map(x=>({label:x.date,value:x.entries+x.exits}))}/><Chart title="Compras por status" rows={query.data.purchasesByStatus.map(x=>({label:x.status,value:x.count}))}/><Chart title="Vendas por status" rows={query.data.salesByStatus.map(x=>({label:x.status,value:x.count}))}/></div>
+      <div className="grid gap-4 lg:grid-cols-2"><List title="Últimas movimentações" rows={query.data.latestMovements} href="/operacao/estoque/movimentos"/><List title="Automações com erro" rows={query.data.failedAutomations} href="/operacao/automacao/execucoes"/></div>
+    </>}
+  </div>;
+}
+const Chart=({title,rows}:{title:string;rows:Array<{label:string;value:number}>})=><Card className="p-5"><h2 className="font-bold">{title}</h2>{rows.length?rows.map(row=><div key={row.label} className="mt-3"><div className="flex justify-between text-xs"><span>{row.label}</span><span>{row.value}</span></div><div className="mt-1 h-2 rounded bg-muted"><div className="h-2 rounded bg-primary" style={{width:`${Math.min(100,Math.max(3,row.value))}%`}}/></div></div>):<p className="mt-4 text-sm text-subtle">Sem dados no período.</p>}</Card>;
+const List=({title,rows,href}:{title:string;rows:Array<Record<string,unknown>>;href:string})=><Card className="p-5"><div className="flex justify-between"><h2 className="font-bold">{title}</h2><Link href={href} className="text-xs underline">Abrir</Link></div>{rows.length?rows.slice(0,8).map((row,index)=><div key={String(row.id||index)} className="border-b py-3 text-xs"><p className="font-semibold">{String(row.name||row.event||row.type||row.id)}</p><p className="text-subtle">{String(row.status||row.createdAt||"")}</p></div>):<p className="mt-4 text-sm text-subtle">Nenhum registro.</p>}</Card>;

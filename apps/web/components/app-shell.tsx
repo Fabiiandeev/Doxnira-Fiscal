@@ -69,6 +69,7 @@ type NavItem = {
   icon: LucideIcon;
   badge?: string;
   permission?: string;
+  platformOnly?: boolean;
 };
 
 type NavGroup = {
@@ -162,6 +163,7 @@ const navGroups: NavGroup[] = [
     label: "Marketplaces",
     icon: FolderSync,
     items: [
+      { label: "Visão geral", href: "/commerce/marketplaces", icon: Handshake },
       { label: "Mercado Livre", href: "/marketplaces/mercado-livre", icon: Package },
       { label: "Shopee", href: "/marketplaces/shopee", icon: ShoppingCart },
       { label: "Contas Conectadas", href: "/marketplaces/accounts", icon: Handshake },
@@ -174,11 +176,11 @@ const navGroups: NavGroup[] = [
     label: "Operação",
     icon: Package,
     items: [
-      { label: "Estoque", href: "/stock", icon: Package },
-      { label: "Compras", href: "/purchases", icon: ClipboardList },
-      { label: "Vendas", href: "/sales", icon: ShoppingCart },
-      { label: "Financeiro", href: "/finance", icon: CreditCard },
-      { label: "Automação", href: "/automation", icon: Zap },
+      { label: "Dashboard Operacional", href: "/operacao", icon: LayoutDashboard },
+      { label: "Estoque", href: "/operacao/estoque", icon: Package },
+      { label: "Compras", href: "/operacao/compras", icon: ClipboardList },
+      { label: "Vendas", href: "/operacao/vendas", icon: ShoppingCart },
+      { label: "Automação", href: "/operacao/automacao", icon: Zap },
     ],
   },
   {
@@ -189,7 +191,7 @@ const navGroups: NavGroup[] = [
       { label: "Dashboard Contador", href: "/accountant", icon: BarChart2 },
       { label: "Documentos Fiscais", href: "/accountant/documents", icon: FileText },
       { label: "Ranking de Risco", href: "/accountant/risk-ranking", icon: Shield },
-      { label: "Fila Fiscal", href: "/accountant/work-queue", icon: ListChecks },
+      { label: "Fila Fiscal", href: "/accountant/fiscal-queue", icon: ListChecks },
       { label: "Solicitações", href: "/accountant/requests", icon: Inbox },
       { label: "Relatório de Valor", href: "/accountant/value-report", icon: FileBarChart },
     ],
@@ -199,11 +201,26 @@ const navGroups: NavGroup[] = [
     label: "Configurações",
     icon: Settings,
     items: [
-      { label: "Empresa", href: "/companies", icon: Building2 },
+      { label: "Plano e assinatura", href: "/settings/subscription", icon: CreditCard },
+      { label: "Empresa", href: "/settings/company", icon: Building2 },
       { label: "Fiscal", href: "/settings/fiscal", icon: FileText },
-      { label: "Certificado", href: "/certificate", icon: FileKey2 },
+      { label: "Certificado", href: "/settings/certificate", icon: FileKey2 },
       { label: "Integrações", href: "/settings/integrations", icon: FolderSync },
-      { label: "Usuários", href: "/users", icon: Users },
+      { label: "Usuários", href: "/settings/users", icon: Users },
+      { label: "Segurança/Auditoria", href: "/settings/security", icon: Shield },
+    ],
+  },
+  {
+    id: "plataforma",
+    label: "Plataforma",
+    icon: Shield,
+    items: [
+      {
+        label: "Planos e precos",
+        href: "/platform/plans",
+        icon: CreditCard,
+        platformOnly: true,
+      },
     ],
   },
 ];
@@ -224,6 +241,9 @@ function SidebarContent({
 }) {
   const pathname = usePathname();
   const { hasPermission } = usePermissionsContext();
+  const { user } = useAuth();
+  const isPlatformAdmin =
+    user?.role === "PLATFORM_ADMIN" || user?.role === "PLATFORM_SUPER_ADMIN";
   const [openGroup, setOpenGroup] = useState<string | null>(null);
 
   useEffect(() => {
@@ -261,7 +281,11 @@ function SidebarContent({
       </div>
       <nav className="scrollbar-none flex-1 overflow-y-auto px-3">
         {navGroups.map((group) => {
-          const visibleItems = group.items.filter((item) => !item.permission || hasPermission(item.permission));
+          const visibleItems = group.items.filter(
+            (item) =>
+              (!item.permission || hasPermission(item.permission)) &&
+              (!item.platformOnly || isPlatformAdmin),
+          );
           if (!visibleItems.length) return null;
           const isSingle = SINGLE_ITEM_GROUPS.has(group.id);
           const isOpen = openGroup === group.id;

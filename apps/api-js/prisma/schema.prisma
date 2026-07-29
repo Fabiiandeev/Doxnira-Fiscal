@@ -2,6 +2,279 @@ generator client {
   provider = "prisma-client-js"
 }
 
+model MarketplaceConnection {
+  id                String    @id @default(uuid()) @db.Uuid
+  companyId         String    @map("company_id") @db.Uuid
+  provider          String    @db.VarChar(40)
+  name              String    @db.VarChar(120)
+  status            String    @default("pending_credentials") @db.VarChar(40)
+  externalAccountId String?   @map("external_account_id") @db.VarChar(120)
+  accessToken       String?   @map("access_token") @db.Text
+  refreshToken      String?   @map("refresh_token") @db.Text
+  tokenExpiresAt    DateTime? @map("token_expires_at")
+  connectedAt       DateTime? @map("connected_at")
+  lastSyncAt        DateTime? @map("last_sync_at")
+  metadata          Json      @default("{}")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  syncJobs MarketplaceSyncJob[]
+  events MarketplaceSyncEvent[]
+  webhookEvents MarketplaceWebhookEvent[]
+  cursors MarketplaceSyncCursor[]
+  listingLinks MarketplaceListingLink[]
+  orders MarketplaceOrder[]
+
+  @@unique([companyId, provider, externalAccountId])
+  @@index([companyId, status])
+  @@map("marketplace_connections")
+}
+
+model MarketplaceSyncCursor {
+  id           String    @id @default(uuid()) @db.Uuid
+  companyId    String    @map("company_id") @db.Uuid
+  connectionId String    @map("connection_id") @db.Uuid
+  resourceType String    @map("resource_type") @db.VarChar(40)
+  cursor        String?   @db.Text
+  lastSyncedAt DateTime? @map("last_synced_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  company    Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  connection MarketplaceConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@unique([connectionId, resourceType])
+  @@index([companyId, resourceType])
+  @@map("marketplace_sync_cursors")
+}
+
+model MarketplaceSyncJob {
+  id             String    @id @default(uuid()) @db.Uuid
+  companyId      String    @map("company_id") @db.Uuid
+  connectionId   String    @map("connection_id") @db.Uuid
+  type           String    @default("FULL") @db.VarChar(30)
+  status         String    @default("queued") @db.VarChar(30)
+  idempotencyKey String    @unique @map("idempotency_key") @db.VarChar(160)
+  startedAt      DateTime? @map("started_at")
+  finishedAt     DateTime? @map("finished_at")
+  errorMessage   String?   @map("error_message") @db.Text
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  company    Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  connection MarketplaceConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  events     MarketplaceSyncEvent[]
+
+  @@index([companyId, status])
+  @@index([connectionId, createdAt(sort: Desc)])
+  @@map("marketplace_sync_jobs")
+}
+
+model MarketplaceSyncEvent {
+  id           String   @id @default(uuid()) @db.Uuid
+  companyId    String   @map("company_id") @db.Uuid
+  connectionId String   @map("connection_id") @db.Uuid
+  syncJobId    String?  @map("sync_job_id") @db.Uuid
+  type         String   @db.VarChar(60)
+  payload      Json?
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  company    Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  connection MarketplaceConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  syncJob    MarketplaceSyncJob?   @relation(fields: [syncJobId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, createdAt(sort: Desc)])
+  @@index([connectionId, createdAt(sort: Desc)])
+  @@index([syncJobId])
+  @@map("marketplace_sync_events")
+}
+
+model MarketplaceWebhookEvent {
+  id              String    @id @default(uuid()) @db.Uuid
+  companyId       String    @map("company_id") @db.Uuid
+  connectionId    String    @map("connection_id") @db.Uuid
+  providerEventId String    @map("provider_event_id") @db.VarChar(160)
+  topic           String?   @db.VarChar(120)
+  payload         Json
+  status          String    @default("received") @db.VarChar(30)
+  processedAt     DateTime? @map("processed_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  company    Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  connection MarketplaceConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@unique([connectionId, providerEventId])
+  @@index([companyId, createdAt(sort: Desc)])
+  @@index([status, createdAt])
+  @@map("marketplace_webhook_events")
+}
+
+model MarketplaceListingLink {
+  id                String   @id @default(uuid()) @db.Uuid
+  companyId         String   @map("company_id") @db.Uuid
+  connectionId      String   @map("connection_id") @db.Uuid
+  providerListingId String   @map("provider_listing_id") @db.VarChar(160)
+  sku               String?  @db.VarChar(120)
+  title             String?  @db.VarChar(255)
+  status            String   @default("active") @db.VarChar(40)
+  price             Decimal? @db.Decimal(15, 2)
+  promotionalPrice  Decimal? @map("promotional_price") @db.Decimal(15,2)
+  productId         String?   @map("product_id") @db.Uuid
+  stock             Int?
+  category          String?
+  condition         String?
+  listingType       String?   @map("listing_type")
+  reservedStock     Int       @default(0) @map("reserved_stock")
+  lastError         String?   @map("last_error")
+  currency          String?  @db.Char(3)
+  rawPayload        Json?    @map("raw_payload")
+  syncedAt          DateTime @default(now()) @map("synced_at")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  company    Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  connection MarketplaceConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@unique([connectionId, providerListingId])
+  @@index([companyId, status])
+  @@index([companyId, sku])
+  @@map("marketplace_listing_links")
+}
+
+model MarketplaceOrder {
+  id              String    @id @default(uuid()) @db.Uuid
+  companyId       String    @map("company_id") @db.Uuid
+  connectionId    String    @map("connection_id") @db.Uuid
+  providerOrderId String    @map("provider_order_id") @db.VarChar(160)
+  status          String    @db.VarChar(40)
+  currency        String    @db.Char(3)
+  totalAmount     Decimal   @map("total_amount") @db.Decimal(15, 2)
+  freightAmount   Decimal   @default(0) @map("freight_amount") @db.Decimal(15, 2)
+  discountAmount  Decimal   @default(0) @map("discount_amount") @db.Decimal(15, 2)
+  commissionAmount Decimal  @default(0) @map("commission_amount") @db.Decimal(15,2)
+  fixedFeeAmount Decimal    @default(0) @map("fixed_fee_amount") @db.Decimal(15,2)
+  taxAmount Decimal         @default(0) @map("tax_amount") @db.Decimal(15,2)
+  adsAmount Decimal         @default(0) @map("ads_amount") @db.Decimal(15,2)
+  productCost Decimal       @default(0) @map("product_cost") @db.Decimal(15,2)
+  refundAmount Decimal      @default(0) @map("refund_amount") @db.Decimal(15,2)
+  chargebackAmount Decimal  @default(0) @map("chargeback_amount") @db.Decimal(15,2)
+  financialReceivableId String? @map("financial_receivable_id") @db.Uuid
+  reconciliationId String? @map("reconciliation_id") @db.Uuid
+  stockReservedAt DateTime? @map("stock_reserved_at")
+  internalCanceledAt DateTime? @map("internal_canceled_at")
+  orderedAt       DateTime  @map("ordered_at")
+  rawPayload      Json?     @map("raw_payload")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  company    Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  connection MarketplaceConnection  @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  items      MarketplaceOrderItem[]
+
+  @@unique([connectionId, providerOrderId])
+  @@index([companyId, status, orderedAt(sort: Desc)])
+  @@index([connectionId, orderedAt(sort: Desc)])
+  @@map("marketplace_orders")
+}
+
+model MarketplaceOrderItem {
+  id             String   @id @default(uuid()) @db.Uuid
+  companyId      String   @map("company_id") @db.Uuid
+  orderId        String   @map("order_id") @db.Uuid
+  providerItemId String   @map("provider_item_id") @db.VarChar(160)
+  sku            String?  @db.VarChar(120)
+  title          String   @db.VarChar(255)
+  quantity       Int
+  unitPrice      Decimal  @map("unit_price") @db.Decimal(15, 2)
+  totalAmount    Decimal  @map("total_amount") @db.Decimal(15, 2)
+  productId      String?  @map("product_id") @db.Uuid
+  unitCost       Decimal  @default(0) @map("unit_cost") @db.Decimal(15,2)
+  rawPayload     Json?    @map("raw_payload")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  company Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  order   MarketplaceOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@unique([orderId, providerItemId])
+  @@index([companyId])
+  @@map("marketplace_order_items")
+}
+
+model CommercePricingStrategy {
+  id String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+  name String
+  inputs Json
+  result Json
+  createdAt DateTime @default(now()) @map("created_at")
+  @@index([companyId,createdAt])
+  @@map("commerce_pricing_strategies")
+}
+
+model CommerceCompetitionRecord {
+  id String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+  productId String? @map("product_id") @db.Uuid
+  listingId String? @map("listing_id") @db.Uuid
+  competitor String
+  price Decimal @db.Decimal(15,2)
+  freight Decimal @default(0) @db.Decimal(15,2)
+  reputation String?
+  rating Decimal? @db.Decimal(5,2)
+  deliveryDays Int? @map("delivery_days")
+  position Int?
+  sourceUrl String? @map("source_url")
+  source String @default("MANUAL")
+  collectedAt DateTime @map("collected_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  @@index([companyId,productId,collectedAt])
+  @@map("commerce_competition_records")
+}
+
+model CommerceOpportunity {
+  id String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+  type String @db.VarChar(60)
+  title String
+  description String
+  evidence Json
+  impact Decimal @default(0) @db.Decimal(15,2)
+  priority String @db.VarChar(20)
+  provider String?
+  productId String? @map("product_id") @db.Uuid
+  listingId String? @map("listing_id") @db.Uuid
+  assignee String?
+  status String @default("OPEN") @db.VarChar(30)
+  justification String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  @@index([companyId,status,priority])
+  @@map("commerce_opportunities")
+}
+
+model CommerceAdMetric {
+  id String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+  connectionId String? @map("connection_id") @db.Uuid
+  providerCampaignId String @map("provider_campaign_id")
+  campaignName String @map("campaign_name")
+  listingId String? @map("listing_id") @db.Uuid
+  periodStart DateTime @map("period_start")
+  periodEnd DateTime @map("period_end")
+  investment Decimal @db.Decimal(15,2)
+  attributedRevenue Decimal? @map("attributed_revenue") @db.Decimal(15,2)
+  attributedOrders Int? @map("attributed_orders")
+  status String @db.VarChar(30)
+  promotion Json?
+  source String @default("PROVIDER_API")
+  createdAt DateTime @default(now()) @map("created_at")
+  @@unique([companyId,providerCampaignId,periodStart,periodEnd])
+  @@index([companyId,periodStart,periodEnd])
+  @@map("commerce_ad_metrics")
+}
+
 datasource db {
   provider = "postgresql"
 }
@@ -12,6 +285,51 @@ enum UserRole {
   ACCOUNTANT
   OPERATOR
   VIEWER
+  PLATFORM_ADMIN
+  PLATFORM_SUPER_ADMIN
+}
+
+enum SubscriptionPlanStatus {
+  DRAFT
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+}
+
+enum SubscriptionBillingInterval {
+  MONTHLY
+  YEARLY
+}
+
+enum PlanFeatureValueType {
+  BOOLEAN
+  INTEGER
+  TEXT
+  UNLIMITED
+}
+
+enum PlanPriceApplicationPolicy {
+  NEW_CUSTOMERS_ONLY
+  ALL_NEXT_RENEWAL
+  SELECTED_CUSTOMERS
+  SCHEDULED
+}
+
+enum PlatformSubscriptionStatus {
+  TRIAL
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  SUSPENDED
+}
+
+enum SubscriptionInvoiceStatus {
+  PENDING
+  OPEN
+  PAID
+  FAILED
+  CANCELED
+  EXPIRED
 }
 
 enum Environment {
@@ -425,12 +743,178 @@ model User {
   mdfeValidationRunsRequested MdfeValidationRun[] @relation("MdfeValidationRequestedBy")
   mdfeEvents MdfeEvent[] @relation("MdfeEventUser")
   mdfeAuditLogs MdfeAuditLog[] @relation("MdfeAuditUser")
+  inventoryMovements InventoryMovement[]
+  inventoryTransfersRequested InventoryTransfer[] @relation("InventoryTransferRequestedBy")
+  inventoryTransfersCompleted InventoryTransfer[] @relation("InventoryTransferCompletedBy")
+  inventoryCounts InventoryCount[] @relation("InventoryCountResponsible")
+  purchaseOrdersCreated PurchaseOrder[] @relation("PurchaseOrderBuyer")
+  purchaseReceipts PurchaseReceipt[]
+  salesOrdersCreated SalesOrder[] @relation("SalesOrderSeller")
+  salesReturns SalesReturn[]
+  operationAutomations OperationAutomation[]
+  operationAutomationRuns OperationAutomationRun[]
+  subscriptionPlansCreated SubscriptionPlan[] @relation("SubscriptionPlanCreatedBy")
+  subscriptionPlansUpdated SubscriptionPlan[] @relation("SubscriptionPlanUpdatedBy")
+  subscriptionPlanPricesCreated SubscriptionPlanPrice[] @relation("SubscriptionPlanPriceCreatedBy")
 
   @@map("users")
 }
 
+model SubscriptionPlan {
+  id                  String                 @id @default(uuid()) @db.Uuid
+  code                String                 @unique @db.VarChar(60)
+  slug                String                 @unique @db.VarChar(100)
+  name                String                 @db.VarChar(160)
+  title               String?                @db.VarChar(200)
+  shortDescription    String?                @map("short_description") @db.VarChar(300)
+  description         String?                @db.Text
+  status              SubscriptionPlanStatus @default(DRAFT)
+  publicVisible       Boolean                @default(false) @map("public_visible")
+  availableForSale    Boolean                @default(false) @map("available_for_sale")
+  featured            Boolean                @default(false)
+  sortOrder           Int                    @default(0) @map("sort_order")
+  trialDays           Int                    @default(0) @map("trial_days")
+  checkoutDescription String?                @map("checkout_description") @db.VarChar(500)
+  buttonLabel         String                 @default("Começar agora") @map("button_label") @db.VarChar(100)
+  badgeLabel          String?                @map("badge_label") @db.VarChar(100)
+  createdById         String?                @map("created_by_id") @db.Uuid
+  updatedById         String?                @map("updated_by_id") @db.Uuid
+  createdAt           DateTime               @default(now()) @map("created_at")
+  updatedAt           DateTime               @updatedAt @map("updated_at")
+  archivedAt          DateTime?              @map("archived_at")
+
+  createdBy     User?                     @relation("SubscriptionPlanCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy     User?                     @relation("SubscriptionPlanUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  prices        SubscriptionPlanPrice[]
+  features      SubscriptionPlanFeature[]
+  subscriptions Subscription[]
+  invoices      SubscriptionInvoice[]
+
+  @@index([status, publicVisible])
+  @@index([status, availableForSale])
+  @@index([sortOrder])
+  @@map("platform_subscription_plans")
+}
+
+model SubscriptionPlanPrice {
+  id                String                         @id @default(uuid()) @db.Uuid
+  planId            String                         @map("plan_id") @db.Uuid
+  interval          SubscriptionBillingInterval
+  currency          String                         @default("BRL") @db.Char(3)
+  amountCents       Int                            @map("amount_cents")
+  active            Boolean                        @default(true)
+  validFrom         DateTime                       @map("valid_from")
+  validUntil        DateTime?                      @map("valid_until")
+  applicationPolicy PlanPriceApplicationPolicy     @default(NEW_CUSTOMERS_ONLY) @map("application_policy")
+  createdById       String?                        @map("created_by_id") @db.Uuid
+  createdAt         DateTime                       @default(now()) @map("created_at")
+
+  plan          SubscriptionPlan      @relation(fields: [planId], references: [id], onDelete: Restrict)
+  createdBy     User?                 @relation("SubscriptionPlanPriceCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  subscriptions Subscription[]
+  invoices      SubscriptionInvoice[]
+
+  @@index([planId, interval, active])
+  @@index([validFrom, validUntil])
+  @@map("platform_subscription_plan_prices")
+}
+
+model SubscriptionPlanFeature {
+  id          String               @id @default(uuid()) @db.Uuid
+  planId      String               @map("plan_id") @db.Uuid
+  code        String               @db.VarChar(80)
+  label       String               @db.VarChar(180)
+  description String?              @db.VarChar(400)
+  valueType   PlanFeatureValueType @map("value_type")
+  value       String?              @db.VarChar(300)
+  visible     Boolean              @default(true)
+  sortOrder   Int                  @default(0) @map("sort_order")
+
+  plan SubscriptionPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@unique([planId, code])
+  @@index([planId, visible, sortOrder])
+  @@map("platform_subscription_plan_features")
+}
+
+model Subscription {
+  id                 String             @id @default(uuid()) @db.Uuid
+  billingAccountId   String             @unique @map("billing_account_id") @db.VarChar(160)
+  companyId          String             @unique @map("company_id") @db.Uuid
+  planId             String             @map("plan_id") @db.Uuid
+  planPriceId        String             @map("plan_price_id") @db.Uuid
+  status             PlatformSubscriptionStatus
+  currentPeriodStart DateTime?          @map("current_period_start")
+  currentPeriodEnd   DateTime?          @map("current_period_end")
+  createdAt          DateTime           @default(now()) @map("created_at")
+  updatedAt          DateTime           @updatedAt @map("updated_at")
+
+  plan      SubscriptionPlan      @relation(fields: [planId], references: [id], onDelete: Restrict)
+  planPrice SubscriptionPlanPrice @relation(fields: [planPriceId], references: [id], onDelete: Restrict)
+  company   Company               @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  invoices  SubscriptionInvoice[]
+
+  @@index([planId, status])
+  @@map("platform_subscriptions")
+}
+
+model SubscriptionInvoice {
+  id                  String                    @id @default(uuid()) @db.Uuid
+  subscriptionId      String                    @map("subscription_id") @db.Uuid
+  planId              String                    @map("plan_id") @db.Uuid
+  planPriceId         String                    @map("plan_price_id") @db.Uuid
+  planCodeSnapshot    String                    @map("plan_code_snapshot") @db.VarChar(60)
+  planNameSnapshot    String                    @map("plan_name_snapshot") @db.VarChar(160)
+  descriptionSnapshot String?                   @map("description_snapshot") @db.VarChar(500)
+  amountCents         Int                       @map("amount_cents")
+  currency            String                    @default("BRL") @db.Char(3)
+  orderNsu            String                    @unique @map("order_nsu") @db.VarChar(160)
+  checkoutUrl         String?                   @map("checkout_url") @db.Text
+  invoiceSlug         String?                   @map("invoice_slug") @db.VarChar(160)
+  transactionNsu      String?                   @unique @map("transaction_nsu") @db.VarChar(160)
+  receiptUrl          String?                   @map("receipt_url") @db.Text
+  captureMethod       String?                   @map("capture_method") @db.VarChar(40)
+  paidAmountCents     Int?                      @map("paid_amount_cents")
+  status              SubscriptionInvoiceStatus
+  periodStart         DateTime                  @map("period_start")
+  periodEnd           DateTime                  @map("period_end")
+  dueAt               DateTime                  @map("due_at")
+  paidAt              DateTime?                 @map("paid_at")
+  createdAt           DateTime                  @default(now()) @map("created_at")
+  updatedAt           DateTime                  @updatedAt @map("updated_at")
+
+  subscription Subscription         @relation(fields: [subscriptionId], references: [id], onDelete: Restrict)
+  plan         SubscriptionPlan     @relation(fields: [planId], references: [id], onDelete: Restrict)
+  planPrice    SubscriptionPlanPrice @relation(fields: [planPriceId], references: [id], onDelete: Restrict)
+  webhookEvents InfinitePayWebhookEvent[]
+
+  @@index([subscriptionId, createdAt(sort: Desc)])
+  @@index([planId, status])
+  @@map("platform_subscription_invoices")
+}
+
+model InfinitePayWebhookEvent {
+  id             String   @id @default(uuid()) @db.Uuid
+  fingerprint    String   @unique @db.Char(64)
+  invoiceId      String?  @map("invoice_id") @db.Uuid
+  orderNsu       String?  @map("order_nsu") @db.VarChar(160)
+  transactionNsu String?  @map("transaction_nsu") @db.VarChar(160)
+  payload        Json
+  status         String   @default("RECEIVED") @db.VarChar(40)
+  failureReason  String?  @map("failure_reason") @db.VarChar(300)
+  receivedAt     DateTime @default(now()) @map("received_at")
+  processedAt    DateTime? @map("processed_at")
+
+  invoice SubscriptionInvoice? @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+
+  @@index([orderNsu, receivedAt(sort: Desc)])
+  @@index([invoiceId, status])
+  @@map("infinitepay_webhook_events")
+}
+
 model Company {
   id                           String      @id @default(uuid()) @db.Uuid
+  platformSubscriptions        Subscription[]
   ownerId                      String      @map("owner_id") @db.Uuid
   legalName                    String      @map("legal_name") @db.VarChar(255)
   tradeName                    String?     @map("trade_name") @db.VarChar(255)
@@ -473,6 +957,7 @@ model Company {
   monthlyClosings         MonthlyTaxClosing[]
   taxRules                TaxRule[]
   products                Product[]
+  serviceCatalog          ServiceCatalog[]
   clients                 Client[]
   transportadoras         Transportadora[]
   fornecedores            Fornecedor[]
@@ -506,7 +991,34 @@ model Company {
   cteAllocationItems      CteAllocationItem[]
   cteEntryAuditLogs       CteEntryAuditLog[]
   stockMovements          StockMovement[]
+  warehouses              Warehouse[]
+  inventoryBalances       InventoryBalance[]
+  inventoryMovements      InventoryMovement[]
+  inventoryReservations   InventoryReservation[]
+  inventoryTransfers      InventoryTransfer[]
+  inventoryTransferItems  InventoryTransferItem[]
+  inventoryCounts         InventoryCount[]
+  inventoryCountItems     InventoryCountItem[]
+  purchaseOrders          PurchaseOrder[]
+  purchaseOrderItems      PurchaseOrderItem[]
+  purchaseReceipts        PurchaseReceipt[]
+  purchaseReceiptItems    PurchaseReceiptItem[]
+  salesOrders             SalesOrder[]
+  salesOrderItems         SalesOrderItem[]
+  salesInvoiceAllocations SalesInvoiceAllocation[]
+  salesReturns            SalesReturn[]
+  salesReturnItems        SalesReturnItem[]
+  operationAutomations    OperationAutomation[]
+  operationAutomationRuns OperationAutomationRun[]
   payables                Payable[]
+  receivables             Receivable[]
+  financialCategories     FinancialCategory[]
+  costCenters             CostCenter[]
+  financialAccounts       FinancialAccount[]
+  financialTransactions   FinancialTransaction[]
+  reconciliations         FinancialReconciliation[]
+  billings                Billing[]
+  bankIntegrations        BankIntegration[]
   fiscalAlerts            FiscalAlert[]
   dfeSyncLogs             DfeSyncLog[]
   accountantLinks         AccountantCompanyLink[]
@@ -517,6 +1029,14 @@ model Company {
   accountantRequests      AccountantDocumentRequest[]
   accountantRequestEvents AccountantDocumentRequestEvent[]
   mdfeDrafts            MdfeDraft[]
+  marketplaceConnections MarketplaceConnection[]
+  marketplaceSyncJobs MarketplaceSyncJob[]
+  marketplaceSyncEvents MarketplaceSyncEvent[]
+  marketplaceWebhookEvents MarketplaceWebhookEvent[]
+  marketplaceSyncCursors MarketplaceSyncCursor[]
+  marketplaceListingLinks MarketplaceListingLink[]
+  marketplaceOrders MarketplaceOrder[]
+  marketplaceOrderItems MarketplaceOrderItem[]
   mdfeRouteStates       MdfeRouteState[]
   mdfeUnloadingCities   MdfeUnloadingCity[]
   mdfeVehicles          MdfeVehicle[]
@@ -620,6 +1140,7 @@ model FiscalDocument {
   accountantNotes AccountantDocumentNote[]
   accountantTagLinks AccountantDocumentTagLink[]
   accountantRequests AccountantDocumentRequest[]
+  salesInvoiceAllocations SalesInvoiceAllocation[]
 
   @@unique([companyId, nsu])
   @@unique([companyId, accessKey, schemaName])
@@ -825,7 +1346,7 @@ model FiscalBookPreparation {
 model FiscalExport {
   id String @id @default(uuid()) @db.Uuid
   companyId String @map("company_id") @db.Uuid
-  officeId String @map("office_id") @db.Uuid
+  officeId String? @map("office_id") @db.Uuid
   preparationId String @map("preparation_id") @db.Uuid
   closingId String @map("closing_id") @db.Uuid
   type String @db.VarChar(30)
@@ -973,6 +1494,29 @@ model MonthlyTaxClosingWarning {
 
   @@index([closingId, severity])
   @@map("monthly_tax_closing_warnings")
+}
+
+model TaxGuide {
+  id            String    @id @default(uuid()) @db.Uuid
+  companyId     String    @map("company_id") @db.Uuid
+  closingId     String?   @map("closing_id") @db.Uuid
+  taxType       String    @map("tax_type") @db.VarChar(30)
+  reference     String    @db.VarChar(20)
+  dueDate       DateTime  @map("due_date")
+  amount        Decimal   @db.Decimal(15, 2)
+  status        String    @default("PENDING") @db.VarChar(20)
+  digitLine     String?   @map("digit_line")
+  barcode       String?
+  attachmentUrl String?   @map("attachment_url")
+  notes         String?
+  paymentDate   DateTime? @map("payment_date")
+  createdById   String?   @map("created_by_id") @db.Uuid
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  @@index([companyId, status, dueDate])
+  @@index([companyId, reference])
+  @@map("tax_guides")
 }
 
 model TaxRule {
@@ -1380,6 +1924,7 @@ model Client {
   // Relação com User
   owner   User    @relation(fields: [ownerId], references: [id])
   company Company @relation(fields: [companyId], references: [id])
+  salesOrders SalesOrder[]
 
   // Índices para melhor performance
   @@unique([companyId, cpf])
@@ -1442,6 +1987,15 @@ model Product {
   nfeEntryItems        NfeEntryItem[]
   nfeEntryProductLinks NfeEntryProductLink[]
   stockMovements       StockMovement[]
+  inventoryBalances    InventoryBalance[]
+  inventoryMovements   InventoryMovement[]
+  inventoryReservations InventoryReservation[]
+  inventoryTransferItems InventoryTransferItem[]
+  inventoryCountItems  InventoryCountItem[]
+  purchaseOrderItems   PurchaseOrderItem[]
+  purchaseReceiptItems PurchaseReceiptItem[]
+  salesOrderItems      SalesOrderItem[]
+  salesReturnItems     SalesReturnItem[]
   cteAllocationItems   CteAllocationItem[]
 
   @@unique([companyId, code])
@@ -1449,6 +2003,41 @@ model Product {
   @@index([companyId, active])
   @@index([companyId, ncm])
   @@map("products")
+}
+
+model ServiceCatalog {
+  id                   String   @id @default(uuid()) @db.Uuid
+  companyId            String   @map("company_id") @db.Uuid
+  code                 String   @db.VarChar(80)
+  description          String   @db.VarChar(255)
+  municipalCode        String   @map("municipal_code") @db.VarChar(40)
+  nationalCode         String   @map("national_code") @db.VarChar(40)
+  serviceListItem      String?  @map("service_list_item") @db.VarChar(40)
+  municipality         String   @db.VarChar(120)
+  municipalityIbgeCode String   @map("municipality_ibge_code") @db.VarChar(7)
+  cnae                 String?  @db.VarChar(10)
+  issRate              Decimal  @default(0) @map("iss_rate") @db.Decimal(7, 4)
+  issWithheld          Boolean  @default(false) @map("iss_withheld")
+  operationNature      String?  @map("operation_nature") @db.VarChar(80)
+  enforceability       String?  @db.VarChar(80)
+  incidenceLocation    String?  @map("incidence_location") @db.VarChar(120)
+  inssRate             Decimal  @default(0) @map("inss_rate") @db.Decimal(7, 4)
+  irRate               Decimal  @default(0) @map("ir_rate") @db.Decimal(7, 4)
+  csllRate             Decimal  @default(0) @map("csll_rate") @db.Decimal(7, 4)
+  pisRate              Decimal  @default(0) @map("pis_rate") @db.Decimal(7, 4)
+  cofinsRate           Decimal  @default(0) @map("cofins_rate") @db.Decimal(7, 4)
+  otherWithholdingRate Decimal  @default(0) @map("other_withholding_rate") @db.Decimal(7, 4)
+  defaultValue         Decimal  @default(0) @map("default_value") @db.Decimal(15, 2)
+  active               Boolean  @default(true)
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+
+  @@unique([companyId, code])
+  @@unique([companyId, municipalCode, municipalityIbgeCode])
+  @@index([companyId, active, description])
+  @@map("service_catalog")
 }
 
 model Cfop {
@@ -1627,6 +2216,8 @@ model Fornecedor {
   company    Company    @relation(fields: [companyId], references: [id])
   nfeEntries NfeEntry[]
   payables   Payable[]
+  purchaseOrders PurchaseOrder[]
+  purchaseReceipts PurchaseReceipt[]
 
   @@unique([companyId, cpf])
   @@unique([companyId, cnpj])
@@ -2144,6 +2735,7 @@ model NfeEntry {
   payables       Payable[]
   alerts         FiscalAlert[]
   mdfeFiscalDocumentLinks MdfeFiscalDocumentLink[]
+  purchaseReceipts PurchaseReceipt[]
 
   @@unique([companyId, accessKey])
   @@index([companyId, issueDate(sort: Desc)])
@@ -2440,6 +3032,12 @@ model StockMovement {
   previousStock  Int?     @map("previous_stock")
   newStock       Int?     @map("new_stock")
   metadata       Json?
+  warehouseId    String?  @map("warehouse_id") @db.Uuid
+  origin         String?  @db.VarChar(40)
+  relatedDocumentId String? @map("related_document_id")
+  userId         String?  @map("user_id") @db.Uuid
+  justification  String?
+  idempotencyKey String?  @map("idempotency_key")
   createdAt      DateTime @default(now()) @map("created_at")
 
   company      Company       @relation(fields: [companyId], references: [id])
@@ -2451,13 +3049,527 @@ model StockMovement {
   @@index([productId, createdAt(sort: Desc)])
   @@index([nfeEntryId])
   @@index([nfeEntryItemId])
+  @@unique([companyId,idempotencyKey])
   @@map("stock_movements")
+}
+
+model Warehouse {
+  id          String   @id @default(uuid()) @db.Uuid
+  companyId   String   @map("company_id") @db.Uuid
+  code        String   @db.VarChar(40)
+  name        String   @db.VarChar(160)
+  description String?  @db.VarChar(500)
+  status      String   @default("ACTIVE") @db.VarChar(20)
+  isDefault   Boolean  @default(false) @map("is_default")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  company              Company                @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  balances             InventoryBalance[]
+  movements            InventoryMovement[]
+  reservations         InventoryReservation[]
+  sourceTransfers      InventoryTransfer[]    @relation("InventoryTransferSource")
+  destinationTransfers InventoryTransfer[]    @relation("InventoryTransferDestination")
+  counts                InventoryCount[]
+  purchaseOrders        PurchaseOrder[]
+  purchaseReceipts      PurchaseReceipt[]
+  salesOrders           SalesOrder[]
+
+  @@unique([companyId, code])
+  @@index([companyId, status])
+  @@map("operation_warehouses")
+}
+
+model InventoryBalance {
+  id               String   @id @default(uuid()) @db.Uuid
+  companyId        String   @map("company_id") @db.Uuid
+  warehouseId      String   @map("warehouse_id") @db.Uuid
+  productId        String   @map("product_id") @db.Uuid
+  physicalQuantity Decimal  @default(0) @map("physical_quantity") @db.Decimal(18, 4)
+  reservedQuantity Decimal  @default(0) @map("reserved_quantity") @db.Decimal(18, 4)
+  averageCost      Decimal  @default(0) @map("average_cost") @db.Decimal(18, 6)
+  minimumQuantity  Decimal  @default(0) @map("minimum_quantity") @db.Decimal(18, 4)
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  company   Company   @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  warehouse Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  product   Product   @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@unique([warehouseId, productId])
+  @@index([companyId, productId])
+  @@index([companyId, warehouseId])
+  @@map("inventory_balances")
+}
+
+model InventoryMovement {
+  id                String   @id @default(uuid()) @db.Uuid
+  companyId         String   @map("company_id") @db.Uuid
+  warehouseId       String   @map("warehouse_id") @db.Uuid
+  productId         String   @map("product_id") @db.Uuid
+  type              String   @db.VarChar(40)
+  quantity          Decimal  @db.Decimal(18, 4)
+  unitCost          Decimal  @default(0) @map("unit_cost") @db.Decimal(18, 6)
+  totalCost         Decimal  @default(0) @map("total_cost") @db.Decimal(18, 2)
+  previousQuantity  Decimal  @map("previous_quantity") @db.Decimal(18, 4)
+  resultingQuantity Decimal  @map("resulting_quantity") @db.Decimal(18, 4)
+  sourceType        String?  @map("source_type") @db.VarChar(40)
+  sourceId          String?  @map("source_id") @db.VarChar(100)
+  externalKey       String?  @map("external_key") @db.VarChar(180)
+  idempotencyKey    String   @map("idempotency_key") @db.VarChar(180)
+  reason            String?  @db.VarChar(500)
+  userId            String?  @map("user_id") @db.Uuid
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  company   Company   @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  warehouse Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  product   Product   @relation(fields: [productId], references: [id], onDelete: Restrict)
+  user      User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  countItems InventoryCountItem[]
+
+  @@unique([companyId, idempotencyKey])
+  @@index([companyId, createdAt(sort: Desc)])
+  @@index([companyId, productId, createdAt(sort: Desc)])
+  @@index([companyId, warehouseId, createdAt(sort: Desc)])
+  @@map("inventory_movements")
+}
+
+model InventoryReservation {
+  id          String    @id @default(uuid()) @db.Uuid
+  companyId   String    @map("company_id") @db.Uuid
+  warehouseId String    @map("warehouse_id") @db.Uuid
+  productId   String    @map("product_id") @db.Uuid
+  quantity    Decimal   @db.Decimal(18, 4)
+  status      String    @default("ACTIVE") @db.VarChar(30)
+  sourceType  String    @map("source_type") @db.VarChar(40)
+  sourceId    String?   @map("source_id") @db.VarChar(100)
+  externalKey String    @map("external_key") @db.VarChar(180)
+  expiresAt   DateTime? @map("expires_at")
+  confirmedAt DateTime? @map("confirmed_at")
+  releasedAt  DateTime? @map("released_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  company   Company   @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  warehouse Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  product   Product   @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@unique([companyId, externalKey])
+  @@index([companyId, productId, status])
+  @@index([companyId, warehouseId, status])
+  @@map("inventory_reservations")
+}
+
+model InventoryTransfer {
+  id                     String    @id @default(uuid()) @db.Uuid
+  companyId              String    @map("company_id") @db.Uuid
+  sourceWarehouseId      String    @map("source_warehouse_id") @db.Uuid
+  destinationWarehouseId String    @map("destination_warehouse_id") @db.Uuid
+  status                 String    @default("DRAFT") @db.VarChar(30)
+  reason                 String?   @db.VarChar(500)
+  requestedById          String    @map("requested_by_id") @db.Uuid
+  completedById          String?   @map("completed_by_id") @db.Uuid
+  createdAt              DateTime  @default(now()) @map("created_at")
+  updatedAt              DateTime  @updatedAt @map("updated_at")
+  completedAt            DateTime? @map("completed_at")
+
+  company              Company                 @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  sourceWarehouse      Warehouse               @relation("InventoryTransferSource", fields: [sourceWarehouseId], references: [id], onDelete: Restrict)
+  destinationWarehouse Warehouse               @relation("InventoryTransferDestination", fields: [destinationWarehouseId], references: [id], onDelete: Restrict)
+  requestedBy          User                    @relation("InventoryTransferRequestedBy", fields: [requestedById], references: [id], onDelete: Restrict)
+  completedBy          User?                   @relation("InventoryTransferCompletedBy", fields: [completedById], references: [id], onDelete: SetNull)
+  items                InventoryTransferItem[]
+
+  @@index([companyId, status, createdAt(sort: Desc)])
+  @@index([companyId, sourceWarehouseId])
+  @@index([companyId, destinationWarehouseId])
+  @@map("inventory_transfers")
+}
+
+model InventoryTransferItem {
+  id         String   @id @default(uuid()) @db.Uuid
+  companyId  String   @map("company_id") @db.Uuid
+  transferId String   @map("transfer_id") @db.Uuid
+  productId  String   @map("product_id") @db.Uuid
+  quantity   Decimal  @db.Decimal(18, 4)
+  unitCost   Decimal  @default(0) @map("unit_cost") @db.Decimal(18, 6)
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  company  Company           @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  transfer InventoryTransfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
+  product  Product           @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@unique([transferId, productId])
+  @@index([companyId, productId])
+  @@map("inventory_transfer_items")
+}
+
+model InventoryCount {
+  id            String    @id @default(uuid()) @db.Uuid
+  companyId     String    @map("company_id") @db.Uuid
+  warehouseId   String    @map("warehouse_id") @db.Uuid
+  status        String    @default("DRAFT") @db.VarChar(30)
+  startedAt     DateTime? @map("started_at")
+  completedAt   DateTime? @map("completed_at")
+  responsibleId String    @map("responsible_id") @db.Uuid
+  notes         String?   @db.VarChar(1000)
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  company     Company              @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  warehouse   Warehouse            @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  responsible User                 @relation("InventoryCountResponsible", fields: [responsibleId], references: [id], onDelete: Restrict)
+  items       InventoryCountItem[]
+
+  @@index([companyId, status, createdAt(sort: Desc)])
+  @@index([companyId, warehouseId])
+  @@map("inventory_counts")
+}
+
+model InventoryCountItem {
+  id                   String    @id @default(uuid()) @db.Uuid
+  companyId            String    @map("company_id") @db.Uuid
+  countId              String    @map("count_id") @db.Uuid
+  productId            String    @map("product_id") @db.Uuid
+  expectedQuantity     Decimal   @map("expected_quantity") @db.Decimal(18, 4)
+  countedQuantity      Decimal?  @map("counted_quantity") @db.Decimal(18, 4)
+  differenceQuantity   Decimal?  @map("difference_quantity") @db.Decimal(18, 4)
+  adjustmentMovementId String?   @map("adjustment_movement_id") @db.Uuid
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  company            Company            @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  count              InventoryCount     @relation(fields: [countId], references: [id], onDelete: Cascade)
+  product            Product            @relation(fields: [productId], references: [id], onDelete: Restrict)
+  adjustmentMovement InventoryMovement? @relation(fields: [adjustmentMovementId], references: [id], onDelete: SetNull)
+
+  @@unique([countId, productId])
+  @@index([companyId, productId])
+  @@map("inventory_count_items")
+}
+
+model PurchaseOrder {
+  id               String    @id @default(uuid()) @db.Uuid
+  companyId        String    @map("company_id") @db.Uuid
+  number           String    @db.VarChar(80)
+  supplierId       String    @map("supplier_id") @db.Uuid
+  buyerId          String    @map("buyer_id") @db.Uuid
+  warehouseId      String    @map("warehouse_id") @db.Uuid
+  status           String    @default("DRAFT") @db.VarChar(30)
+  issueDate        DateTime  @map("issue_date")
+  expectedDate     DateTime? @map("expected_date")
+  competenceDate   DateTime? @map("competence_date")
+  paymentCondition String?   @map("payment_condition") @db.VarChar(120)
+  freightAmount    Decimal   @default(0) @map("freight_amount") @db.Decimal(18, 2)
+  discountAmount   Decimal   @default(0) @map("discount_amount") @db.Decimal(18, 2)
+  taxAmount        Decimal   @default(0) @map("tax_amount") @db.Decimal(18, 2)
+  totalAmount      Decimal   @map("total_amount") @db.Decimal(18, 2)
+  installments     Json      @default("[]")
+  attachments      Json      @default("[]")
+  notes            String?   @db.Text
+  externalKey      String?   @map("external_key") @db.VarChar(180)
+  rejectionReason  String?   @map("rejection_reason") @db.VarChar(500)
+  cancellationReason String? @map("cancellation_reason") @db.VarChar(500)
+  submittedAt      DateTime? @map("submitted_at")
+  approvedAt       DateTime? @map("approved_at")
+  completedAt      DateTime? @map("completed_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  company    Company             @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  supplier   Fornecedor          @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  buyer      User                @relation("PurchaseOrderBuyer", fields: [buyerId], references: [id], onDelete: Restrict)
+  warehouse  Warehouse           @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  items      PurchaseOrderItem[]
+  receipts   PurchaseReceipt[]
+
+  @@unique([companyId, number])
+  @@unique([companyId, externalKey])
+  @@index([companyId, status, issueDate(sort: Desc)])
+  @@index([companyId, supplierId])
+  @@map("purchase_orders")
+}
+
+model PurchaseOrderItem {
+  id               String   @id @default(uuid()) @db.Uuid
+  companyId        String   @map("company_id") @db.Uuid
+  purchaseOrderId  String   @map("purchase_order_id") @db.Uuid
+  productId        String   @map("product_id") @db.Uuid
+  quantity         Decimal  @db.Decimal(18, 4)
+  receivedQuantity Decimal  @default(0) @map("received_quantity") @db.Decimal(18, 4)
+  unitCost         Decimal  @map("unit_cost") @db.Decimal(18, 6)
+  discountAmount   Decimal  @default(0) @map("discount_amount") @db.Decimal(18, 2)
+  taxAmount        Decimal  @default(0) @map("tax_amount") @db.Decimal(18, 2)
+  totalAmount      Decimal  @map("total_amount") @db.Decimal(18, 2)
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  company       Company       @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  purchaseOrder PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  product       Product       @relation(fields: [productId], references: [id], onDelete: Restrict)
+  receiptItems  PurchaseReceiptItem[]
+
+  @@unique([purchaseOrderId, productId])
+  @@index([companyId, productId])
+  @@map("purchase_order_items")
+}
+
+model PurchaseReceipt {
+  id              String    @id @default(uuid()) @db.Uuid
+  companyId       String    @map("company_id") @db.Uuid
+  purchaseOrderId String    @map("purchase_order_id") @db.Uuid
+  supplierId      String    @map("supplier_id") @db.Uuid
+  warehouseId     String    @map("warehouse_id") @db.Uuid
+  nfeEntryId      String?   @map("nfe_entry_id") @db.Uuid
+  idempotencyKey  String    @map("idempotency_key") @db.VarChar(180)
+  justification   String?   @db.VarChar(500)
+  userId          String    @map("user_id") @db.Uuid
+  receivedAt      DateTime  @default(now()) @map("received_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  company       Company               @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  purchaseOrder PurchaseOrder         @relation(fields: [purchaseOrderId], references: [id], onDelete: Restrict)
+  supplier      Fornecedor            @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  warehouse     Warehouse             @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  user          User                  @relation(fields: [userId], references: [id], onDelete: Restrict)
+  nfeEntry      NfeEntry?             @relation(fields: [nfeEntryId], references: [id], onDelete: SetNull)
+  items         PurchaseReceiptItem[]
+
+  @@unique([companyId, idempotencyKey])
+  @@index([companyId, purchaseOrderId, receivedAt(sort: Desc)])
+  @@map("purchase_receipts")
+}
+
+model PurchaseReceiptItem {
+  id                  String   @id @default(uuid()) @db.Uuid
+  companyId           String   @map("company_id") @db.Uuid
+  purchaseReceiptId   String   @map("purchase_receipt_id") @db.Uuid
+  purchaseOrderItemId String   @map("purchase_order_item_id") @db.Uuid
+  productId           String   @map("product_id") @db.Uuid
+  orderedQuantity     Decimal  @map("ordered_quantity") @db.Decimal(18, 4)
+  previousQuantity    Decimal  @map("previous_quantity") @db.Decimal(18, 4)
+  receivedQuantity    Decimal  @map("received_quantity") @db.Decimal(18, 4)
+  divergenceQuantity  Decimal  @map("divergence_quantity") @db.Decimal(18, 4)
+  unitCost            Decimal  @map("unit_cost") @db.Decimal(18, 6)
+  inventoryMovementId String?  @map("inventory_movement_id") @db.Uuid
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  company           Company           @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  purchaseReceipt   PurchaseReceipt   @relation(fields: [purchaseReceiptId], references: [id], onDelete: Cascade)
+  purchaseOrderItem PurchaseOrderItem @relation(fields: [purchaseOrderItemId], references: [id], onDelete: Restrict)
+  product           Product           @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@unique([purchaseReceiptId, purchaseOrderItemId])
+  @@index([companyId, productId])
+  @@map("purchase_receipt_items")
+}
+
+model SalesOrder {
+  id                 String    @id @default(uuid()) @db.Uuid
+  companyId          String    @map("company_id") @db.Uuid
+  number             String    @db.VarChar(80)
+  origin             String    @default("MANUAL") @db.VarChar(40)
+  externalKey        String?   @map("external_key") @db.VarChar(180)
+  marketplaceOrderId String?   @map("marketplace_order_id") @db.Uuid
+  clientId           String    @map("client_id") @db.Uuid
+  sellerId           String    @map("seller_id") @db.Uuid
+  warehouseId        String    @map("warehouse_id") @db.Uuid
+  status             String    @default("DRAFT") @db.VarChar(30)
+  issueDate          DateTime  @map("issue_date")
+  paymentCondition   String?   @map("payment_condition") @db.VarChar(120)
+  freightAmount      Decimal   @default(0) @map("freight_amount") @db.Decimal(18, 2)
+  discountAmount     Decimal   @default(0) @map("discount_amount") @db.Decimal(18, 2)
+  taxAmount          Decimal   @default(0) @map("tax_amount") @db.Decimal(18, 2)
+  totalAmount        Decimal   @map("total_amount") @db.Decimal(18, 2)
+  notes              String?   @db.Text
+  rejectionReason    String?   @map("rejection_reason") @db.VarChar(500)
+  cancellationReason String?   @map("cancellation_reason") @db.VarChar(500)
+  submittedAt        DateTime? @map("submitted_at")
+  approvedAt         DateTime? @map("approved_at")
+  shippedAt          DateTime? @map("shipped_at")
+  completedAt        DateTime? @map("completed_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  company      Company                  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  client       Client                   @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  seller       User                     @relation("SalesOrderSeller", fields: [sellerId], references: [id], onDelete: Restrict)
+  warehouse    Warehouse                @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  items        SalesOrderItem[]
+  invoices     SalesInvoiceAllocation[]
+  returns      SalesReturn[]
+
+  @@unique([companyId, number])
+  @@unique([companyId, externalKey])
+  @@index([companyId, status, issueDate(sort: Desc)])
+  @@index([companyId, clientId])
+  @@map("sale_orders")
+}
+
+model SalesOrderItem {
+  id               String   @id @default(uuid()) @db.Uuid
+  companyId        String   @map("company_id") @db.Uuid
+  salesOrderId     String   @map("sales_order_id") @db.Uuid
+  productId        String   @map("product_id") @db.Uuid
+  quantity         Decimal  @db.Decimal(18, 4)
+  reservedQuantity Decimal  @default(0) @map("reserved_quantity") @db.Decimal(18, 4)
+  invoicedQuantity Decimal  @default(0) @map("invoiced_quantity") @db.Decimal(18, 4)
+  returnedQuantity Decimal  @default(0) @map("returned_quantity") @db.Decimal(18, 4)
+  unitPrice        Decimal  @map("unit_price") @db.Decimal(18, 6)
+  discountAmount   Decimal  @default(0) @map("discount_amount") @db.Decimal(18, 2)
+  taxAmount        Decimal  @default(0) @map("tax_amount") @db.Decimal(18, 2)
+  totalAmount      Decimal  @map("total_amount") @db.Decimal(18, 2)
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  company    Company           @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  salesOrder SalesOrder        @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
+  product    Product           @relation(fields: [productId], references: [id], onDelete: Restrict)
+  returns    SalesReturnItem[]
+
+  @@unique([salesOrderId, productId])
+  @@index([companyId, productId])
+  @@map("sales_order_items")
+}
+
+model SalesInvoiceAllocation {
+  id               String   @id @default(uuid()) @db.Uuid
+  companyId        String   @map("company_id") @db.Uuid
+  salesOrderId     String   @map("sales_order_id") @db.Uuid
+  fiscalDocumentId String?  @map("fiscal_document_id") @db.Uuid
+  documentType     String   @map("document_type") @db.VarChar(10)
+  status           String   @default("PREPARED") @db.VarChar(30)
+  providerRequired Boolean  @default(false) @map("provider_required")
+  quantities       Json
+  totalAmount      Decimal  @map("total_amount") @db.Decimal(18, 2)
+  idempotencyKey   String   @map("idempotency_key") @db.VarChar(180)
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  company        Company         @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  salesOrder     SalesOrder      @relation(fields: [salesOrderId], references: [id], onDelete: Restrict)
+  fiscalDocument FiscalDocument? @relation(fields: [fiscalDocumentId], references: [id], onDelete: SetNull)
+
+  @@unique([companyId, idempotencyKey])
+  @@index([companyId, salesOrderId])
+  @@map("sales_invoice_allocations")
+}
+
+model SalesReturn {
+  id             String   @id @default(uuid()) @db.Uuid
+  companyId      String   @map("company_id") @db.Uuid
+  salesOrderId   String   @map("sales_order_id") @db.Uuid
+  reason         String   @db.VarChar(500)
+  idempotencyKey String   @map("idempotency_key") @db.VarChar(180)
+  userId         String   @map("user_id") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  company    Company           @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  salesOrder SalesOrder        @relation(fields: [salesOrderId], references: [id], onDelete: Restrict)
+  user       User              @relation(fields: [userId], references: [id], onDelete: Restrict)
+  items      SalesReturnItem[]
+
+  @@unique([companyId, idempotencyKey])
+  @@index([companyId, salesOrderId])
+  @@map("sales_returns")
+}
+
+model SalesReturnItem {
+  id                  String   @id @default(uuid()) @db.Uuid
+  companyId           String   @map("company_id") @db.Uuid
+  salesReturnId       String   @map("sales_return_id") @db.Uuid
+  salesOrderItemId    String   @map("sales_order_item_id") @db.Uuid
+  productId           String   @map("product_id") @db.Uuid
+  quantity            Decimal  @db.Decimal(18, 4)
+  inventoryMovementId String?  @map("inventory_movement_id") @db.Uuid
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  company        Company        @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  salesReturn    SalesReturn    @relation(fields: [salesReturnId], references: [id], onDelete: Cascade)
+  salesOrderItem SalesOrderItem @relation(fields: [salesOrderItemId], references: [id], onDelete: Restrict)
+  product        Product        @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@unique([salesReturnId, salesOrderItemId])
+  @@index([companyId, productId])
+  @@map("sales_return_items")
+}
+
+model OperationAutomation {
+  id                 String    @id @default(uuid()) @db.Uuid
+  companyId          String    @map("company_id") @db.Uuid
+  name               String    @db.VarChar(160)
+  description        String?   @db.VarChar(1000)
+  module             String    @db.VarChar(40)
+  event              String    @db.VarChar(60)
+  conditions         Json
+  conditionLogic     String    @default("AND") @map("condition_logic") @db.VarChar(3)
+  actions            Json
+  priority           Int       @default(0)
+  status             String    @default("ACTIVE") @db.VarChar(20)
+  startsAt           DateTime? @map("starts_at")
+  endsAt             DateTime? @map("ends_at")
+  executionLimit     Int?      @map("execution_limit")
+  cooldownSeconds    Int       @default(0) @map("cooldown_seconds")
+  responsibleId      String?   @map("responsible_id") @db.Uuid
+  allowSelfTrigger   Boolean   @default(false) @map("allow_self_trigger")
+  maxDepth           Int       @default(5) @map("max_depth")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  company     Company                  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  responsible User?                    @relation(fields: [responsibleId], references: [id], onDelete: SetNull)
+  runs        OperationAutomationRun[]
+
+  @@index([companyId, status, event])
+  @@map("operation_automations")
+}
+
+model OperationAutomationRun {
+  id                 String    @id @default(uuid()) @db.Uuid
+  companyId          String    @map("company_id") @db.Uuid
+  automationId       String    @map("automation_id") @db.Uuid
+  event              String    @db.VarChar(60)
+  payload            Json
+  evaluation         Json?
+  executedActions    Json?     @map("executed_actions")
+  skippedActions     Json?     @map("skipped_actions")
+  blockedActions     Json?     @map("blocked_actions")
+  status             String    @default("QUEUED") @db.VarChar(20)
+  error              String?   @db.Text
+  attempt            Int       @default(1)
+  requestId          String?   @map("request_id") @db.VarChar(120)
+  correlationId      String    @map("correlation_id") @db.VarChar(120)
+  causationId        String?   @map("causation_id") @db.VarChar(120)
+  depth              Int       @default(0)
+  idempotencyKey     String    @map("idempotency_key") @db.VarChar(180)
+  origin             String?   @db.VarChar(60)
+  userId             String?   @map("user_id") @db.Uuid
+  startedAt          DateTime? @map("started_at")
+  completedAt        DateTime? @map("completed_at")
+  finishedAt         DateTime? @map("finished_at")
+  durationMs         Int?      @map("duration_ms")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  company    Company             @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  automation OperationAutomation @relation(fields: [automationId], references: [id], onDelete: Restrict)
+  user       User?               @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@unique([companyId, idempotencyKey])
+  @@index([companyId, status, createdAt])
+  @@index([companyId, automationId, createdAt])
+  @@map("operation_automation_runs")
 }
 
 model Payable {
   id                String    @id @default(uuid()) @db.Uuid
   companyId         String    @map("company_id") @db.Uuid
-  nfeEntryId        String    @map("nfe_entry_id") @db.Uuid
+  nfeEntryId        String?   @map("nfe_entry_id") @db.Uuid
   supplierId        String?   @map("supplier_id") @db.Uuid
   supplierName      String?   @map("supplier_name") @db.VarChar(255)
   supplierCnpj      String?   @map("supplier_cnpj") @db.VarChar(14)
@@ -2465,21 +3577,197 @@ model Payable {
   dueDate           DateTime  @map("due_date")
   amount            Decimal   @db.Decimal(15, 2)
   paymentMethod     String?   @map("payment_method") @db.VarChar(60)
-  status            String    @default("OPEN") @db.VarChar(30)
+  description       String?   @db.VarChar(255)
+  categoryId        String?   @map("category_id") @db.Uuid
+  costCenterId      String?   @map("cost_center_id") @db.Uuid
+  financialAccountId String?  @map("financial_account_id") @db.Uuid
+  competenceDate    DateTime? @map("competence_date")
+  issueDate         DateTime? @map("issue_date")
+  discount          Decimal   @default(0) @db.Decimal(15,2)
+  interest          Decimal   @default(0) @db.Decimal(15,2)
+  fine              Decimal   @default(0) @db.Decimal(15,2)
+  paidAmount        Decimal   @default(0) @map("paid_amount") @db.Decimal(15,2)
+  totalInstallments Int       @default(1) @map("total_installments")
+  externalKey       String?   @map("external_key") @db.VarChar(180)
+  attachmentUrl     String?   @map("attachment_url")
+  notes             String?   @db.Text
+  recurrence        String?   @db.VarChar(30)
+  status            String    @default("PENDING") @db.VarChar(30)
   source            String    @default("NFE_ENTRY") @db.VarChar(30)
   paidAt            DateTime? @map("paid_at")
   createdAt         DateTime  @default(now()) @map("created_at")
   updatedAt         DateTime  @updatedAt @map("updated_at")
 
   company  Company     @relation(fields: [companyId], references: [id])
-  nfeEntry NfeEntry    @relation(fields: [nfeEntryId], references: [id], onDelete: Cascade)
+  nfeEntry NfeEntry?   @relation(fields: [nfeEntryId], references: [id], onDelete: Cascade)
   supplier Fornecedor? @relation(fields: [supplierId], references: [id])
 
   @@unique([nfeEntryId, installmentNumber])
+  @@unique([companyId, externalKey, installmentNumber])
   @@index([companyId, dueDate])
   @@index([supplierId])
   @@index([nfeEntryId])
   @@map("payables")
+}
+
+model Receivable {
+  id String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+  clientId String? @map("client_id") @db.Uuid
+  clientName String? @map("client_name")
+  description String
+  categoryId String? @map("category_id") @db.Uuid
+  costCenterId String? @map("cost_center_id") @db.Uuid
+  financialAccountId String? @map("financial_account_id") @db.Uuid
+  competenceDate DateTime? @map("competence_date")
+  issueDate DateTime? @map("issue_date")
+  dueDate DateTime @map("due_date")
+  amount Decimal @db.Decimal(15,2)
+  discount Decimal @default(0) @db.Decimal(15,2)
+  interest Decimal @default(0) @db.Decimal(15,2)
+  fine Decimal @default(0) @db.Decimal(15,2)
+  receivedAmount Decimal @default(0) @map("received_amount") @db.Decimal(15,2)
+  receiptMethod String? @map("receipt_method")
+  installmentNumber String @default("1") @map("installment_number")
+  totalInstallments Int @default(1) @map("total_installments")
+  status String @default("PENDING") @db.VarChar(30)
+  source String @default("MANUAL") @db.VarChar(30)
+  externalKey String? @map("external_key") @db.VarChar(180)
+  attachmentUrl String? @map("attachment_url")
+  notes String? @db.Text
+  recurrence String? @db.VarChar(30)
+  receivedAt DateTime? @map("received_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  company Company @relation(fields:[companyId],references:[id])
+  @@unique([companyId,externalKey,installmentNumber])
+  @@index([companyId,status,dueDate])
+  @@map("receivables")
+}
+
+model FinancialCategory {
+  id String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+  name String
+  type String @db.VarChar(30)
+  active Boolean @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  company Company @relation(fields:[companyId],references:[id])
+  @@unique([companyId,name,type])
+  @@index([companyId,active])
+  @@map("financial_categories")
+}
+
+model CostCenter {
+  id String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+  name String
+  code String @db.VarChar(40)
+  description String?
+  responsible String?
+  active Boolean @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  company Company @relation(fields:[companyId],references:[id])
+  @@unique([companyId,code])
+  @@index([companyId,active])
+  @@map("cost_centers")
+}
+
+model FinancialAccount {
+  id String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+  name String
+  type String @db.VarChar(30)
+  bank String?
+  branch String?
+  maskedAccount String? @map("masked_account")
+  initialBalance Decimal @default(0) @map("initial_balance") @db.Decimal(15,2)
+  initialBalanceDate DateTime @map("initial_balance_date")
+  active Boolean @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  company Company @relation(fields:[companyId],references:[id])
+  @@unique([companyId,name])
+  @@index([companyId,active])
+  @@map("financial_accounts")
+}
+
+model FinancialTransaction {
+  id String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+  financialAccountId String? @map("financial_account_id") @db.Uuid
+  payableId String? @map("payable_id") @db.Uuid
+  receivableId String? @map("receivable_id") @db.Uuid
+  type String @db.VarChar(20)
+  amount Decimal @db.Decimal(15,2)
+  occurredAt DateTime @map("occurred_at")
+  description String?
+  source String @db.VarChar(30)
+  externalKey String? @map("external_key") @db.VarChar(180)
+  createdAt DateTime @default(now()) @map("created_at")
+  company Company @relation(fields:[companyId],references:[id])
+  @@unique([companyId,externalKey])
+  @@index([companyId,occurredAt])
+  @@map("financial_transactions")
+}
+
+model FinancialReconciliation {
+  id String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+  transactionId String? @map("transaction_id") @db.Uuid
+  externalReference String? @map("external_reference")
+  expectedAmount Decimal @map("expected_amount") @db.Decimal(15,2)
+  actualAmount Decimal? @map("actual_amount") @db.Decimal(15,2)
+  expectedDate DateTime? @map("expected_date")
+  actualDate DateTime? @map("actual_date")
+  status String @default("PENDING") @db.VarChar(30)
+  divergenceCode String? @map("divergence_code") @db.VarChar(50)
+  justification String?
+  evidence Json?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  company Company @relation(fields:[companyId],references:[id])
+  @@index([companyId,status])
+  @@map("financial_reconciliations")
+}
+
+model Billing {
+  id String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+  receivableId String? @map("receivable_id") @db.Uuid
+  type String @db.VarChar(30)
+  amount Decimal @db.Decimal(15,2)
+  dueDate DateTime @map("due_date")
+  status String @default("CREATED") @db.VarChar(30)
+  providerReference String? @map("provider_reference")
+  idempotencyKey String @map("idempotency_key")
+  payload Json?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  company Company @relation(fields:[companyId],references:[id])
+  @@unique([companyId,idempotencyKey])
+  @@index([companyId,status,dueDate])
+  @@map("billings")
+}
+
+model BankIntegration {
+  id String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+  provider String @db.VarChar(30)
+  status String @default("CONFIGURATION_REQUIRED") @db.VarChar(40)
+  encryptedCredentials String? @map("encrypted_credentials") @db.Text
+  credentialFingerprint String? @map("credential_fingerprint") @db.VarChar(64)
+  lastSyncAt DateTime? @map("last_sync_at")
+  lastError String? @map("last_error")
+  active Boolean @default(false)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  company Company @relation(fields:[companyId],references:[id])
+  @@unique([companyId,provider])
+  @@index([companyId,status])
+  @@map("bank_integrations")
 }
 
 model FiscalAlert {
@@ -2550,8 +3838,43 @@ model AccountantOffice {
   documentTags AccountantDocumentTag[]
   documentRequests AccountantDocumentRequest[]
   requestEvents AccountantDocumentRequestEvent[]
+  fiscalQueueItems AccountantFiscalQueueItem[]
 
   @@map("accountant_offices")
+}
+
+model AccountantFiscalQueueItem {
+  id                String   @id @default(uuid()) @db.Uuid
+  officeId          String   @map("office_id") @db.Uuid
+  companyId         String   @map("company_id") @db.Uuid
+  type              String   @db.VarChar(60)
+  origin            String   @db.VarChar(60)
+  title             String   @db.VarChar(255)
+  description       String?  @db.Text
+  severity          String   @default("MEDIUM") @db.VarChar(20)
+  priority          String   @default("NORMAL") @db.VarChar(20)
+  status            String   @default("OPEN") @db.VarChar(30)
+  responsibleUserId String?  @map("responsible_user_id") @db.Uuid
+  dueAt             DateTime? @map("due_at")
+  slaMinutes        Int?     @map("sla_minutes")
+  relatedEntityType String?  @map("related_entity_type") @db.VarChar(60)
+  relatedEntityId   String?  @map("related_entity_id") @db.Uuid
+  competence        String?  @db.VarChar(7)
+  evidence          Json?
+  resolutionReason  String?  @map("resolution_reason") @db.Text
+  dismissedReason   String?  @map("dismissed_reason") @db.Text
+  reopenReason      String?  @map("reopen_reason") @db.Text
+  createdByUserId   String?  @map("created_by_user_id") @db.Uuid
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+  resolvedAt        DateTime? @map("resolved_at")
+
+  office AccountantOffice @relation(fields: [officeId], references: [id])
+
+  @@index([officeId, companyId, status, priority])
+  @@index([companyId, createdAt(sort: Desc)])
+  @@index([responsibleUserId, status])
+  @@map("accountant_fiscal_queue_items")
 }
 
 model AccountantMembership {

@@ -1,0 +1,98 @@
+[
+  {
+    "id": 0,
+    "question": "Qual é a versão de leiaute NF-e registrada na referência técnica do projeto e quando essa consulta foi realizada?",
+    "answer": "A referência registra NF-e modelo 55, versão 4.00, MOC 7.0 — Anexo I, em consulta realizada em 11/07/2026 no Portal Nacional da NF-e.",
+    "is_impossible": false,
+    "contexts": [
+      {
+        "filename": "nfe-technical-reference.md",
+        "text": "Consulta realizada em 11/07/2026 no Portal Nacional da NF-e. Leiaute: NF-e modelo 55, versão 4.00, MOC 7.0 — Anexo I."
+      }
+    ]
+  },
+  {
+    "id": 1,
+    "question": "Quais correções fiscais podem ser automáticas segundo a política de implementação?",
+    "answer": "Somente normalizações e recálculos determinísticos podem ser automáticos. Alterações tributárias sensíveis exigem confirmação ou revisão contábil, e regras não podem ser substituídas por inferência.",
+    "is_impossible": false,
+    "contexts": [
+      {
+        "filename": "nfe-technical-reference.md",
+        "text": "Alterações tributárias sensíveis exigem confirmação ou revisão contábil. Correções automáticas ficam restritas a normalização e recálculos determinísticos. O schema oficial deve ser atualizado de forma versionada; não substituir regras por inferência."
+      }
+    ]
+  },
+  {
+    "id": 2,
+    "question": "O que a validação da chave de acesso NF-e deve conferir e extrair?",
+    "answer": "Deve conferir se a chave possui 44 dígitos numéricos e se o dígito verificador calculado por módulo 11 está correto. Também deve extrair UF, ano, mês, CNPJ, modelo, série e número.",
+    "is_impossible": false,
+    "contexts": [
+      {
+        "filename": "fiscal-nfe-validation-checklist.md",
+        "text": "Valida chave de 44 dígitos. Dígito verificador calculado corretamente (módulo 11). Extrai UF, ano, mês, CNPJ, modelo, série, número da chave. Rejeita chave com caracteres não numéricos."
+      }
+    ]
+  },
+  {
+    "id": 3,
+    "question": "Qual fórmula de total da nota deve ser usada no cenário TOT-06?",
+    "answer": "vNF = vProd − vDesc + vFrete + vSeg + vOutro + vIPI.",
+    "is_impossible": false,
+    "contexts": [
+      {
+        "filename": "fiscal-nfe-test-scenarios.md",
+        "text": "TOT‑06: Total nota não bate fórmula. vNF ≠ vProd − vDesc + vFrete + vSeg + vOutro + vIPI."
+      }
+    ]
+  },
+  {
+    "id": 4,
+    "question": "Qual é a sequência obrigatória para corrigir um bug de NF-e?",
+    "answer": "Reproduzir, identificar arquivo e função, diagnosticar a causa raiz, corrigir com alteração mínima, criar ou ajustar o teste, validar lint/typecheck/build e registrar pendências reais.",
+    "is_impossible": false,
+    "contexts": [
+      {
+        "filename": "fiscal-nfe-bugfix-protocol.md",
+        "text": "REPRODUZIR; IDENTIFICAR (arquivo + função); DIAGNOSTICAR (causa raiz); CORRIGIR (alteração mínima); TESTAR (criar/ajustar teste); VALIDAR (lint + typecheck + build); REGISTRAR (pendências reais)."
+      }
+    ]
+  },
+  {
+    "id": 5,
+    "question": "Quais cuidados de segurança são obrigatórios ao corrigir funcionalidades de NF-e?",
+    "answer": "Certificado A1 e sua senha nunca podem ser versionados ou registrados; token SEFAZ não pode ser logado; CNPJ e CPF devem ser mascarados; XML real de produção não deve ser usado em testes, que devem usar XML sintético ou mock.",
+    "is_impossible": false,
+    "contexts": [
+      {
+        "filename": "fiscal-nfe-bugfix-protocol.md",
+        "text": "Certificado A1 nunca é versionado. Senha do certificado nunca aparece em logs ou código. Token SEFAZ nunca é logado. CNPJ/CPF em mensagens de erro devem ser mascarados. XML real de produção nunca é usado em testes."
+      }
+    ]
+  },
+  {
+    "id": 6,
+    "question": "Qual é o escopo atual do módulo CT-e de entrada?",
+    "answer": "O módulo trata somente CT-e modelo 57 recebido pela empresa. Nesta etapa não emite CT-e nem chama a SEFAZ. O fluxo previsto importa XML autorizado, valida localmente, identifica a transportadora, vincula NF-e, calcula e confirma rateio, aplica somente custo, gera financeiro e prepara escrituração.",
+    "is_impossible": false,
+    "contexts": [
+      {
+        "filename": "cte-entrada.md",
+        "text": "O módulo trata exclusivamente CT-e modelo 57 recebido pela empresa. Não emite CT-e nem chama a SEFAZ nesta etapa."
+      }
+    ]
+  },
+  {
+    "id": 7,
+    "question": "Quando um XML de CT-e pode alcançar o estado validado?",
+    "answer": "Somente depois de existir schema oficial versionado. O XML é tratado como entrada não confiável, o parser não resolve entidades externas e o upload é limitado a 8 MB.",
+    "is_impossible": false,
+    "contexts": [
+      {
+        "filename": "cte-entrada.md",
+        "text": "O XML é entrada não confiável: o parser não resolve entidades externas, o upload permanece limitado a 8 MB e XML sem schema oficial versionado não pode atingir o estado validado."
+      }
+    ]
+  }
+]

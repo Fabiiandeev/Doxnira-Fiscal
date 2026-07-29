@@ -1,0 +1,13 @@
+{
+    "nv_accuracy_mean": 0.5357142857142857,
+    "nv_context_relevance_mean": 0.9375,
+    "nv_response_groundedness_mean": 0.8125,
+    "token_usage": {
+        "total_tokens": 24971,
+        "prompt_tokens": 22579,
+        "completion_tokens": 2392,
+        "sample_count": 8,
+        "mean_prompt_tokens": 2822.375,
+        "mean_completion_tokens": 299.0
+    }
+}

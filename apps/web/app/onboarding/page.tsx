@@ -2,14 +2,14 @@
 
 import { BadgeCheck, Building2, FileKey2, RefreshCw, SlidersHorizontal } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import { CnpjLookupForm } from "@/components/companies/cnpj-lookup-form";
 import { BrandMark } from "@/components/brand-mark";
 import { notify } from "@/components/toast-viewport";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { setCompanyId, getToken } from "@/lib/api";
+import { setCompanyId } from "@/lib/api";
 import { createCompany } from "@/lib/services/company-service";
 import {
   lookupToCompanyForm,
@@ -31,10 +31,6 @@ export default function OnboardingPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [lookupData, setLookupData] = useState<CnpjLookupResponse | null>(null);
-
-  useEffect(() => {
-    if (!getToken()) router.replace("/login");
-  }, [router]);
 
   const [form, setForm] = useState({
     legalName: "",

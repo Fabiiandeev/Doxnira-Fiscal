@@ -13,7 +13,8 @@ const accessKey = "35260711222333000144550010000001231234567890";
 let server;
 let baseUrl;
 let company;
-let token;
+let sessionCookie;
+let csrfToken;
 
 async function cleanupTestDatabase() {
   const [database] = await prisma.$queryRawUnsafe("SELECT current_database() AS database");
@@ -28,7 +29,13 @@ function xmlFixture() {
 }
 
 async function request(path, init = {}) {
-  const response = await fetch(`${baseUrl}${path}`, init);
+  const headers = new Headers(init.headers);
+  if (sessionCookie) headers.set("cookie", sessionCookie);
+  if (csrfToken && !["GET", "HEAD", "OPTIONS"].includes(String(init.method || "GET").toUpperCase())) {
+    headers.set("origin", process.env.CORS_ALLOWED_ORIGINS?.split(",")[0] || "http://localhost:3000");
+    headers.set("x-csrf-token", csrfToken);
+  }
+  const response = await fetch(`${baseUrl}${path}`, { ...init, headers });
   const body = await response.json().catch(() => ({}));
   return { response, body };
 }
@@ -51,7 +58,11 @@ before(async () => {
   baseUrl = `http://127.0.0.1:${address.port}`;
   const login = await request("/api/auth/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email: "e2e@nfe.test", password: "TestPassword#2026" }) });
   assert.equal(login.response.status, 200);
-  token = login.body.token;
+  assert.equal(login.body.token, undefined);
+  csrfToken = login.body.csrfToken;
+  sessionCookie = login.response.headers.getSetCookie()
+    .map((value) => value.split(";")[0])
+    .join("; ");
 });
 
 after(async () => {
@@ -65,12 +76,12 @@ after(async () => {
 });
 
 test("fluxo HTTP E2E da NF-e de entrada persiste XML, estoque, financeiro e auditoria", async () => {
-  const unauthorized = await request(`/api/companies/${company.id}/nfe-entry`);
-  assert.equal(unauthorized.response.status, 401);
+  const unauthorized = await fetch(`${baseUrl}/api/companies/${company.id}/nfe-entry`);
+  assert.equal(unauthorized.status, 401);
 
   const form = new FormData();
   form.set("xml", new Blob([xmlFixture()], { type: "application/xml" }), "incoming-nfe-valid.xml");
-  const imported = await request(`/api/companies/${company.id}/nfe-entry/import-xml`, { method: "POST", headers: { authorization: `Bearer ${token}` }, body: form });
+  const imported = await request(`/api/companies/${company.id}/nfe-entry/import-xml`, { method: "POST", body: form });
   assert.equal(imported.response.status, 201);
   const entryId = imported.body.data.id;
   assert.equal(imported.body.data.supplierId !== null, true);
@@ -78,29 +89,29 @@ test("fluxo HTTP E2E da NF-e de entrada persiste XML, estoque, financeiro e audi
 
   const duplicateForm = new FormData();
   duplicateForm.set("xml", new Blob([xmlFixture()], { type: "application/xml" }), "incoming-nfe-duplicate.xml");
-  const duplicate = await request(`/api/companies/${company.id}/nfe-entry/import-xml`, { method: "POST", headers: { authorization: `Bearer ${token}` }, body: duplicateForm });
+  const duplicate = await request(`/api/companies/${company.id}/nfe-entry/import-xml`, { method: "POST", body: duplicateForm });
   assert.equal(duplicate.response.status, 409);
   assert.equal(duplicate.body.code, "NFE_ENTRY_DUPLICATE");
 
-  const validated = await request(`/api/companies/${company.id}/nfe-entry/${entryId}/validate`, { method: "POST", headers: { authorization: `Bearer ${token}` } });
+  const validated = await request(`/api/companies/${company.id}/nfe-entry/${entryId}/validate`, { method: "POST" });
   assert.equal(validated.response.status, 200);
-  const prepared = await request(`/api/companies/${company.id}/nfe-entry/${entryId}/prepare-inventory`, { method: "POST", headers: { authorization: `Bearer ${token}` } });
+  const prepared = await request(`/api/companies/${company.id}/nfe-entry/${entryId}/prepare-inventory`, { method: "POST" });
   assert.equal(prepared.response.status, 200);
   assert.equal(prepared.body.inventory.canPost, true);
   assert.equal((await prisma.product.findFirst({ where: { companyId: company.id, code: "SUP-001" } })).stock, 0);
 
-  const posted = await request(`/api/companies/${company.id}/nfe-entry/${entryId}/post-inventory`, { method: "POST", headers: { authorization: `Bearer ${token}` } });
+  const posted = await request(`/api/companies/${company.id}/nfe-entry/${entryId}/post-inventory`, { method: "POST" });
   assert.equal(posted.response.status, 200);
-  const replay = await request(`/api/companies/${company.id}/nfe-entry/${entryId}/post-inventory`, { method: "POST", headers: { authorization: `Bearer ${token}` } });
+  const replay = await request(`/api/companies/${company.id}/nfe-entry/${entryId}/post-inventory`, { method: "POST" });
   assert.equal(replay.response.status, 409);
   assert.equal(replay.body.code, "NFE_ENTRY_ALREADY_CONFIRMED");
 
-  const financial = await request(`/api/companies/${company.id}/nfe-entry/${entryId}/generate-payables`, { method: "POST", headers: { authorization: `Bearer ${token}` } });
+  const financial = await request(`/api/companies/${company.id}/nfe-entry/${entryId}/generate-payables`, { method: "POST" });
   assert.equal(financial.response.status, 200);
-  const bookkeeping = await request(`/api/companies/${company.id}/nfe-entry/${entryId}/prepare-bookkeeping`, { method: "POST", headers: { authorization: `Bearer ${token}` } });
+  const bookkeeping = await request(`/api/companies/${company.id}/nfe-entry/${entryId}/prepare-bookkeeping`, { method: "POST" });
   assert.equal(bookkeeping.response.status, 200);
 
-  const detail = await request(`/api/companies/${company.id}/nfe-entry/${entryId}`, { headers: { authorization: `Bearer ${token}` } });
+  const detail = await request(`/api/companies/${company.id}/nfe-entry/${entryId}`);
   assert.equal(detail.response.status, 200);
   assert.equal(detail.body.data.stockMovements.length, 1);
   assert.equal(detail.body.data.payables.length, 1);

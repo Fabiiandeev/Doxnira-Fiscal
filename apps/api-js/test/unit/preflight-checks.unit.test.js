@@ -1,12 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import {
-  _internal,
-  checkNodeVersion,
-  checkPnpmVersion,
-  checkTestDatabaseEnv,
-} from "../../scripts/preflight-checks.cjs";
+import preflight from "../../scripts/preflight-checks.cjs";
+const { _internal, checkNodeVersion, checkPnpmVersion, checkTestDatabaseEnv } = preflight;
 
 const { parseSemver, cmpSemver, parseHostPortFromTestUrl, MIN_NODE, MIN_PNPM } = _internal;
 

@@ -1,4 +1,4 @@
-import { apiFetch, getCompanyId, getToken } from "@/lib/api";
+import { apiFetch, getCompanyId } from "@/lib/api";
 import type { CompanyTaxSettings, MonthlyClosing } from "@/lib/types";
 
 function company() {
@@ -91,14 +91,13 @@ export async function downloadFiscalReport(
   input: { closingId?: string; periodYear?: number; periodMonth?: number },
 ) {
   const companyId = company();
-  const token = getToken();
   const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3333/api";
   const path =
     kind === "monthly-closing"
       ? `/companies/${companyId}/monthly-closing/${input.closingId}/export-${extension}`
       : `/companies/${companyId}/reports/export-${extension}?periodYear=${input.periodYear}&periodMonth=${input.periodMonth}`;
   const response = await fetch(`${apiUrl}${path}`, {
-    headers: token ? { authorization: `Bearer ${token}` } : {},
+    credentials: "include",
   });
   if (!response.ok) {
     const payload = await response.json().catch(() => ({}));

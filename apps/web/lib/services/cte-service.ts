@@ -31,6 +31,12 @@ export function getCte(cteId: string) {
   return apiFetch<TransportDocument>(`/companies/${companyId()}/cte/${cteId}`);
 }
 
+export function searchCte(query = "", page = 1) {
+  return apiFetch<{ data: TransportDocument[]; pagination: { page: number; total: number; totalPages: number } }>(
+    `/companies/${companyId()}/cte/search?query=${encodeURIComponent(query)}&page=${page}&pageSize=20`,
+  );
+}
+
 export function getLinkedNfe(cteId: string) {
   return apiFetch<{
     data: Array<{

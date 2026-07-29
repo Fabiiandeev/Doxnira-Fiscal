@@ -1,5 +1,4 @@
-import { apiFetch, clearSession, getSessionUser, saveSession } from "@/lib/api";
-import { getBrowserLocalStorage } from "@/lib/browser-storage";
+import { apiFetch, clearSession, getSessionUser, setCompanyId, setSessionUser } from "@/lib/api";
 
 export interface AuthUser {
   id: string;
@@ -10,29 +9,28 @@ export interface AuthUser {
 
 export interface LoginResult {
   user: AuthUser;
-  token: string;
   hasCompany: boolean;
 }
 
 export async function login(email: string, password: string): Promise<LoginResult> {
-  const result = await apiFetch<{ user: AuthUser; token: string }>("/auth/login", {
+  const result = await apiFetch<{ user: AuthUser; csrfToken: string }>("/auth/login", {
     method: "POST",
     body: JSON.stringify({ email, password }),
   });
   const companies = await apiFetch<{ data: Array<{ id: string }> }>("/companies", {
-    headers: { authorization: `Bearer ${result.token}` },
   });
   const firstCompanyId = companies.data[0]?.id;
-  saveSession({ ...result, companyId: firstCompanyId });
+  setSessionUser(result.user);
+  if (firstCompanyId) setCompanyId(firstCompanyId);
   return { ...result, hasCompany: !!firstCompanyId };
 }
 
 export async function register(name: string, email: string, password: string) {
-  const result = await apiFetch<{ user: AuthUser; token: string }>("/auth/register", {
+  const result = await apiFetch<{ user: AuthUser; csrfToken: string }>("/auth/register", {
     method: "POST",
     body: JSON.stringify({ name, email, password }),
   });
-  saveSession(result);
+  setSessionUser(result.user);
   return result;
 }
 
@@ -45,20 +43,5 @@ export async function logout() {
 }
 
 export function getStoredUser(): AuthUser | null {
-  const sessionUser = getSessionUser();
-  if (sessionUser) return sessionUser;
-  if (typeof window === "undefined") return null;
-  const storage = getBrowserLocalStorage();
-  const rawCookie = typeof document.cookie === "string" ? document.cookie : "";
-  const cookieValue = rawCookie
-    .split("; ")
-    .find((entry) => entry.startsWith("ns-fiscal-user="))
-    ?.slice("ns-fiscal-user=".length);
-  const value = storage?.getItem("ns-fiscal-user") || cookieValue;
-  if (!value) return null;
-  try {
-    return JSON.parse(decodeURIComponent(value)) as AuthUser;
-  } catch {
-    return null;
-  }
+  return getSessionUser();
 }

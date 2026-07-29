@@ -1,0 +1,21 @@
+import assert from "node:assert/strict";
+import { createServer } from "node:http";
+import { randomUUID } from "node:crypto";
+import test, { after, before } from "node:test";
+import { app } from "../../src/app.js";
+import { disconnectDatabase, prisma } from "../../src/config/prisma.js";
+import { signToken } from "../../src/modules/auth/auth.service.js";
+let server, baseUrl, user, viewer, company, viewerCompany, token, viewerToken;
+const request=(path,options={},auth=token)=>fetch(`${baseUrl}${path}`,{...options,headers:{"content-type":"application/json",...(auth?{authorization:`Bearer ${auth}`}:{})}});
+before(async()=>{const f=randomUUID().replaceAll("-","");user=await prisma.user.create({data:{name:"Settings Owner",email:`settings-${f}@test.invalid`,passwordHash:"x"}});viewer=await prisma.user.create({data:{name:"Settings Viewer",email:`settings-view-${f}@test.invalid`,passwordHash:"x",role:"VIEWER"}});company=await prisma.company.create({data:{ownerId:user.id,legalName:"Settings Co",cnpj:f.slice(0,14),uf:"SP",city:"São Paulo",environment:"homologation"}});viewerCompany=await prisma.company.create({data:{ownerId:viewer.id,legalName:"Viewer Co",cnpj:f.slice(14,28),uf:"SP",city:"São Paulo"}});token=signToken(user);viewerToken=signToken(viewer);await new Promise(r=>{server=createServer(app).listen(0,"127.0.0.1",r)});baseUrl=`http://127.0.0.1:${server.address().port}/api`;});
+after(async()=>{await prisma.auditLog.deleteMany({where:{companyId:{in:[company.id,viewerCompany.id]}}});await prisma.company.deleteMany({where:{id:{in:[company.id,viewerCompany.id]}}});await prisma.user.deleteMany({where:{id:{in:[user.id,viewer.id]}}});await new Promise(r=>server.close(r));await disconnectDatabase();});
+test("settings aplica auth, isolamento, confirmação, VIEWER e provider ausente",async()=>{
+ assert.equal((await request(`/companies/${company.id}/settings`,{},null)).status,401);
+ assert.equal((await request(`/companies/${viewerCompany.id}/settings`)).status,404);
+ assert.equal((await request(`/companies/${company.id}/settings/company`,{method:"PATCH",body:JSON.stringify({environment:"production"})})).status,422);
+ assert.equal((await request(`/companies/${company.id}/settings/company`,{method:"PATCH",body:JSON.stringify({environment:"production",confirmCriticalChange:true})})).status,200);
+ assert.equal((await request(`/companies/${viewerCompany.id}/settings/company`,{method:"PATCH",body:JSON.stringify({tradeName:"Não pode"})},viewerToken)).status,403);
+ const integrations=await request(`/companies/${company.id}/settings/integrations`);assert.equal(integrations.status,200);const body=await integrations.json();assert.ok(body.items.some(i=>i.status==="CONFIGURATION_REQUIRED"));
+ assert.equal((await request(`/companies/${company.id}/settings/integrations/SHOPEE/action`,{method:"POST",body:JSON.stringify({action:"test"})})).status,409);
+ const audit=await request(`/companies/${company.id}/settings/audit`);assert.equal(audit.status,200);assert.ok((await audit.json()).items.length>0);
+});

@@ -1,34 +1,19 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 export async function middleware(request: NextRequest) {
-  const sessionParam = request.nextUrl.searchParams.get("nsSession");
-  if (sessionParam) {
-    try {
-      const session = JSON.parse(sessionParam) as {
-        token?: string;
-        user?: { id: string; name: string; email: string; role: string };
-        companyId?: string | null;
-      };
-      const requestHeaders = new Headers(request.headers);
-      if (session.token) requestHeaders.set("x-ns-session-token", session.token);
-      if (session.user) requestHeaders.set("x-ns-session-user", JSON.stringify(session.user));
-      if (session.companyId) requestHeaders.set("x-ns-session-company-id", session.companyId);
-      return NextResponse.next({ request: { headers: requestHeaders } });
-    } catch {
-      // Fall through to the normal auth gate.
-    }
-  }
+  const hasCustomToken = request.cookies.get("__Host-ns-fiscal-token")?.value || request.cookies.get("ns-fiscal-token")?.value;
 
-  const hasCustomToken = request.cookies.get("ns-fiscal-token")?.value;
-
-  const publicPaths = ["/login", "/register", "/auth", "/onboarding"];
-  const isPublic = publicPaths.some((p) =>
-    request.nextUrl.pathname.startsWith(p),
+  const pathname = request.nextUrl.pathname;
+  const publicPaths = ["/", "/login", "/register", "/forgot-password", "/reset-password", "/auth", "/onboarding", "/api/auth", "/oauth"];
+  const isPublic = publicPaths.some((path) =>
+    path === "/" ? pathname === "/" : pathname === path || pathname.startsWith(`${path}/`),
   );
 
   if (!hasCustomToken && !isPublic) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
+    const returnTo = `${pathname}${request.nextUrl.search}`;
+    if (returnTo.startsWith("/") && !returnTo.startsWith("//")) url.searchParams.set("returnTo", returnTo);
     return NextResponse.redirect(url);
   }
 

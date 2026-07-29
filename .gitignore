@@ -12,6 +12,8 @@ coverage
 !.env.example
 !.env.docker.example
 !apps/api-js/.env.test.example
+!apps/api-js/.env.homologation.example
+!apps/api-js/.env.production.example
 .env.docker
 apps/api-js/.env.test
 tmp/
@@ -25,4 +27,3 @@ tela/
 OllamaSetup.exe
 
 OllamaSetup.exe
-

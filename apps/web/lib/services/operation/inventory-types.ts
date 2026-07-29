@@ -1,0 +1,11 @@
+export type Page<T> = { data: T[]; pagination: { page: number; pageSize: number; total: number; totalPages: number } };
+export type Warehouse = { id: string; code: string; name: string; description?: string | null; status: string; isDefault: boolean };
+export type ProductRef = { id: string; code: string; name: string };
+export type Balance = { id: string; warehouseId: string; productId: string; physicalQuantity: string; reservedQuantity: string; averageCost: string; minimumQuantity: string; updatedAt: string; product: ProductRef; warehouse: Warehouse };
+export type Movement = { id: string; type: string; quantity: string; unitCost: string; totalCost: string; previousQuantity: string; resultingQuantity: string; sourceType?: string; sourceId?: string; externalKey?: string; reason?: string; createdAt: string; product: ProductRef; warehouse: Warehouse; user?: { id: string; name: string } };
+export type Reservation = { id: string; quantity: string; status: string; sourceType: string; sourceId?: string; externalKey: string; expiresAt?: string; product: ProductRef; warehouse: Warehouse };
+export type Transfer = { id: string; status: string; reason?: string; createdAt: string; sourceWarehouse: Warehouse; destinationWarehouse: Warehouse; items: Array<{ id: string; quantity: string; product: ProductRef }> };
+export type Count = { id: string; status: string; notes?: string; createdAt: string; warehouse: Warehouse; responsible: { name: string }; items?: Array<{ id: string; productId: string; expectedQuantity: string; countedQuantity?: string; differenceQuantity?: string; product: ProductRef }> };
+export type Summary = { products: number; warehouses: number; physicalQuantity: number; reservedQuantity: number; availableQuantity: number; inventoryValue: number; belowMinimum: number; outOfStock: number; lastMovement?: Movement };
+export type InventoryRow = Warehouse | Balance | Movement | Reservation | Transfer | Count;
+export type Filters = { q?: string; warehouseId?: string; productId?: string; status?: string; type?: string; sourceType?: string; page?: number; pageSize?: number };

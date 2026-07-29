@@ -1,0 +1,6 @@
+import assert from "node:assert/strict";import fs from"node:fs";import test from"node:test";import{balance}from"../../src/modules/financial/financial.service.js";import{classifyReconciliation}from"../../src/modules/financial/reconciliation.service.js";
+test("saldo considera desconto, juros, multa e pagamento parcial",()=>assert.equal(balance({amount:1000,discount:50,interest:20,fine:10,paidAmount:400}),580));
+test("recebimento parcial mantém saldo restante",()=>assert.equal(balance({amount:300,receivedAmount:125}),175));
+test("conciliação detecta divergência crítica de valor",()=>assert.deepEqual(classifyReconciliation(100,80),{status:"DIVERGENT",code:"VALUE_DIVERGENCE",critical:true}));
+test("conciliação aceita valores equivalentes",()=>assert.equal(classifyReconciliation(100,100).status,"MATCHED"));
+test("migration financeira é aditiva",()=>{const sql=fs.readFileSync(new URL("../../prisma/migrations/20260728030000_add_financial_core/migration.sql",import.meta.url),"utf8");assert.doesNotMatch(sql,/DROP TABLE/i);for(const table of["receivables","financial_categories","cost_centers","financial_accounts","financial_transactions","financial_reconciliations","billings","bank_integrations"])assert.match(sql,new RegExp(`CREATE TABLE "${table}"`))});

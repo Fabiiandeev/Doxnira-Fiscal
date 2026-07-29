@@ -19,8 +19,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { askFiscalAI, getQuickQuestions, applyAISuggestions } from "@/lib/services/fiscal/fiscal-ai-service";
-import type { FiscalAiResponse, FiscalAiSuggestion, FiscalAiAction, CorrectionType } from "@/lib/fiscal-types";
+import { askFiscalAI, getFiscalAiStatus, getQuickQuestions, applyAISuggestions } from "@/lib/services/fiscal/fiscal-ai-service";
+import type { FiscalAiResponse, FiscalAiSuggestion, FiscalAiAction, CorrectionType, FiscalAiProviderStatus } from "@/lib/fiscal-types";
 import { notify } from "@/components/toast-viewport";
 import { formatCurrency } from "@/lib/utils";
 
@@ -34,6 +34,7 @@ type ChatMessage = {
 
 type Conversation = {
   id: string;
+  providerConversationId?: string;
   title: string;
   messages: ChatMessage[];
   createdAt: string;
@@ -78,6 +79,7 @@ export function FiscalAiView() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [quickQuestions, setQuickQuestions] = useState<string[]>([]);
+  const [providerStatus, setProviderStatus] = useState<FiscalAiProviderStatus | null>(null);
   const [sidePanelOpen, setSidePanelOpen] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -86,6 +88,7 @@ export function FiscalAiView() {
     setConversations(convs);
     if (convs.length > 0) setActiveConversationId(convs[0].id);
     getQuickQuestions().then(setQuickQuestions);
+    getFiscalAiStatus().then(setProviderStatus).catch(() => setProviderStatus(null));
   }, []);
 
   useEffect(() => {
@@ -141,26 +144,32 @@ export function FiscalAiView() {
     setQuestion("");
     setLoading(true);
 
-    const res = await askFiscalAI(query);
-
-    const assistantMsg: ChatMessage = {
-      id: "msg-" + Date.now() + "-ai",
-      role: "assistant",
-      content: res.answer,
-      response: res,
-      timestamp: new Date().toISOString(),
-    };
-
-    setConversations(prev => {
-      const updated = prev.map(c => {
-        if (c.id !== convId) return c;
-        return { ...c, messages: [...c.messages, assistantMsg] };
+    try {
+      const providerConversationId = conversations.find(c => c.id === convId)?.providerConversationId;
+      const res = await askFiscalAI(query, providerConversationId);
+      const assistantMsg: ChatMessage = {
+        id: "msg-" + Date.now() + "-ai",
+        role: "assistant",
+        content: res.answer,
+        response: res,
+        timestamp: new Date().toISOString(),
+      };
+      setConversations(prev => {
+        const updated = prev.map(c => c.id === convId ? {
+          ...c,
+          providerConversationId: res.conversationId || c.providerConversationId,
+          messages: [...c.messages, assistantMsg],
+        } : c);
+        saveConversations(updated);
+        return updated;
       });
-      saveConversations(updated);
-      return updated;
-    });
-    setLoading(false);
-  }, [question, activeConversationId, createNewConversation]);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Não foi possível consultar o provedor.";
+      notify({ title: message === "Configuração de IA necessária" ? message : "Erro no Chat Fiscal", description: message, tone: "error" });
+    } finally {
+      setLoading(false);
+    }
+  }, [question, activeConversationId, conversations, createNewConversation]);
 
   const handleApplySuggestions = async (suggestionIds: string[]) => {
     const result = await applyAISuggestions(suggestionIds);
@@ -212,7 +221,16 @@ export function FiscalAiView() {
         <div className="mb-4">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-2xl font-extrabold">Chat Fiscal</h1>
+              <div className="flex items-center gap-2">
+                <h1 className="text-2xl font-extrabold">Chat Fiscal</h1>
+                {providerStatus && (
+                  <Badge variant={providerStatus.configured ? "outline" : "neutral"}>
+                    {providerStatus.configured
+                      ? providerStatus.provider === "NVIDIA_RAG" ? "NVIDIA RAG ativo" : "IA genérica ativa"
+                      : "IA não configurada"}
+                  </Badge>
+                )}
+              </div>
               <p className="text-sm text-subtle">Motor de decisao fiscal - Pergunte, receba sugestoes com regra, confianca e acao</p>
             </div>
             <div className="flex gap-2">
@@ -417,7 +435,12 @@ export function FiscalAiView() {
             <p className="text-xs font-bold text-subtle uppercase mb-2">Sobre a FiscalAI</p>
             <div className="space-y-2 text-xs text-subtle">
               <p className="flex items-center gap-2"><Sparkles className="h-3 w-3 text-lime-500" /> Respostas baseadas em regras fiscais</p>
-              <p className="flex items-center gap-2"><BookOpen className="h-3 w-3 text-blue-500" /> Fontes: MOC, SPED, ICP-Brasil, LC 116</p>
+              <p className="flex items-center gap-2">
+                <BookOpen className="h-3 w-3 text-blue-500" />
+                {providerStatus?.knowledgeBaseEnabled
+                  ? `Base RAG habilitada (${providerStatus.collectionCount} coleção${providerStatus.collectionCount === 1 ? "" : "ões"})`
+                  : "Fontes retornadas pelo provedor configurado"}
+              </p>
               <p className="flex items-center gap-2"><Play className="h-3 w-3 text-purple-500" /> Acoes diretas: corrigir, enviar, confirmar</p>
             </div>
           </Card>

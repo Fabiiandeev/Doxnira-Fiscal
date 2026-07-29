@@ -1,4 +1,4 @@
-import { ApiError, apiFetch, clearSession, getCompanyId, getToken } from "@/lib/api";
+import { ApiError, apiFetch, clearSession, getCompanyId } from "@/lib/api";
 import type { IntelligentClient } from "@/lib/client-types";
 import type { NfeActionResponse, NfeAutoFixResponse, NfeBoletoMock, NfeDetailActionResponse, NfeDetailResponse, NfeFilters, NfeListResponse, NfeReceivable } from "@/lib/nfe-types";
 import type { Cfop, Product } from "@/lib/product-types";
@@ -273,12 +273,8 @@ type FetchWithAuthInit = RequestInit & { headers?: HeadersInit };
 
 function buildHeaders(init: RequestInit = {}) {
   const headers = new Headers(init.headers);
-  const token = getToken();
   const isFormData = init.body instanceof FormData;
 
-  if (token && !headers.has("authorization")) {
-    headers.set("authorization", `Bearer ${token}`);
-  }
   if (isFormData) {
     headers.delete("content-type");
   } else if (init.body && !headers.has("content-type")) {
@@ -292,6 +288,7 @@ async function fetchWithAuth(path: string, init: FetchWithAuthInit = {}) {
   return fetch(`${API_URL}${path}`, {
     ...init,
     headers: buildHeaders(init),
+    credentials: "include",
     cache: "no-store",
   });
 }

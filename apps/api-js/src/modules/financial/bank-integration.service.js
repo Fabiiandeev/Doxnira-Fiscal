@@ -1,0 +1,3 @@
+import{createHash}from"node:crypto";import{prisma}from"../../config/prisma.js";import{encryptText}from"../../utils/crypto.js";
+export async function configureBank(companyId,provider,credentials){const raw=JSON.stringify(credentials),encryptedCredentials=encryptText(raw),credentialFingerprint=createHash("sha256").update(raw).digest("hex");return prisma.bankIntegration.upsert({where:{companyId_provider:{companyId,provider}},create:{companyId,provider,encryptedCredentials,credentialFingerprint,status:"CONFIGURED"},update:{encryptedCredentials,credentialFingerprint,status:"CONFIGURED",lastError:null}})}
+export const safeBank=x=>({...x,encryptedCredentials:undefined,credentialFingerprint:x.credentialFingerprint?.slice(0,12)||null,configured:Boolean(x.encryptedCredentials)});

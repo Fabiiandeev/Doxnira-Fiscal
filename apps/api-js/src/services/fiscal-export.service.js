@@ -52,7 +52,7 @@ function sintegra(preparation) {
 
 async function scopedPreparation(companyId, officeId, preparationId) {
   const preparation = await prisma.fiscalBookPreparation.findFirst({
-    where: { id: preparationId, companyId, officeId },
+    where: { id: preparationId, companyId, ...(officeId ? { officeId } : {}) },
     include: { closing: true, documents: { include: { items: true } }, issues: true },
   });
   if (!preparation) throw new AppError("Pré-escrituração não encontrada neste contexto.", "FISCAL_EXPORT_PREPARATION_NOT_FOUND", 404);
@@ -84,13 +84,13 @@ export async function generateFiscalExport(companyId, officeId, preparationId, t
 }
 
 export async function listFiscalExports(companyId, officeId, { preparationId, type, page = 1, pageSize = 25 } = {}) {
-  const where = { companyId, officeId, ...(preparationId ? { preparationId } : {}), ...(type ? { type } : {}) };
+  const where = { companyId, ...(officeId ? { officeId } : {}), ...(preparationId ? { preparationId } : {}), ...(type ? { type } : {}) };
   const [data, total] = await prisma.$transaction([prisma.fiscalExport.findMany({ where, orderBy: { generatedAt: "desc" }, skip: (page - 1) * pageSize, take: pageSize, select: { id: true, preparationId: true, closingId: true, type: true, periodYear: true, periodMonth: true, status: true, layoutVersion: true, contentHash: true, fileName: true, sizeBytes: true, generatedByUserId: true, generatedAt: true, error: true } }), prisma.fiscalExport.count({ where })]);
   return { data, pagination: { page, pageSize, total, totalPages: Math.ceil(total / pageSize) } };
 }
 
 export async function getFiscalExport(companyId, officeId, exportId, includeContent = false) {
-  const value = await prisma.fiscalExport.findFirst({ where: { id: exportId, companyId, officeId }, ...(includeContent ? {} : { select: { id: true, preparationId: true, closingId: true, type: true, periodYear: true, periodMonth: true, status: true, layoutVersion: true, snapshotHash: true, contentHash: true, fileName: true, sizeBytes: true, snapshot: true, generatedByUserId: true, generatedAt: true, error: true } }) });
+  const value = await prisma.fiscalExport.findFirst({ where: { id: exportId, companyId, ...(officeId ? { officeId } : {}) }, ...(includeContent ? {} : { select: { id: true, preparationId: true, closingId: true, type: true, periodYear: true, periodMonth: true, status: true, layoutVersion: true, snapshotHash: true, contentHash: true, fileName: true, sizeBytes: true, snapshot: true, generatedByUserId: true, generatedAt: true, error: true } }) });
   if (!value) throw new AppError("Exportação fiscal não encontrada neste contexto.", "FISCAL_EXPORT_NOT_FOUND", 404);
   return value;
 }

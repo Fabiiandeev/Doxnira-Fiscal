@@ -1,0 +1,2 @@
+import{apiFetch,getCompanyId}from"@/lib/api";const base=()=>{const id=getCompanyId();if(!id)throw new Error("Selecione uma empresa.");return`/companies/${id}/commerce`};
+export const commerceService={get:<T>(resource:string,query="")=>apiFetch<T>(`${base()}/${resource}${query?`?${query}`:""}`),post:<T>(resource:string,body:Record<string,unknown>={})=>apiFetch<T>(`${base()}/${resource}`,{method:"POST",body:JSON.stringify(body)}),dashboard:(from:string,to:string)=>apiFetch<Record<string,number|null>|{series:unknown[]}>(`${base()}/dashboard?from=${from}&to=${to}`)};

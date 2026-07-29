@@ -10,6 +10,7 @@ import { isValidCnpj, normalizeCnpj } from "../../utils/cnpj.js";
 import { asyncHandler, sendSuccess } from "../../utils/response.js";
 import { resolveCnpjData } from "../../services/data-resolver.service.js";
 import { writeAudit } from "../audit/audit.service.js";
+import { protectCatalogWrites } from "../../middlewares/catalog-write.middleware.js";
 
 const companySchema = z.object({
   legalName: z.string().min(3).max(255),
@@ -329,9 +330,11 @@ function buildInitialTaxSettings(company) {
 
 export const companiesRouter = Router();
 companiesRouter.use(requireAuth);
+companiesRouter.use(protectCatalogWrites("COMPANY"));
 
 export const empresasRouter = Router();
 empresasRouter.use(requireAuth);
+empresasRouter.use(protectCatalogWrites("COMPANY"));
 empresasRouter.get(
   "/buscar-cnpj",
   asyncHandler(async (request, response) => {

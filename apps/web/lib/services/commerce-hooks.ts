@@ -1,0 +1,4 @@
+"use client";import{useMutation,useQuery,useQueryClient}from"@tanstack/react-query";import{commerceService}from"./commerce-service";
+export const useCommerce=(resource:string,query="")=>useQuery({queryKey:["commerce",resource,query],queryFn:()=>commerceService.get<{data?:Array<Record<string,unknown>>;pagination?:{page:number;total:number;totalPages:number};message?:string;available?:boolean}>(resource,query)});
+export const useCommerceDashboard=(from:string,to:string)=>useQuery({queryKey:["commerce-dashboard",from,to],queryFn:()=>commerceService.dashboard(from,to)});
+export const useCommerceMutation=()=>{const c=useQueryClient();return useMutation({mutationFn:({resource,body}:{resource:string;body?:Record<string,unknown>})=>commerceService.post(resource,body),onSuccess:()=>c.invalidateQueries({queryKey:["commerce"]})})};

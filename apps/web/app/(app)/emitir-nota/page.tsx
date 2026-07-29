@@ -1,4 +1,4 @@
-import { headers } from "next/headers";
+import { cookies } from "next/headers";
 
 import { EmitirNotaView } from "@/components/emitir-nota/emitir-nota-view";
 import { NfeListView } from "@/components/notas-fiscais/nfe-list-view";
@@ -17,9 +17,9 @@ type EmitirNotaBootstrapData = {
   products: Product[];
 };
 
-async function fetchJson<T>(path: string, token: string) {
+async function fetchJson<T>(path: string, cookieHeader: string) {
   const response = await fetch(`${API_URL}${path}`, {
-    headers: { authorization: `Bearer ${token}` },
+    headers: { cookie: cookieHeader },
     cache: "no-store",
   });
   const payload = await response.json().catch(() => ({}));
@@ -32,21 +32,21 @@ async function fetchJson<T>(path: string, token: string) {
 }
 
 async function readBootstrapSession() {
-  const headerStore = await headers();
-  const token = headerStore.get("x-ns-session-token");
-  const companyId = headerStore.get("x-ns-session-company-id");
-  return { token, companyId };
+  const cookieStore = await cookies();
+  const session = cookieStore.get("__Host-ns-fiscal-token") ?? cookieStore.get("ns-fiscal-token");
+  const companyId = cookieStore.get("ns-fiscal-company-id")?.value;
+  return { cookieHeader: session ? `${session.name}=${session.value}` : null, companyId };
 }
 
 async function loadEmitirNotaBootstrap(nfeId: string): Promise<EmitirNotaBootstrapData | null> {
   const session = await readBootstrapSession();
-  if (!session.token || !session.companyId) return null;
+  if (!session.cookieHeader || !session.companyId) return null;
 
   const [noteResponse, cfopResponse, clientResponse, productResponse] = await Promise.all([
-    fetchJson<{ data: NfeDocumentDetail }>(`/companies/${session.companyId}/nfe/${nfeId}`, session.token),
-    fetchJson<{ data: Cfop[] }>(`/companies/${session.companyId}/cfops/search?limit=50`, session.token),
-    fetchJson<{ data: IntelligentClient[] }>(`/companies/${session.companyId}/clients/search?limit=25`, session.token),
-    fetchJson<{ data: Product[] }>(`/companies/${session.companyId}/products/search?limit=25`, session.token),
+    fetchJson<{ data: NfeDocumentDetail }>(`/companies/${session.companyId}/nfe/${nfeId}`, session.cookieHeader),
+    fetchJson<{ data: Cfop[] }>(`/companies/${session.companyId}/cfops/search?limit=50`, session.cookieHeader),
+    fetchJson<{ data: IntelligentClient[] }>(`/companies/${session.companyId}/clients/search?limit=25`, session.cookieHeader),
+    fetchJson<{ data: Product[] }>(`/companies/${session.companyId}/products/search?limit=25`, session.cookieHeader),
   ]);
 
   return {

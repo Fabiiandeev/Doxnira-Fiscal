@@ -1,4 +1,4 @@
-import { ApiError, apiFetch, clearSession, getCompanyId, getToken } from "@/lib/api";
+import { ApiError, apiFetch, clearSession, getCompanyId } from "@/lib/api";
 import type { NfeEntry, NfeEntryFilters, NfeEntryListResponse } from "@/lib/nfe-entry-types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3333/api";
@@ -243,12 +243,8 @@ export async function getNfeEntryDanfe(id: string): Promise<{ data: NfeEntryDanf
 
 async function fetchWithAuth(path: string, init: RequestInit = {}) {
   const headers = new Headers(init.headers);
-  const token = getToken();
   const isFormData = init.body instanceof FormData;
 
-  if (token && !headers.has("authorization")) {
-    headers.set("authorization", `Bearer ${token}`);
-  }
   if (isFormData) {
     headers.delete("content-type");
   } else if (init.body && !headers.has("content-type")) {
@@ -258,6 +254,7 @@ async function fetchWithAuth(path: string, init: RequestInit = {}) {
   return fetch(`${API_URL}${path}`, {
     ...init,
     headers,
+    credentials: "include",
     cache: "no-store",
   });
 }

@@ -1,0 +1,11 @@
+"use client";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { getFiscalAutopilotSummary } from "./fiscal-autopilot-service";
+import { getFiscalRadarAlerts } from "./fiscal-radar-service";
+import { getFiscalScore } from "./fiscal-score-service";
+import { fiscalRulesService } from "./fiscal-rules-service";
+export const useFiscalAutopilot = () => useQuery({ queryKey: ["fiscal-ai", "autopilot"], queryFn: getFiscalAutopilotSummary });
+export const useFiscalRadar = (filters?: { riskLevel?: string; category?: string }) => useQuery({ queryKey: ["fiscal-ai", "radar", filters], queryFn: () => getFiscalRadarAlerts(filters) });
+export const useFiscalScore = () => useQuery({ queryKey: ["fiscal-ai", "score"], queryFn: getFiscalScore });
+export const useFiscalRules = (search: string, page: number) => useQuery({ queryKey: ["fiscal-ai", "rules", search, page], queryFn: () => fiscalRulesService.list(search, page) });
+export const useRuleMutation = () => { const client = useQueryClient(); return useMutation({ mutationFn: ({ op, id, data }: { op: "create" | "update" | "toggle" | "version"; id?: string; data?: Record<string, unknown> }) => op === "create" ? fiscalRulesService.create(data || {}) : op === "update" ? fiscalRulesService.update(id!, data || {}) : op === "toggle" ? fiscalRulesService.toggle(id!) : fiscalRulesService.version(id!), onSuccess: () => client.invalidateQueries({ queryKey: ["fiscal-ai", "rules"] }) }); };

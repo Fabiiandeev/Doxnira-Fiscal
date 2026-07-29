@@ -1,0 +1,6 @@
+"use client";import{useMutation,useQuery,useQueryClient}from"@tanstack/react-query";import{financialService}from"./financial-service";
+export const useFinancialDashboard=(f:string,t:string)=>useQuery({queryKey:["financial-dashboard",f,t],queryFn:()=>financialService.dashboard(f,t)});
+export const useFinancialList=(r:string,q:string,s:string,p:number)=>useQuery({queryKey:["financial",r,q,s,p],queryFn:()=>financialService.list(r,q,s,p)});
+export const useFinancialCollection=(r:string)=>useQuery({queryKey:["financial",r],queryFn:()=>financialService.collection(r)});
+export const useCashFlow=(f:string,t:string)=>useQuery({queryKey:["cash-flow",f,t],queryFn:()=>financialService.cash(f,t)});
+export const useFinancialMutation=()=>{const c=useQueryClient();return useMutation({mutationFn:({operation,resource,id,action,body}:{operation:"create"|"settle"|"cancel"|"action";resource:string;id?:string;action?:string;body?:Record<string,unknown>})=>operation==="create"?financialService.createCollection(resource,body||{}):operation==="settle"?financialService.settle(resource,id!,body||{}):operation==="cancel"?financialService.cancel(resource,id!):financialService.action(resource,id!,action!,body),onSuccess:()=>c.invalidateQueries({queryKey:["financial"]})})};

@@ -1,0 +1,1 @@
+import{MarketplaceOperationsView}from"@/components/marketplaces/marketplace-operations-view";export const metadata={title:"Marketplaces"};export default function Page(){return <MarketplaceOperationsView/>}
