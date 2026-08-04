@@ -31,6 +31,24 @@ model MarketplaceConnection {
   @@map("marketplace_connections")
 }
 
+model MarketplaceProviderCredential {
+  id           String   @id @default(uuid()) @db.Uuid
+  companyId    String   @map("company_id") @db.Uuid
+  provider     String   @db.VarChar(40)
+  clientId     String   @map("client_id") @db.Text
+  clientSecret String   @map("client_secret") @db.Text
+  redirectUri  String   @map("redirect_uri") @db.Text
+  status       String   @default("active") @db.VarChar(30)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, provider])
+  @@index([companyId, status])
+  @@map("marketplace_provider_credentials")
+}
+
 model MarketplaceSyncCursor {
   id           String    @id @default(uuid()) @db.Uuid
   companyId    String    @map("company_id") @db.Uuid
@@ -1163,6 +1181,7 @@ model User {
   subscriptionPlansCreated SubscriptionPlan[] @relation("SubscriptionPlanCreatedBy")
   subscriptionPlansUpdated SubscriptionPlan[] @relation("SubscriptionPlanUpdatedBy")
   subscriptionPlanPricesCreated SubscriptionPlanPrice[] @relation("SubscriptionPlanPriceCreatedBy")
+  companyMemberships CompanyMembership[]
 
   @@map("users")
 }
@@ -1434,6 +1453,10 @@ model Company {
   reconciliations         FinancialReconciliation[]
   billings                Billing[]
   bankIntegrations        BankIntegration[]
+  memberships             CompanyMembership[]
+  financialEvents         FinancialEvent[]
+  financialAllocations    FinancialAllocation[]
+  financialAttachments    FinancialAttachment[]
   fiscalAlerts            FiscalAlert[]
   dfeSyncLogs             DfeSyncLog[]
   accountantLinks         AccountantCompanyLink[]
@@ -1446,6 +1469,7 @@ model Company {
   mdfeDrafts            MdfeDraft[]
   mdfeLoadingMunicipalities MdfeLoadingMunicipality[]
   marketplaceConnections MarketplaceConnection[]
+  marketplaceProviderCredentials MarketplaceProviderCredential[]
   marketplaceSyncJobs MarketplaceSyncJob[]
   marketplaceSyncEvents MarketplaceSyncEvent[]
   marketplaceWebhookEvents MarketplaceWebhookEvent[]
@@ -2358,12 +2382,20 @@ model AuditLog {
   ipAddress  String?  @map("ip_address") @db.VarChar(80)
   userAgent  String?  @map("user_agent")
   metadata   Json?
+  origin     String?  @db.VarChar(80)
+  correlationId String? @map("correlation_id") @db.VarChar(120)
+  idempotencyKey String? @map("idempotency_key") @db.VarChar(180)
+  beforeState Json? @map("before_state")
+  afterState Json? @map("after_state")
+  justification String? @db.Text
+  documentId String? @map("document_id") @db.Uuid
   createdAt  DateTime @default(now()) @map("created_at")
 
   company Company? @relation(fields: [companyId], references: [id])
   user    User?    @relation(fields: [userId], references: [id])
 
   @@index([companyId, createdAt(sort: Desc)])
+  @@index([companyId, correlationId])
   @@map("audit_logs")
 }
 
@@ -4174,6 +4206,9 @@ model Payable {
   sourceType        String?   @map("source_type") @db.VarChar(40)
   sourceId          String?   @map("source_id") @db.Uuid
   paidAt            DateTime? @map("paid_at")
+  canceledAt        DateTime? @map("canceled_at")
+  canceledBy        String?   @map("canceled_by") @db.Uuid
+  cancellationReason String?  @map("cancellation_reason") @db.Text
   createdAt         DateTime  @default(now()) @map("created_at")
   updatedAt         DateTime  @updatedAt @map("updated_at")
 
@@ -4221,6 +4256,9 @@ model Receivable {
   notes String? @db.Text
   recurrence String? @db.VarChar(30)
   receivedAt DateTime? @map("received_at")
+  canceledAt DateTime? @map("canceled_at")
+  canceledBy String? @map("canceled_by") @db.Uuid
+  cancellationReason String? @map("cancellation_reason") @db.Text
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
   company Company @relation(fields:[companyId],references:[id])
@@ -4352,6 +4390,79 @@ model BankIntegration {
   @@unique([companyId,provider])
   @@index([companyId,status])
   @@map("bank_integrations")
+}
+
+model CompanyMembership {
+  id String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+  userId String @map("user_id") @db.Uuid
+  role UserRole
+  status String @default("ACTIVE") @db.VarChar(20)
+  permissions Json @default("[]")
+  activeAt DateTime @default(now()) @map("active_at")
+  revokedAt DateTime? @map("revoked_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  company Company @relation(fields:[companyId],references:[id],onDelete:Restrict)
+  user User @relation(fields:[userId],references:[id],onDelete:Restrict)
+  @@unique([companyId,userId])
+  @@index([userId,status])
+  @@index([companyId,status])
+  @@map("company_memberships")
+}
+
+model FinancialEvent {
+  id String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+  userId String? @map("user_id") @db.Uuid
+  entityType String @map("entity_type") @db.VarChar(40)
+  entityId String @map("entity_id") @db.Uuid
+  action String @db.VarChar(80)
+  origin String @db.VarChar(80)
+  correlationId String @map("correlation_id") @db.VarChar(120)
+  idempotencyKey String? @map("idempotency_key") @db.VarChar(180)
+  beforeState Json? @map("before_state")
+  afterState Json? @map("after_state")
+  justification String? @db.Text
+  metadata Json?
+  createdAt DateTime @default(now()) @map("created_at")
+  company Company @relation(fields:[companyId],references:[id],onDelete:Restrict)
+  @@index([companyId,entityType,entityId,createdAt(sort:Desc)])
+  @@index([companyId,correlationId])
+  @@map("financial_events")
+}
+
+model FinancialAllocation {
+  id String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+  payableId String? @map("payable_id") @db.Uuid
+  receivableId String? @map("receivable_id") @db.Uuid
+  costCenterId String @map("cost_center_id") @db.Uuid
+  amount Decimal @db.Decimal(15,2)
+  active Boolean @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  company Company @relation(fields:[companyId],references:[id],onDelete:Restrict)
+  @@index([companyId,payableId,active])
+  @@index([companyId,receivableId,active])
+  @@map("financial_allocations")
+}
+
+model FinancialAttachment {
+  id String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+  payableId String? @map("payable_id") @db.Uuid
+  receivableId String? @map("receivable_id") @db.Uuid
+  fileName String @map("file_name") @db.VarChar(255)
+  storageKey String @map("storage_key") @db.Text
+  contentHash String @map("content_hash") @db.Char(64)
+  removedAt DateTime? @map("removed_at")
+  removedBy String? @map("removed_by") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+  company Company @relation(fields:[companyId],references:[id],onDelete:Restrict)
+  @@index([companyId,payableId,removedAt])
+  @@index([companyId,receivableId,removedAt])
+  @@map("financial_attachments")
 }
 
 model FiscalAlert {
