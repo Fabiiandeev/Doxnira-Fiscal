@@ -1,14 +1,21 @@
 import { logger } from "../config/logger.js";
 
 export function errorMiddleware(error, request, response, _next) {
+  const isZodError = error?.name === "ZodError" || Array.isArray(error?.issues);
   const statusCode =
     Number.isInteger(error.statusCode) && error.statusCode >= 400
       ? error.statusCode
-      : 500;
+      : isZodError
+        ? 422
+        : 500;
 
-  const code = error.code || "INTERNAL_ERROR";
+  const code = error.code || (isZodError ? "VALIDATION_ERROR" : "INTERNAL_ERROR");
   const message =
-    statusCode >= 500 ? "Internal server error." : error.message;
+    statusCode >= 500
+      ? "Internal server error."
+      : isZodError
+        ? "Dados inválidos para a operação solicitada."
+        : error.message;
 
   logger.error(
     {
@@ -28,7 +35,7 @@ export function errorMiddleware(error, request, response, _next) {
     field: error.field || null,
     suggestion: error.suggestion || null,
     autoFix: error.autoFix || { available: false, action: null, label: null },
-    details: error.details || {},
+    details: error.details || (isZodError ? { issues: error.issues || [] } : {}),
     requestId: request.id,
   });
 }

@@ -9,10 +9,10 @@ import {
   BookOpen,
   Brain,
   Building2,
-  Calculator,
   CalendarDays,
   ChevronDown,
   ChevronLeft,
+  ChevronRight,
   CircleDollarSign,
   ClipboardCheck,
   ClipboardList,
@@ -23,408 +23,579 @@ import {
   FileOutput,
   FileText,
   FolderSync,
-  Handshake,
   Inbox,
   LayoutDashboard,
   ListChecks,
+  LogOut,
   Menu,
   Package,
+  PanelLeftClose,
+  PanelLeftOpen,
   RefreshCw,
+  Route,
   Search,
-  Send,
   Settings,
   Shield,
-  ShoppingCart,
-  Target,
   Truck,
-  Route,
   Users,
-  Webhook,
-  X,
+  Wallet,
   Zap,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { BrandMark } from "@/components/brand-mark";
 import { useAuth } from "@/components/providers/auth-provider";
-import { usePermissionsContext } from "@/components/providers/permissions-provider";
 import { useCompanyContext } from "@/components/providers/company-provider";
+import { usePermissionsContext } from "@/components/providers/permissions-provider";
 import { notify } from "@/components/toast-viewport";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { Tooltip } from "@/components/ui/tooltip";
 import { getBrowserLocalStorage } from "@/lib/browser-storage";
 import { useDebouncedValue } from "@/lib/hooks/use-debounced-value";
+import {
+  ALL_SIDEBAR_ITEMS,
+  SIDEBAR_SINGLE_ITEM_GROUPS,
+  findActiveTopItem,
+  groupHasActiveChild,
+  isItemActive,
+} from "@/lib/sidebar-active";
+import {
+  sidebarGroups,
+  type SidebarGroup,
+  type SidebarItem,
+} from "@/lib/sidebar-navigation";
 import type { AuthUser } from "@/lib/services/auth-service";
 import type { Company } from "@/lib/services/company-service";
 import { getSyncReadiness, requestSync } from "@/lib/services/sync-service";
 import { cn, maskCnpj } from "@/lib/utils";
 
-type LucideIcon = React.ComponentType<{ className?: string; strokeWidth?: number }>;
+const COLLAPSED_STORAGE_KEY = "ns-sidebar-collapsed";
+const OPEN_GROUP_STORAGE_KEY = "ns-sidebar-open-group";
 
-type NavItem = {
-  label: string;
-  href: string;
-  icon: LucideIcon;
-  badge?: string;
-  permission?: string;
-  platformOnly?: boolean;
+type SidebarContextValue = {
+  collapsed: boolean;
+  setCollapsed: (value: boolean) => void;
+  toggle: () => void;
+  openGroup: string | null;
+  setOpenGroup: (value: string | null) => void;
 };
 
-type NavGroup = {
-  id: string;
-  label: string;
-  icon: LucideIcon;
-  items: NavItem[];
-};
+function useSidebarState(): SidebarContextValue {
+  const [collapsed, setCollapsedState] = useState(false);
+  const [openGroup, setOpenGroupState] = useState<string | null>(null);
+  const hydrated = useRef(false);
 
-const navGroups: NavGroup[] = [
-  {
-    id: "dashboard",
-    label: "Dashboard",
-    icon: LayoutDashboard,
-    items: [{ label: "Dashboard", href: "/dashboard", icon: LayoutDashboard }],
-  },
-  {
-    id: "inteligencia",
-    label: "Inteligência",
-    icon: Brain,
-    items: [
-      { label: "Fiscal Intelligence", href: "/fiscal-intelligence", icon: Brain },
-      { label: "Commerce Intelligence", href: "/commerce-intelligence", icon: BarChart2 },
-      { label: "Doxnira Insights", href: "/doxnira-insights", icon: Zap },
-      { label: "Centro de Decisão", href: "/decision-center", icon: Target },
-      { label: "Benchmark", href: "/benchmark", icon: FileBarChart },
-    ],
-  },
-  {
-    id: "fiscal-ai",
-    label: "FiscalAI",
-    icon: Brain,
-    items: [
-      { label: "Fiscal Autopilot", href: "/fiscal-autopilot", icon: Zap },
-      { label: "Chat Fiscal", href: "/fiscal-ai", icon: Brain },
-      { label: "Radar Fiscal", href: "/fiscal-radar", icon: Activity },
-      { label: "Score Fiscal", href: "/fiscal-score", icon: Target },
-      { label: "Regras Fiscais", href: "/fiscal-rules", icon: Shield },
-    ],
-  },
-  {
-    id: "cadastros",
-    label: "Cadastros",
-    icon: Users,
-    items: [
-      { label: "Empresas", href: "/companies", icon: Building2 },
-      { label: "Clientes", href: "/customers", icon: Users },
-      { label: "Produtos", href: "/products", icon: Package },
-      { label: "Serviços", href: "/services", icon: ClipboardCheck },
-      { label: "Fornecedores", href: "/fornecedores", icon: Package },
-      { label: "Transportadoras", href: "/transportadoras", icon: Truck },
-      { label: "Condutores", href: "/drivers", icon: Users },
-    ],
-  },
-  {
-    id: "fiscal-operacional",
-    label: "Fiscal",
-    icon: FileText,
-    items: [
-      { label: "Emitir NF-e", href: "/emitir-nota", icon: FileOutput },
-      { label: "NF-e Entrada", href: "/documents/incoming", icon: Truck },
-      { label: "NFC-e", href: "/nfce", icon: CreditCard },
-      { label: "NFS-e", href: "/nfse-national", icon: BookOpen },
-      { label: "CT-e", href: "/cte", icon: Truck },
-      { label: "Manifestos MDF-e", href: "/mdfe", icon: Route, permission: "fiscal.mdfe.read" },
-      { label: "Emitir MDF-e", href: "/mdfe/novo", icon: FileOutput, permission: "fiscal.mdfe.create" },
-      { label: "MDF-e não encerrados", href: "/mdfe/nao-encerrados", icon: Route, permission: "fiscal.mdfe.read" },
-      { label: "XML Fiscal", href: "/xml-center", icon: FileBarChart },
-      { label: "Rejeições", href: "/rejections", icon: AlertTriangle },
-      { label: "SPED", href: "/sped", icon: FileBarChart },
-      { label: "SINTEGRA", href: "/sintegra", icon: FileKey2 },
-      { label: "Fechamento Fiscal", href: "/monthly-closing", icon: FileClock },
-      { label: "Previsão de Impostos", href: "/tax-forecast", icon: CircleDollarSign },
-      { label: "Guias", href: "/guides", icon: FileOutput },
-    ],
-  },
-  {
-    id: "commerce",
-    label: "Commerce",
-    icon: ShoppingCart,
-    items: [
-      { label: "Dashboard Commerce", href: "/commerce", icon: LayoutDashboard },
-      { label: "Produtos Marketplace", href: "/commerce/products", icon: Package },
-      { label: "Anúncios", href: "/commerce/listings", icon: Send },
-      { label: "Pedidos", href: "/commerce/orders", icon: ClipboardList },
-      { label: "Preços", href: "/commerce/pricing", icon: Calculator },
-      { label: "Margens", href: "/commerce/margins", icon: CircleDollarSign },
-      { label: "Concorrência", href: "/commerce/competition", icon: Target },
-      { label: "Oportunidades", href: "/commerce/opportunities", icon: Zap },
-    ],
-  },
-  {
-    id: "marketplaces",
-    label: "Marketplaces",
-    icon: FolderSync,
-    items: [
-      { label: "Visão geral", href: "/commerce/marketplaces", icon: Handshake },
-      { label: "Mercado Livre", href: "/marketplaces/mercado-livre", icon: Package },
-      { label: "Shopee", href: "/marketplaces/shopee", icon: ShoppingCart },
-      { label: "Contas Conectadas", href: "/marketplaces/accounts", icon: Handshake },
-      { label: "Sincronizações", href: "/marketplaces/sync", icon: RefreshCw },
-      { label: "Webhooks", href: "/marketplaces/webhooks", icon: Webhook },
-    ],
-  },
-  {
-    id: "operacao",
-    label: "Operação",
-    icon: Package,
-    items: [
-      { label: "Dashboard Operacional", href: "/operacao", icon: LayoutDashboard },
-      { label: "Estoque", href: "/operacao/estoque", icon: Package },
-      { label: "Compras", href: "/operacao/compras", icon: ClipboardList },
-      { label: "Vendas", href: "/operacao/vendas", icon: ShoppingCart },
-      { label: "Automação", href: "/operacao/automacao", icon: Zap },
-    ],
-  },
-  {
-    id: "contabilidade",
-    label: "Contabilidade",
-    icon: BarChart2,
-    items: [
-      { label: "Dashboard Contador", href: "/accountant", icon: BarChart2 },
-      { label: "Documentos Fiscais", href: "/accountant/documents", icon: FileText },
-      { label: "Ranking de Risco", href: "/accountant/risk-ranking", icon: Shield },
-      { label: "Fila Fiscal", href: "/accountant/fiscal-queue", icon: ListChecks },
-      { label: "Solicitações", href: "/accountant/requests", icon: Inbox },
-      { label: "Relatório de Valor", href: "/accountant/value-report", icon: FileBarChart },
-    ],
-  },
-  {
-    id: "configuracoes",
-    label: "Configurações",
-    icon: Settings,
-    items: [
-      { label: "Plano e assinatura", href: "/settings/subscription", icon: CreditCard },
-      { label: "Empresa", href: "/settings/company", icon: Building2 },
-      { label: "Fiscal", href: "/settings/fiscal", icon: FileText },
-      { label: "Operação MDF-e", href: "/settings/mdfe", icon: Route },
-      { label: "Certificado", href: "/settings/certificate", icon: FileKey2 },
-      { label: "Integrações", href: "/settings/integrations", icon: FolderSync },
-      { label: "Usuários", href: "/settings/users", icon: Users },
-      { label: "Segurança/Auditoria", href: "/settings/security", icon: Shield },
-    ],
-  },
-  {
-    id: "plataforma",
-    label: "Plataforma",
-    icon: Shield,
-    items: [
-      {
-        label: "Planos e precos",
-        href: "/platform/plans",
-        icon: CreditCard,
-        platformOnly: true,
-      },
-    ],
-  },
-];
+  useEffect(() => {
+    const storage = getBrowserLocalStorage();
+    if (!storage) return;
+    try {
+      const raw = storage.getItem(COLLAPSED_STORAGE_KEY);
+      if (raw !== null) setCollapsedState(raw === "1");
+    } catch {
+      /* ignore */
+    }
+    try {
+      const raw = storage.getItem(OPEN_GROUP_STORAGE_KEY);
+      if (raw) setOpenGroupState(JSON.parse(raw));
+    } catch {
+      /* ignore */
+    }
+    hydrated.current = true;
+  }, []);
 
-const SINGLE_ITEM_GROUPS = new Set(["dashboard"]);
-const ALL_NAV_ITEMS = navGroups.flatMap((group) => group.items);
+  const setCollapsed = useCallback((value: boolean) => {
+    setCollapsedState(value);
+    const storage = getBrowserLocalStorage();
+    try {
+      storage?.setItem(COLLAPSED_STORAGE_KEY, value ? "1" : "0");
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
-const OPEN_GROUP_KEY = "ns-sidebar-open-group";
+  const setOpenGroup = useCallback((value: string | null) => {
+    setOpenGroupState(value);
+    const storage = getBrowserLocalStorage();
+    try {
+      storage?.setItem(OPEN_GROUP_STORAGE_KEY, JSON.stringify(value));
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
-function SidebarContent({
+  const toggle = useCallback(() => setCollapsed(!collapsed), [collapsed, setCollapsed]);
+
+  return { collapsed, setCollapsed, toggle, openGroup, setOpenGroup };
+}
+
+function initialsFor(name?: string | null) {
+  if (!name) return "NS";
+  const parts = name.trim().split(/\s+/).slice(0, 2);
+  return parts.map((part) => part[0]?.toUpperCase() ?? "").join("") || "NS";
+}
+
+function NavLink({
+  item,
+  pathname,
+  active,
+  depth,
   onNavigate,
-  documentCount,
-  alertCount,
+  collapsed,
 }: {
+  item: SidebarItem;
+  pathname: string | null | undefined;
+  active: boolean;
+  depth: 0 | 1;
   onNavigate?: () => void;
-  documentCount?: number;
-  alertCount?: number;
+  collapsed: boolean;
 }) {
-  const pathname = usePathname();
+  if (!item.href) return null;
+  const Icon = item.icon;
+
+  const baseClasses = cn(
+    "group flex h-10 w-full items-center rounded-xl px-3 text-[12px] font-bold transition-colors",
+    depth === 1 && "h-9 rounded-lg px-3 text-[11px] font-semibold",
+    active
+      ? "bg-lime text-ink shadow-sm"
+      : "text-subtle hover:bg-surface hover:text-ink focus-visible:bg-surface focus-visible:text-ink",
+  );
+
+  const link = (
+    <Link
+      href={item.href}
+      onClick={onNavigate}
+      aria-current={active ? "page" : undefined}
+      aria-label={collapsed ? item.label : undefined}
+      className={baseClasses}
+    >
+      <Icon
+        className={cn(
+          "h-[18px] w-[18px] shrink-0",
+          depth === 1 && "h-[14px] w-[14px]",
+          collapsed && "mx-auto",
+        )}
+        strokeWidth={active ? 2.4 : 2}
+        aria-hidden
+      />
+      {!collapsed && <span className={cn("ml-3 flex-1 truncate", depth === 1 && "ml-2.5")}>{item.label}</span>}
+   </Link>
+  );
+
+  if (collapsed) {
+    return (
+      <Tooltip label={item.label} side="right">
+        <span className="block w-full">{link}</span>
+     </Tooltip>
+    );
+  }
+
+  return link;
+}
+
+function CollapsedGroupPopover({
+  group,
+  pathname,
+  onNavigate,
+}: {
+  group: SidebarGroup;
+  pathname: string | null | undefined;
+  onNavigate?: () => void;
+}) {
+  const visibleItems = group.items;
+  if (visibleItems.length <= 1) {
+    return (
+      <NavLink
+        item={visibleItems[0]}
+        pathname={pathname}
+        active={isItemActive(pathname, visibleItems[0])}
+        depth={0}
+        collapsed
+        onNavigate={onNavigate}
+      />
+    );
+  }
+
+  const Icon = group.icon;
+  const active = groupHasActiveChild(pathname, group);
+
+  return (
+    <DropdownMenu>
+      <Tooltip label={group.label} side="right">
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            aria-label={group.label}
+            aria-haspopup="menu"
+            className={cn(
+              "flex h-10 w-full items-center justify-center rounded-xl text-[12px] font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lime/60",
+              active
+                ? "bg-lime text-ink shadow-sm"
+                : "text-subtle hover:bg-surface hover:text-ink",
+            )}
+          >
+            <Icon className="h-[18px] w-[18px]" strokeWidth={active ? 2.4 : 2} aria-hidden />
+         </button>
+       </DropdownMenuTrigger>
+     </Tooltip>
+      <DropdownMenuContent
+        side="right"
+        align="start"
+        sideOffset={10}
+        className="min-w-64 p-2"
+      >
+        <div className="px-2 pb-2">
+          <p className="text-[10px] font-extrabold uppercase tracking-[0.16em] text-subtle">
+            {group.label}
+         </p>
+       </div>
+        <ul className="flex flex-col gap-0.5" role="menu">
+          {visibleItems.map((item) => {
+            const ItemIcon = item.icon;
+            const isActive = isItemActive(pathname, item);
+            return (
+              <li key={item.id} role="none">
+                <Link
+                  role="menuitem"
+                  href={item.href ?? "#"}
+                  aria-disabled={!item.href}
+                  onClick={onNavigate}
+                  aria-current={isActive ? "page" : undefined}
+                  className={cn(
+                    "flex h-9 items-center gap-2.5 rounded-lg px-3 text-[11px] font-semibold transition-colors",
+                    isActive
+                      ? "bg-lime text-ink shadow-sm"
+                      : "text-subtle hover:bg-surface hover:text-ink",
+                  )}
+                >
+                  <ItemIcon
+                    className="h-[14px] w-[14px]"
+                    strokeWidth={isActive ? 2.4 : 2}
+                    aria-hidden
+                  />
+                  <span className="flex-1 truncate">{item.label}</span>
+               </Link>
+             </li>
+            );
+          })}
+       </ul>
+     </DropdownMenuContent>
+   </DropdownMenu>
+  );
+}
+
+function GroupHeader({
+  group,
+  open,
+  onToggle,
+  active,
+  collapsed,
+}: {
+  group: SidebarGroup;
+  open: boolean;
+  onToggle: () => void;
+  active: boolean;
+  collapsed: boolean;
+}) {
+  const Icon = group.icon;
+  const isSingle = SIDEBAR_SINGLE_ITEM_GROUPS.has(group.id);
+
+  if (collapsed) {
+    if (isSingle) return null;
+    return null;
+  }
+
+  if (isSingle) return null;
+
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={open}
+      aria-controls={`nav-group-${group.id}`}
+      className={cn(
+        "flex h-10 w-full items-center rounded-xl px-3 text-[10px] font-extrabold uppercase tracking-[0.12em] transition-colors",
+        active ? "text-ink" : "text-subtle hover:text-ink",
+      )}
+    >
+      <Icon className="h-[14px] w-[14px] shrink-0" strokeWidth={active ? 2.4 : 2} aria-hidden />
+      <span className="ml-2 flex-1 text-left">{group.label}</span>
+      <ChevronDown
+        className={cn("h-3.5 w-3.5 transition-transform duration-200", open && "rotate-180")}
+        aria-hidden
+      />
+   </button>
+  );
+}
+
+function SidebarHeader({
+  collapsed,
+  onToggle,
+}: {
+  collapsed: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <div
+      className={cn(
+        "flex shrink-0 items-center border-b border-line",
+        collapsed ? "justify-center px-2 py-3" : "justify-between gap-2 px-4 py-4",
+      )}
+    >
+      {collapsed ? (
+        <Tooltip label="Expandir menu" side="right">
+          <button
+            type="button"
+            onClick={onToggle}
+            aria-label="Expandir menu"
+            className="grid h-10 w-10 place-items-center rounded-xl bg-lime text-ink shadow-sm hover:bg-lime-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lime/60"
+          >
+            <PanelLeftOpen className="h-4 w-4" aria-hidden />
+         </button>
+       </Tooltip>
+      ) : (
+        <>
+          <BrandMark />
+          <Tooltip label="Recolher menu" side="left">
+            <button
+              type="button"
+              onClick={onToggle}
+              aria-label="Recolher menu"
+              className="grid h-9 w-9 place-items-center rounded-xl border border-line bg-white text-subtle hover:bg-surface hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lime/60"
+            >
+              <PanelLeftClose className="h-4 w-4" aria-hidden />
+           </button>
+         </Tooltip>
+        </>
+      )}
+   </div>
+  );
+}
+
+function UserFooter({
+  user,
+  collapsed,
+  onLogout,
+}: {
+  user: AuthUser | null;
+  collapsed: boolean;
+  onLogout: () => Promise<void>;
+}) {
+  const initials = initialsFor(user?.name);
+  const router = useRouter();
+
+  async function handleLogout() {
+    await onLogout();
+    router.replace("/login");
+  }
+
+  if (collapsed) {
+    return (
+      <div className="flex shrink-0 justify-center border-t border-line px-2 py-3">
+        <Tooltip label={`${user?.name ?? "Usuário"} · Sair da conta`} side="right">
+          <button
+            type="button"
+            onClick={handleLogout}
+            aria-label="Sair da conta"
+            className="grid h-10 w-10 place-items-center rounded-full bg-lime text-xs font-extrabold text-ink shadow-sm hover:bg-lime-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lime/60"
+          >
+            {initials}
+         </button>
+       </Tooltip>
+     </div>
+    );
+  }
+
+  return (
+    <div className="flex shrink-0 items-center gap-3 border-t border-line bg-surface/40 px-3 py-3">
+      <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-lime text-xs font-extrabold text-ink shadow-sm">
+        {initials}
+     </div>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-[12px] font-extrabold text-ink">{user?.name ?? "Usuário"}</p>
+        <p className="truncate text-[10px] font-semibold text-subtle">{user?.role ?? "—"}</p>
+     </div>
+      <Tooltip label="Sair da conta" side="left">
+        <button
+          type="button"
+          onClick={handleLogout}
+          aria-label="Sair da conta"
+          className="grid h-9 w-9 place-items-center rounded-xl border border-line bg-white text-subtle hover:bg-surface hover:text-red-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lime/60"
+        >
+          <LogOut className="h-4 w-4" aria-hidden />
+       </button>
+     </Tooltip>
+   </div>
+  );
+}
+
+function SidebarBody({
+  pathname,
+  collapsed,
+  openGroup,
+  setOpenGroup,
+  onNavigate,
+}: {
+  pathname: string | null | undefined;
+  collapsed: boolean;
+  openGroup: string | null;
+  setOpenGroup: (value: string | null) => void;
+  onNavigate?: () => void;
+}) {
   const { hasPermission } = usePermissionsContext();
   const { user } = useAuth();
   const isPlatformAdmin =
     user?.role === "PLATFORM_ADMIN" || user?.role === "PLATFORM_SUPER_ADMIN";
-  const [openGroup, setOpenGroup] = useState<string | null>(null);
+
+  const visibleGroups = useMemo(() => {
+    return sidebarGroups
+      .map((group) => ({
+        ...group,
+        items: group.items.filter(
+          (item) =>
+            (!item.permission || hasPermission(item.permission)) &&
+            (!item.platformOnly || isPlatformAdmin),
+        ),
+      }))
+      .filter((group) => group.items.length > 0);
+  }, [hasPermission, isPlatformAdmin]);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const stored = getBrowserLocalStorage()?.getItem(OPEN_GROUP_KEY);
-    if (stored) {
-      try { setOpenGroup(JSON.parse(stored)); } catch { /* ignore */ }
-    }
-  }, []);
-
-  useEffect(() => {
-    getBrowserLocalStorage()?.setItem(OPEN_GROUP_KEY, JSON.stringify(openGroup));
-  }, [openGroup]);
-
-  const toggleGroup = useCallback((groupId: string) => {
-    setOpenGroup((prev) => (prev === groupId ? null : groupId));
-  }, []);
-
-  useEffect(() => {
-    for (const group of navGroups) {
-      if (SINGLE_ITEM_GROUPS.has(group.id)) continue;
-      for (const item of group.items) {
-        if (pathname === item.href || (item.href !== "/dashboard" && pathname?.startsWith(`${item.href}/`))) {
-          setOpenGroup((prev) => (prev === group.id ? prev : group.id));
-          return;
-        }
+    if (collapsed) return;
+    for (const group of visibleGroups) {
+      if (SIDEBAR_SINGLE_ITEM_GROUPS.has(group.id)) continue;
+      if (groupHasActiveChild(pathname, group)) {
+        if (openGroup !== group.id) setOpenGroup(group.id);
+        return;
       }
     }
-  }, [pathname]);
+  }, [pathname, visibleGroups, openGroup, setOpenGroup, collapsed]);
+
+  if (collapsed) {
+    return (
+      <nav
+        aria-label="Navegação principal"
+        className="scrollbar-none flex-1 overflow-y-auto px-2 py-3"
+      >
+        <ul className="flex flex-col gap-1">
+          {visibleGroups.map((group) => (
+            <li key={group.id}>
+              <CollapsedGroupPopover
+                group={group}
+                pathname={pathname}
+                onNavigate={onNavigate}
+              />
+           </li>
+          ))}
+       </ul>
+     </nav>
+    );
+  }
 
   return (
-    <>
-      <div className="px-5 pb-6 pt-6">
-        <BrandMark />
-      </div>
-      <nav className="scrollbar-none flex-1 overflow-y-auto px-3">
-        {navGroups.map((group) => {
-          const visibleItems = group.items.filter(
-            (item) =>
-              (!item.permission || hasPermission(item.permission)) &&
-              (!item.platformOnly || isPlatformAdmin),
-          );
-          if (!visibleItems.length) return null;
-          const isSingle = SINGLE_ITEM_GROUPS.has(group.id);
+    <nav
+      aria-label="Navegação principal"
+      className="scrollbar-none flex-1 overflow-y-auto px-3 py-3"
+    >
+      <ul className="flex flex-col gap-1">
+        {visibleGroups.map((group) => {
+          const isSingle = SIDEBAR_SINGLE_ITEM_GROUPS.has(group.id);
           const isOpen = openGroup === group.id;
-          const GroupIcon = group.icon;
+          const active = groupHasActiveChild(pathname, group);
 
           if (isSingle) {
             const item = group.items[0];
-            const badge =
-              item.href === "/documents"
-                ? documentCount
-                : item.href === "/alerts"
-                  ? alertCount
-                  : item.badge;
-            const isActive =
-              pathname === item.href ||
-              (item.href !== "/dashboard" && pathname?.startsWith(`${item.href}/`));
-            const Icon = item.icon;
             return (
-              <Link
-                key={group.id}
-                href={item.href}
-                onClick={onNavigate}
-                className={cn(
-                  "flex h-10 items-center gap-3 rounded-xl px-3 text-[12px] font-bold transition",
-                  isActive
-                    ? "bg-lime text-ink shadow-sm"
-                    : "text-subtle hover:bg-surface hover:text-ink",
-                )}
-              >
-                <Icon className="h-[18px] w-[18px]" strokeWidth={isActive ? 2.4 : 2} />
-                <span className="flex-1">{item.label}</span>
-                {badge !== undefined && (
-                  <span
-                    className={cn(
-                      "rounded-full px-2 py-0.5 text-[10px]",
-                      isActive ? "bg-ink text-white" : "bg-surface text-subtle",
-                    )}
-                  >
-                    {badge}
-                  </span>
-                )}
-              </Link>
+              <li key={group.id}>
+                <NavLink
+                  item={item}
+                  pathname={pathname}
+                  active={isItemActive(pathname, item)}
+                  depth={0}
+                  collapsed={false}
+                  onNavigate={onNavigate}
+                />
+             </li>
             );
           }
 
-          const hasActiveChild = visibleItems.some(
-            (item) =>
-              pathname === item.href ||
-              (item.href !== "/dashboard" && pathname?.startsWith(`${item.href}/`)),
-          );
-
           return (
-            <div key={group.id} className="mt-1">
-              <button
-                type="button"
-                onClick={() => toggleGroup(group.id)}
-                className={cn(
-                  "flex h-10 w-full items-center gap-3 rounded-xl px-3 text-[12px] font-bold transition",
-                  hasActiveChild
-                    ? "text-ink"
-                    : "text-subtle hover:bg-surface hover:text-ink",
-                )}
-              >
-                <GroupIcon className="h-[18px] w-[18px]" strokeWidth={hasActiveChild ? 2.4 : 2} />
-                <span className="flex-1 text-left">{group.label}</span>
-                <ChevronDown
-                  className={cn(
-                    "h-3.5 w-3.5 transition-transform duration-200",
-                    isOpen && "rotate-180",
-                  )}
-                />
-              </button>
+            <li key={group.id}>
+              <GroupHeader
+                group={group}
+                open={isOpen}
+                onToggle={() => setOpenGroup(isOpen ? null : group.id)}
+                active={active}
+                collapsed={false}
+              />
               <div
+                id={`nav-group-${group.id}`}
+                role="region"
+                aria-label={group.label}
                 className={cn(
                   "overflow-hidden transition-[max-height,opacity] duration-200 ease-in-out",
-                  isOpen ? "max-h-[600px] opacity-100" : "max-h-0 opacity-0",
+                  isOpen ? "max-h-[1200px] opacity-100" : "max-h-0 opacity-0",
                 )}
               >
-                <div className="space-y-0.5 pb-1 pl-4">
-                  {visibleItems.map((item, index) => {
-                    const badge =
-                      item.href === "/documents"
-                        ? documentCount
-                        : item.href === "/alerts"
-                          ? alertCount
-                          : item.badge;
-                    const isActive =
-                      pathname === item.href ||
-                      (item.href !== "/dashboard" && pathname?.startsWith(`${item.href}/`));
-                    const Icon = item.icon;
-                    return (
-                      <Link
-                        key={`${group.id}-${item.href}-${index}`}
-                        href={item.href}
-                        onClick={onNavigate}
-                        className={cn(
-                          "flex h-9 items-center gap-2.5 rounded-lg px-3 text-[11px] font-semibold transition",
-                          isActive
-                            ? "bg-lime text-ink shadow-sm"
-                            : "text-subtle hover:bg-surface hover:text-ink",
-                        )}
-                      >
-                        <Icon className="h-[14px] w-[14px]" strokeWidth={isActive ? 2.4 : 2} />
-                        <span className="flex-1">{item.label}</span>
-                        {badge !== undefined && (
-                          <span
-                            className={cn(
-                              "rounded-full px-1.5 py-0.5 text-[9px]",
-                              isActive ? "bg-ink text-white" : "bg-surface text-subtle",
-                            )}
-                          >
-                            {badge}
-                          </span>
-                        )}
-                      </Link>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
+                <ul className="flex flex-col gap-0.5 pb-1 pl-3 pt-1">
+                  {group.items.map((item) => (
+                    <li key={item.id}>
+                      <NavLink
+                        item={item}
+                        pathname={pathname}
+                        active={isItemActive(pathname, item)}
+                        depth={1}
+                        collapsed={false}
+                        onNavigate={onNavigate}
+                      />
+                   </li>
+                  ))}
+               </ul>
+             </div>
+           </li>
           );
         })}
-      </nav>
-      <div className="mx-4 mb-3">
-        <button type="button" onClick={() => notify({ title: "Menu compacto", description: "Aplicado automaticamente em telas menores." })} className="flex h-9 w-full items-center justify-center gap-2 rounded-xl border border-line bg-surface text-[10px] font-bold text-subtle">
-          <ChevronLeft className="h-3.5 w-3.5" />Recolher menu
-        </button>
-      </div>
-      <div className="m-4 mt-0 rounded-2xl border border-line bg-surface p-4">
-        <div className="flex items-center gap-3">
-          <div className="grid h-9 w-9 place-items-center rounded-full bg-ink text-white"><Zap className="h-4 w-4" /></div>
-          <div><p className="text-[10px] font-extrabold">Contabilidade NS Fiscal</p><p className="mt-1 text-[9px] text-subtle">Portal contábil ativo</p></div>
-        </div>
-      </div>
-    </>
+     </ul>
+   </nav>
+  );
+}
+
+function SidebarInner({
+  pathname,
+  collapsed,
+  onToggleCollapsed,
+  onNavigate,
+  user,
+  onLogout,
+}: {
+  pathname: string | null | undefined;
+  collapsed: boolean;
+  onToggleCollapsed: () => void;
+  onNavigate?: () => void;
+  user: AuthUser | null;
+  onLogout: () => Promise<void>;
+}) {
+  const { openGroup, setOpenGroup } = useSidebarState();
+  return (
+    <div className="flex h-full flex-col bg-white">
+      <SidebarHeader collapsed={collapsed} onToggle={onToggleCollapsed} />
+      <SidebarBody
+        pathname={pathname}
+        collapsed={collapsed}
+        openGroup={openGroup}
+        setOpenGroup={setOpenGroup}
+        onNavigate={onNavigate}
+      />
+      <UserFooter user={user} collapsed={collapsed} onLogout={onLogout} />
+   </div>
   );
 }
 
@@ -517,12 +688,12 @@ function Topbar({
         aria-label="Abrir menu"
       >
         <Menu className="h-5 w-5" />
-      </button>
+     </button>
 
       <div className="hidden min-w-[205px] 2xl:block">
-        <p className="text-base font-extrabold">Olá, {user?.name.split(" ")[0] || "Contador"}!</p>
-        <p className="mt-1 text-[10px] text-subtle">Bem-vindo ao portal da contabilidade.</p>
-      </div>
+        <p className="text-base font-extrabold">Olá, {user?.name.split(" ")[0] || "Contador"}</p>
+        <p className="mt-1 text-[10px] text-subtle">Bem-vindo ao portal da contabilidade</p>
+     </div>
 
       <form onSubmit={submitSearch} className="relative hidden min-w-0 max-w-xl flex-1 md:block">
         <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-subtle" />
@@ -535,15 +706,15 @@ function Topbar({
         />
         <span className="absolute right-3 top-1/2 -translate-y-1/2 rounded-lg bg-muted px-2 py-1 text-[10px] font-bold text-subtle">
           ⌘ K
-        </span>
-      </form>
+       </span>
+     </form>
 
       <div className="ml-auto flex items-center gap-2">
         <div className="relative hidden h-11 items-center gap-2 rounded-xl border border-line bg-surface px-3 lg:flex">
           <CalendarDays className="h-4 w-4 text-subtle" />
           <span className="text-[10px] font-extrabold capitalize">{new Intl.DateTimeFormat("pt-BR", { month: "long", year: "numeric" }).format(new Date())}</span>
           <ChevronDown className="h-3.5 w-3.5 text-subtle" />
-        </div>
+       </div>
         <Button
           variant="lime"
           className="hidden h-11 rounded-xl xl:flex"
@@ -552,19 +723,19 @@ function Topbar({
         >
           <RefreshCw className={`h-4 w-4 ${sync.isPending ? "animate-spin" : ""}`} />
           {sync.isPending ? "Iniciando..." : "Sincronizar todas"}
-        </Button>
+       </Button>
         <div className="relative hidden h-11 items-center gap-3 rounded-xl border border-line bg-surface px-3 text-left md:flex">
           <div className="grid h-8 w-8 place-items-center rounded-xl bg-pastel-purple text-indigo-700">
             <Building2 className="h-4 w-4" />
-          </div>
+         </div>
           <div className="hidden xl:block">
             <p className="max-w-36 truncate text-[11px] font-extrabold">
               {activeCompany?.tradeName || activeCompany?.legalName || "Empresa"}
-            </p>
+           </p>
             <p className="text-[9px] font-semibold text-subtle">
               {activeCompany ? maskCnpj(activeCompany.cnpj) : "Carregando..."}
-            </p>
-          </div>
+           </p>
+         </div>
           <ChevronDown className="h-3.5 w-3.5 text-subtle" />
           <select
             value={activeCompany?.id || ""}
@@ -575,10 +746,10 @@ function Topbar({
             {companies.map((company) => (
               <option key={company.id} value={company.id}>
                 {company.tradeName || company.legalName}
-              </option>
+             </option>
             ))}
-          </select>
-        </div>
+         </select>
+       </div>
         <Link
           href="/alerts"
           className="relative grid h-11 w-11 place-items-center rounded-xl border border-line bg-surface text-subtle hover:text-ink"
@@ -588,9 +759,9 @@ function Topbar({
           {alertCount > 0 && (
             <span className="absolute right-2 top-1.5 grid min-h-4 min-w-4 place-items-center rounded-full bg-red-500 px-1 text-[8px] font-extrabold text-white">
               {alertCount}
-            </span>
+           </span>
           )}
-        </Link>
+       </Link>
         <div className="relative">
         <button
           onClick={() => setProfileOpen((value) => !value)}
@@ -598,23 +769,23 @@ function Topbar({
         >
           <span className="grid h-8 w-8 place-items-center rounded-lg bg-lime text-xs font-extrabold text-ink">
             {user?.name.slice(0, 2).toUpperCase() || "FN"}
-          </span>
+         </span>
           <span className="hidden text-left 2xl:block"><span className="block text-[10px] font-extrabold">{user?.name || "Fabian"}</span><span className="block text-[8px] font-semibold text-subtle">{user?.role || "Contador"}</span></span>
           <ChevronDown className="hidden h-3.5 w-3.5 text-subtle 2xl:block" />
-        </button>
+       </button>
           {profileOpen && (
             <div className="absolute right-0 top-14 z-40 w-56 rounded-2xl border border-line bg-surface p-2 shadow-card">
               <Link href="/settings" className="block rounded-xl px-3 py-2.5 text-[11px] font-bold hover:bg-muted">
                 Preferências
-              </Link>
+             </Link>
               <button onClick={handleLogout} className="w-full rounded-xl px-3 py-2.5 text-left text-[11px] font-bold text-red-600 hover:bg-red-50">
                 Sair da conta
-              </button>
-            </div>
+             </button>
+           </div>
           )}
-        </div>
-      </div>
-    </header>
+       </div>
+     </div>
+   </header>
   );
 }
 
@@ -635,10 +806,10 @@ function Breadcrumbs() {
       <nav aria-label="Breadcrumb" className="flex flex-wrap items-center gap-2 text-[11px] font-bold">
         <Link href="/dashboard" className="text-subtle hover:text-ink">
           Dashboard
-        </Link>
+       </Link>
         {segments.map((segment, index) => {
           const href = `/${segments.slice(0, index + 1).join("/")}`;
-          const item = ALL_NAV_ITEMS.find((navItem) => navItem.href === href);
+          const item = ALL_SIDEBAR_ITEMS.find((navItem) => navItem.href === href);
           const isLast = index === segments.length - 1;
 
           return (
@@ -649,13 +820,13 @@ function Breadcrumbs() {
               ) : (
                 <Link href={href} className="text-subtle hover:text-ink">
                   {item?.label ?? formatSegment(segment)}
-                </Link>
+               </Link>
               )}
-            </span>
+           </span>
           );
         })}
-      </nav>
-    </div>
+     </nav>
+   </div>
   );
 }
 
@@ -669,15 +840,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     isSuccess: isCompanyQuerySuccess,
     selectCompany,
   } = useCompanyContext();
+  const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [ready, setReady] = useState(false);
+  const { collapsed, toggle } = useSidebarState();
 
   useEffect(() => {
-    if (isAuthLoading) return;
-    if (!isAuthenticated) {
-      router.replace("/login");
-      return;
-    }
+    if (isAuthLoading || !isAuthenticated) return;
     setReady(true);
   }, [isAuthenticated, isAuthLoading, router]);
 
@@ -694,8 +863,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   if (!ready) return <div className="min-h-screen animate-pulse bg-canvas" />;
 
-  const documentCount = activeCompany?._count?.fiscalDocuments || 0;
-  const alertCount = activeCompany?._count?.alerts || 0;
+  const alertCount = activeCompany?._count?.alerts ?? 0;
 
   function changeCompany(id: string) {
     selectCompany(id);
@@ -705,34 +873,46 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen bg-canvas">
-      <div className="mx-auto flex min-h-screen max-w-[1920px] overflow-hidden bg-surface">
-        <aside className="hidden w-[220px] shrink-0 flex-col overflow-y-auto border-r border-line bg-white lg:flex">
-          <SidebarContent documentCount={documentCount} alertCount={alertCount} />
-        </aside>
+      <div
+        className="mx-auto flex min-h-screen max-w-[1920px] overflow-hidden bg-surface"
+        style={
+          {
+            "--sidebar-width": "288px",
+            "--sidebar-collapsed-width": "76px",
+          } as React.CSSProperties
+        }
+      >
+        <aside
+          aria-label="Menu lateral"
+          className={cn(
+            "hidden shrink-0 flex-col overflow-hidden border-r border-line bg-white transition-[width] duration-200 ease-out lg:flex",
+            collapsed ? "w-[var(--sidebar-collapsed-width)]" : "w-[var(--sidebar-width)]",
+          )}
+        >
+          <SidebarInner
+            pathname={pathname}
+            collapsed={collapsed}
+            onToggleCollapsed={toggle}
+            user={user}
+            onLogout={signOut}
+          />
+       </aside>
 
-        {mobileOpen && (
-          <div className="fixed inset-0 z-50 lg:hidden">
-            <button
-              className="absolute inset-0 bg-black/30 backdrop-blur-sm"
-              onClick={() => setMobileOpen(false)}
-              aria-label="Fechar menu"
+        <Dialog open={mobileOpen} onOpenChange={setMobileOpen}>
+          <DialogContent
+            className="left-0 top-0 m-0 h-screen w-[var(--sidebar-width)] max-w-none translate-x-0 translate-y-0 rounded-none border-r border-line bg-white p-0"
+          >
+            <DialogTitle className="sr-only">Menu de navegação</DialogTitle>
+            <SidebarInner
+              pathname={pathname}
+              collapsed={false}
+              onToggleCollapsed={() => setMobileOpen(false)}
+              onNavigate={() => setMobileOpen(false)}
+              user={user}
+              onLogout={signOut}
             />
-            <aside className="relative flex h-full w-[290px] flex-col bg-muted shadow-card">
-              <button
-                onClick={() => setMobileOpen(false)}
-                className="absolute right-4 top-5 z-10 grid h-9 w-9 place-items-center rounded-xl bg-white"
-                aria-label="Fechar menu"
-              >
-                <X className="h-4 w-4" />
-              </button>
-              <SidebarContent
-                onNavigate={() => setMobileOpen(false)}
-                documentCount={documentCount}
-                alertCount={alertCount}
-              />
-            </aside>
-          </div>
-        )}
+         </DialogContent>
+       </Dialog>
 
         <div className="min-w-0 flex-1">
           <Topbar
@@ -746,8 +926,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           />
           <Breadcrumbs />
           <main className="px-4 pb-10 pt-4 md:px-5">{children}</main>
-        </div>
-      </div>
-    </div>
+       </div>
+     </div>
+   </div>
   );
 }

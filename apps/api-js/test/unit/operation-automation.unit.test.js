@@ -21,6 +21,10 @@ test("ações sensíveis são classificadas para bloqueio", () => {
 test("migration e navegação 08C são completas", () => {
   const sql = fs.readFileSync(new URL("../../prisma/migrations/20260728110000_add_operation_automation_core/migration.sql", import.meta.url), "utf8");
   assert.doesNotMatch(sql, /DROP TABLE|DROP COLUMN|TRUNCATE/i);
+  const sidebar = fs.readFileSync(new URL("../../../web/lib/sidebar-navigation.ts", import.meta.url), "utf8");
+  for (const href of ["/operacao","/operacao/estoque","/operacao/compras","/operacao/vendas","/operacao/automacao"]) {
+    assert.match(sidebar, new RegExp(`href: "${href.replace("/", "\\/")}"`));
+  }
   const shell = fs.readFileSync(new URL("../../../web/components/app-shell.tsx", import.meta.url), "utf8");
-  for (const href of ["/operacao","/operacao/estoque","/operacao/compras","/operacao/vendas","/operacao/automacao"]) assert.match(shell, new RegExp(`href: "${href}"`));
+  assert.match(shell, /sidebarGroups/);
 });

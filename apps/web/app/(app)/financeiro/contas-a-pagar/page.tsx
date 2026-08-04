@@ -1,1 +1,3 @@
-import{FinancialView}from"@/components/financial/financial-view";export default function Page(){return <FinancialView section="payables"/>}
+import { PayablesList } from "@/components/financial/payables/payable-ui";
+export const metadata = { title: "Contas a pagar" };
+export default function Page(){return <PayablesList/>}

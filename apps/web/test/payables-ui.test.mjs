@@ -1,0 +1,13 @@
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+import test from "node:test";
+const root=process.cwd(),read=file=>fs.readFileSync(path.join(root,file),"utf8");
+const ui=read("components/financial/payables/payable-ui.tsx"),service=read("lib/services/payables/payable-service.ts"),hooks=read("lib/services/payables/payable-hooks.ts"),keys=read("lib/services/payables/payable-query-keys.ts");
+test("rotas dedicadas de contas a pagar existem",()=>{for(const file of ["app/(app)/financeiro/contas-a-pagar/page.tsx","app/(app)/financeiro/contas-a-pagar/nova/page.tsx","app/(app)/financeiro/contas-a-pagar/[payableId]/page.tsx","app/(app)/financeiro/contas-a-pagar/[payableId]/editar/page.tsx"])assert.equal(fs.existsSync(path.join(root,file)),true,file)});
+test("listagem cobre loading, erro, vazio, filtros, indicadores, ordenação e paginação",()=>{for(const value of ["Carregando","Tentar novamente","Nenhuma conta a pagar","Total em aberto","Total vencido","Todas as origens","Ordenação","Anterior","Próxima"])assert.match(ui,new RegExp(value))});
+test("formulário dedicado valida, bloqueia lifecycle e impede duplo submit",()=>{for(const value of ["validatePayable","Salvar e abrir","PAID","CANCELED","create.isPending","Origem protegida"])assert.match(ui,new RegExp(value));assert.doesNotMatch(service,/JSON\.stringify\(\{[^}]*companyId/);assert.doesNotMatch(service,/sourceType|sourceId/)});
+test("detalhe cobre pagamentos, movimentos, timeline, origem e ações contextuais",()=>{for(const value of ["Pagamentos e movimentos","Timeline e auditoria","Abrir origem","Baixa estornada","Cancelar conta","Pedido de compra","NF-e de entrada"])assert.match(ui,new RegExp(value))});
+test("baixa valida saldo, conta financeira, parcial, total e loading",()=>{for(const value of ["O valor supera o saldo","Conta financeira","baixa total","baixa parcial","mutation.isPending"])assert.match(ui,new RegExp(value,"i"))});
+test("TanStack Query isola chaves por empresa e invalida escopos financeiros",()=>{assert.match(keys,/companyId/);for(const value of ["list","detail","timeline","options"])assert.match(keys,new RegExp(value));assert.match(hooks,/payableKeys\.all\(companyId\)/);assert.match(hooks,/financial-dashboard/)});
+test("cliente oficial preserva CSRF/credentials e mutações não aceitam origem arbitrária",()=>{const api=read("lib/api.ts");assert.match(api,/credentials: "include"/);assert.match(api,/x-csrf-token/);assert.match(service,/source: "MANUAL"/);assert.doesNotMatch(service,/sourceType|sourceId/)});
