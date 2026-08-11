@@ -16,10 +16,7 @@ import { requestIdMiddleware } from "./middlewares/request-id.middleware.js";
 import { alertsRouter } from "./modules/alerts/alerts.routes.js";
 import { authRouter } from "./modules/auth/auth.routes.js";
 import { certificatesRouter } from "./modules/certificates/certificates.routes.js";
-import {
-  companiesRouter,
-  empresasRouter,
-} from "./modules/companies/companies.routes.js";
+import { companiesRouter, empresasRouter } from "./modules/companies/companies.routes.js";
 import { cteRouter } from "./modules/cte/cte.routes.js";
 import { dashboardRouter } from "./modules/dashboard/dashboard.routes.js";
 import { documentsRouter } from "./modules/documents/documents.routes.js";
@@ -45,49 +42,31 @@ import { fornecedoresRouter } from "./modules/fornecedores/fornecedores.routes.j
 import { nfeRouter } from "./modules/nfe/nfe.routes.js";
 import { cteEntryRouter, nfeEntryRouter } from "./modules/nfe-entry/nfe-entry.routes.js";
 import { subscriptionRouter, internalSubscriptionRouter } from "./modules/subscription/subscription.routes.js";
+import { marketingRouter } from "./modules/marketing/marketing.routes.js";
 
 export const app = express();
 const allowedOrigins = env.CORS_ORIGIN.split(",").map((origin) => origin.trim());
 const localDevOriginPattern = /^http:\/\/(localhost|127\.0\.0\.1):30\d{2}$/;
 const configuredForLocalhost = allowedOrigins.some((origin) => /^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin));
-
 function isAllowedOrigin(origin) {
-  if (!origin || allowedOrigins.includes(origin)) return true;
-  if (allowedOrigins.includes("*")) return true;
+  if (!origin || allowedOrigins.includes(origin) || allowedOrigins.includes("*")) return true;
   if (configuredForLocalhost && localDevOriginPattern.test(origin)) return true;
   return env.NODE_ENV !== "production" && localDevOriginPattern.test(origin);
 }
-
 app.disable("x-powered-by");
-
 app.use(requestIdMiddleware);
-app.use(
-  pinoHttp({
-    logger,
-    genReqId: (request) => request.id,
-    customProps: (request) => ({ requestId: request.id }),
-  }),
-);
+app.use(pinoHttp({ logger, genReqId: (request) => request.id, customProps: (request) => ({ requestId: request.id }) }));
 app.use(helmet());
 app.use(compression());
-app.use(
-  cors({
-    origin(origin, callback) {
-      if (isAllowedOrigin(origin)) return callback(null, true);
-      return callback(new Error("Origin not allowed by CORS."));
-    },
-    credentials: true,
-  }),
-);
-app.use(express.json({ limit: "2mb" }));
-app.use(express.urlencoded({ extended: true, limit: "2mb" }));
-
+app.use(cors({ origin(origin, callback) { if (isAllowedOrigin(origin)) return callback(null, true); return callback(new Error("Origin not allowed by CORS.")); }, credentials: true }));
+app.use(express.json({ limit: "32kb" }));
+app.use(express.urlencoded({ extended: true, limit: "32kb" }));
 app.use("/api/health", healthRouter);
+app.use("/api/public/marketing", marketingRouter);
 app.use("/api/auth", authRouter);
 app.use("/api/preferences", preferencesRouter);
 app.use("/api/empresas", empresasRouter);
 app.use("/api/companies", companiesRouter);
-
 const companyApiRouter = express.Router({ mergeParams: true });
 companyApiRouter.use(requireAuth);
 companyApiRouter.use("/:companyId", requireCompanyAccess);
@@ -100,13 +79,8 @@ companyApiRouter.use("/:companyId/alerts", alertsRouter);
 companyApiRouter.use("/:companyId/tax-settings", taxSettingsRouter);
 companyApiRouter.use("/:companyId/monthly-closing", monthlyClosingRouter);
 companyApiRouter.use("/:companyId/reports", reportsRouter);
-companyApiRouter.use(
-  "/:companyId/documents/:documentId/manifest",
-  manifestationsRouter,
-);
+companyApiRouter.use("/:companyId/documents/:documentId/manifest", manifestationsRouter);
 app.use("/api/companies", companyApiRouter);
-
-// Clientes public and company-scoped routes
 app.use("/api/clientes", clientesPublicRouter);
 app.use("/api/customers", customersRouter);
 app.use("/api/products", productsStandaloneRouter);
@@ -121,23 +95,13 @@ companyApiRouter.use("/:companyId/nfe", nfeRouter);
 companyApiRouter.use("/:companyId/nfe-entry", nfeEntryRouter);
 companyApiRouter.use("/:companyId/cte-entry", cteEntryRouter);
 companyApiRouter.use("/:companyId", companyDocumentRequestsRouter);
-
-app.use(
-  "/api/subscription",
-  requireAuth,
-  requireSubscriptionCompanyContext,
-  subscriptionRouter,
-);
-
+app.use("/api/subscription", requireAuth, requireSubscriptionCompanyContext, subscriptionRouter);
 app.use("/api/internal/subscriptions", requireAuth, internalSubscriptionRouter);
-
 app.use("/api/accountant/companies/:companyId", requireAuth, requireAccountantCompanyAccess, accountantDocumentsRouter);
 app.use("/api/accountant/companies/:companyId", requireAuth, requireAccountantCompanyAccess, accountantMonthlyClosingRouter);
 app.use("/api/accountant/companies/:companyId", requireAuth, requireAccountantCompanyAccess, fiscalBookPreparationRouter);
 app.use("/api/accountant/companies/:companyId", requireAuth, requireAccountantCompanyAccess, fiscalExportRouter);
 app.use("/api/accountant", requireAuth, accountantRouter);
-
 app.use("/api/cfops", requireAuth, cfopsRouter);
-
 app.use(notFoundMiddleware);
 app.use(errorMiddleware);

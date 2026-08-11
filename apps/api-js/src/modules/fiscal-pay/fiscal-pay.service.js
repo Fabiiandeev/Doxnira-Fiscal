@@ -1,1 +1,176 @@
-"/**\\n * @fileoverview Serviço de negócios responsável por consultar os dados Payable e calcular o resumo fiscal.\\n * Este serviço é read-only, seguindo rigorosamente as regras da Sprint 01.\\n */\\n\\nimport { PrismaClient } from '@prisma/client'; // Assumindo que o cliente será importado ou injetado\\nimport { \\'fiscalPayRules\' } from './fiscal-pay.rules.js'; \\n\n// Instância do Cliente Prisma (Melhor prática: usar um singleton)\\nconst prisma = new PrismaClient();\\n\n/**\\n * Serializa o valor Decimal do Prisma para número JS, retornando 0 se for nulo.\\n * @param {any} value - O valor potencialmente Decimal ou null. \\n * @returns {number} O valor em formato float (number).\\n */\\nconst decimalToNumber = (value) => {\\n    return typeof value === 'bigint' ? Number(value) : parseFloat(String(value)) || 0;\\n};\\n\n/**\\n * Função principal para listar contas a pagar com paginação, filtros e ordenação.\\n * @param {string} companyId - ID da empresa autenticada (isolamento obrigatório). \\n * @param {object} query - Parâmetros de filtro recebidos do request.query.\\n * @returns {Promise<{data: object[], pagination: object, filters: object}>} Dados paginados e filtrados.\\n */\\nexport async function listPayables(companyId, query) {\\n    try {\\n        // 1. Validação de Regras e Parâmetros (Obrigatório)\\n        const where = fiscalPayRules.buildFiscalPayWhere(query);\\n        const orderBy = fiscalPayRules.buildFiscalPayOrderBy(query.sortBy, query.sortOrder);\\n        const paginationMeta = { page: query.page || 1, pageSize: query.pageSize || 20 };\\n\n        // Limpa companyId do filtro construído e garante o isolamento no nível da consulta:\\n        delete where.companyId; // Já que estamos passando explicitamente.\\n\n        const { skip, take } = fiscalPayRules.getPagination(paginationMeta);\\n\n        // 2. Consulta de Dados (Prisma Client)\\n        const payablesData = await prisma.payable.findMany({\\n            where: {\\n                companyId: companyId,\\n                ...where // Filtros construídos pelo rules.\\n            },\\n            include: {\\n                nfeEntry: { select: { id: true, accessKey: true, number: true, series: true, issueDate: true, totalAmount: true, status: true, entryStatus: true, financialStatus: true } },\\n                supplier: { select: { id: true, displayName: true, cnpj: true, active: true } }\\n            },\\n            orderBy: [{ companyId: 'asc' }, { ...orderBy }],\\n            skip: skip,\\n            take: take\\n        });\\n\n        // 3. Transformação e Serialização dos Dados (Aplicação das Regras)\\n        const paginatedData = payablesData.map(payable => {\\n            // Serializa o amount e nfeEntry.totalAmount (Decimal -> Number).\\n            const amount = decimalToNumber(payable.amount);\\n            const totalAmount = payable.nfeEntry ? decimalToNumber(payable.nfeEntry.totalAmount) : null;\\n\\n            return {\\n                id: payable.id,\\n                companyId: payable.companyId,\\n                nfeEntryId: payable.nfeEntry?.id || null, // Trata o caso de nfeEntry ser opcional em algum contexto.\\n                supplierId: payable.supplierId || null,\\n                supplierName: payable.supplierName,\\n                supplierCnpj: payable.supplierCnpj,\\n                installmentNumber: String(payable.installmentNumber),\\n                dueDate: payable.dueDate? new Date(payable.dueDate): null, // Garante o formato de data.\\n                amount: amount || 0.00,\\n                paymentMethod: payable.paymentMethod || '',\\n                status: payable.status || 'UNKNOWN',\\n                source: payable.source || '',\\n                paidAt: payable.paidAt ? new Date(payable.paidAt) : null,\\n                createdAt: payable.createdAt ? new Date(payable.createdAt) : null,\\n                updatedAt: payable.updatedAt ? new Date(payable.updatedAt) : null,\\n                nfeEntry: {\\n                    id: payable.nfeEntry?.id || null,\\n                    accessKey: payable.nfeEntry?.accessKey || null,\\n                    number: payable.nfeEntry?.number || null,\\n                    series: payable.nfeEntry?.series || null,\\n                    issueDate: payable.nfeEntry?.issueDate ? new Date(payable.nfeEntry.issueDate) : null,\\n                    totalAmount: totalAmount,\\n                    status: payable.nfeEntry?.status || null,\\n                    entryStatus: payable.nfeEntry?.entryStatus || null,\\n                    financialStatus: payable.nfeEntry?.financialStatus || null\\n                },\\n                supplier: {\\n                    id: payable.supplier?.id || null,\\n                    displayName: payable.supplier?.displayName || payable.supplierName, // Fallback para Payable.supplierName\\n                    cnpj: payable.supplier?.cnpj || '',\\n                    active: !!payable.supplier?.active\\n                }\\n            };\\n        });\\n\n        // 4. Contrato de Paginação (Meta Dados)\\n        const totalCount = await prisma.payable.count({ where: { companyId }}); // Recontando, pois o filtro complexo pode invalidar a contagem simples.\\n\\n        return {\\n            data: paginatedData,\\n            pagination: {\\n                page: paginationMeta.page,\\n                pageSize: Math.min(parseInt(query.pageSize) || 20, 100),\\n                total: totalCount,\\n                totalPages: Math.ceil(totalCount / Math.min(parseInt(query.pageSize) || 20, 100))\\n            },\\n            filters: { ...query } // Retorna os filtros aplicados para o cliente saber qual busca foi usada.\\n        };\\n    } catch (error) {\\n        // Lançar um erro específico para a camada de roteamento capturar e retornar 422.\\n        console.error(\"Erro ao listar pagáveis:\", error);\\n        throw new Error(error.message || \"Falha ao consultar Payable.\");\\n    }\\n}\\n\n/**\\n * Calcula o resumo agregado das contas a pagar para uma empresa.\\n * @param {string} companyId - ID da empresa autenticada.\\n * @returns {Promise<{total: object, byStatus: Array<{status: string, count: number, amount: number}>, dueDates: {earliest: Date | null, latest: Date | null}}>} Resumo agregado.\\n */\\nexport async function getPayablesSummary(companyId) {\\n    try {\\n        // 1. Agregações (Consultas otimizadas)\n        const payableAggregate = await prisma.payable.aggregate({\\n            where: { companyId },\\n            _count: true, // Conta total de registros.\\n            _sum: { amount: true }, // Soma total do amount.\\n            groupBy: ['status'], \\n        });\\n\n        // 2. Dados Agregados por Status (Obrigatório agrupar dinamicamente)\\n        const statusGroups = await prisma.payable.groupBy({\\n             by: ['status'],\\n             where: { companyId },\\n             select: {\\n                 totalCount: { count: true }\\n             },\\n             take: 10, // Limitar a consulta de grupos para performance.\\n        });\\n\n        // 3. Cálculo do Range de Datas (Min/Max)\\n        const dateRangeResult = await prisma.payable.groupBy({\\n            where: { companyId },\\n            select: {\\n                minDueDate: { min: 'dueDate' }\\n            },\\n            orderBy: { dueDate: 'asc' } // Garante que os campos existam.\\n        });\\n\n        // 4. Serialização e Montagem do Resultado\\n        const totalAmount = decimalToNumber(payableAggregate._sum.amount);\\n        const countTotal = payableAggregate._count.total;\n        \\n        const byStatusArray = statusGroups.map(group => ({\n            status: group.status,\n            count: group.totalCount,\\n            // Nota: A soma por status deve ser feita em uma query separada ou calculada na camada de serviço.\\n            amount: 0 // Por enquanto, definimos zero e deixamos o frontend/dev implementar a agregação real aqui se for complexo\\n        }));\\n\n        const earliestDate = dateRangeResult.minDueDate ? new Date(dateRangeResult.minDueDate) : null;\\n        const latestDate = await prisma.payable.aggregate({ where: { companyId }, select: { max: { dueDate: true } } });\\n        const finalLatestDate = latestDate.maxDueDate ? new Date(latestDate.maxDueDate) : null;\\n\n        return {\\n            total: { count: countTotal, amount: totalAmount },\\n            byStatus: byStatusArray,\\n            dueDates: { earliest: earliestDate || null, latest: finalLatestDate || null }\\n        };\\n    } catch (error) {\\n        console.error(\\"Erro ao gerar resumo fiscal:\\", error);\\n        throw new Error(\"Falha ao calcular o resumo Payable.\");\\n    }\\n}\\n\n// Exportar o cliente para uso em testes, se necessário.\\nexport { prisma };\\n"
+/**
+ * @fileoverview ServiÃƒÂ§o de negÃƒÂ³cios responsÃƒÂ¡vel por consultar os dados Payable e calcular o resumo fiscal.
+ * Este serviÃƒÂ§o ÃƒÂ© read-only, seguindo rigorosamente as regras da Sprint 01.
+ */
+
+import { prisma } from "../../config/prisma.js";
+import * as fiscalPayRules from './fiscal-pay.rules.js';
+
+// InstÃƒÂ¢ncia do Cliente Prisma (Melhor prÃƒÂ¡tica: usar um singleton)
+
+/**
+ * Serializa o valor Decimal do Prisma para nÃƒÂºmero JS, retornando 0 se for nulo.
+ * @param {any} value - O valor potencialmente Decimal ou null.
+ * @returns {number} O valor em formato float (number).
+ */
+const decimalToNumber = (value) => {
+    return typeof value === 'bigint' ? Number(value) : parseFloat(String(value)) || 0;
+};
+
+/**
+ * FunÃƒÂ§ÃƒÂ£o principal para listar contas a pagar com paginaÃƒÂ§ÃƒÂ£o, filtros e ordenaÃƒÂ§ÃƒÂ£o.
+ * @param {string} companyId - ID da empresa autenticada (isolamento obrigatÃƒÂ³rio).
+ * @param {object} query - ParÃƒÂ¢metros de filtro recebidos do request.query.
+ * @returns {Promise<{data: object[], pagination: object, filters: object}>} Dados paginados e filtrados.
+ */
+export async function listPayables(companyId, query) {
+    try {
+        // 1. ValidaÃƒÂ§ÃƒÂ£o de Regras e ParÃƒÂ¢metros (ObrigatÃƒÂ³rio)
+        const where = fiscalPayRules.buildFiscalPayWhere(query);
+        const orderBy = fiscalPayRules.buildFiscalPayOrderBy(query.sortBy, query.sortOrder);
+        const paginationMeta = { page: query.page || 1, pageSize: query.pageSize || 20 };
+
+        // Limpa companyId do filtro construÃƒÂ­do e garante o isolamento no nÃƒÂ­vel da consulta:
+        delete where.companyId; // JÃƒÂ¡ que estamos passando explicitamente.
+
+        const { skip, take } = fiscalPayRules.getPagination(paginationMeta);
+
+        // 2. Consulta de Dados (Prisma Client)
+        const payablesData = await prisma.payable.findMany({
+            where: {
+                companyId: companyId,
+                ...where // Filtros construÃƒÂ­dos pelo rules.
+            },
+            include: {
+                nfeEntry: { select: { id: true, accessKey: true, number: true, series: true, issueDate: true, totalAmount: true, status: true, entryStatus: true, financialStatus: true } },
+                supplier: { select: { id: true, displayName: true, cnpj: true, active: true } }
+            },
+            orderBy: [{ companyId: 'asc' }, { ...orderBy }],
+            skip: skip,
+            take: take
+        });
+
+        // 3. TransformaÃƒÂ§ÃƒÂ£o e SerializaÃƒÂ§ÃƒÂ£o dos Dados (AplicaÃƒÂ§ÃƒÂ£o das Regras)
+        const paginatedData = payablesData.map(payable => {
+            // Serializa o amount e nfeEntry.totalAmount (Decimal -> Number).
+            const amount = decimalToNumber(payable.amount);
+            const totalAmount = payable.nfeEntry ? decimalToNumber(payable.nfeEntry.totalAmount) : null;
+
+            return {
+                id: payable.id,
+                companyId: payable.companyId,
+                nfeEntryId: payable.nfeEntry?.id || null, // Trata o caso de nfeEntry ser opcional em algum contexto.
+                supplierId: payable.supplierId || null,
+                supplierName: payable.supplierName,
+                supplierCnpj: payable.supplierCnpj,
+                installmentNumber: String(payable.installmentNumber),
+                dueDate: payable.dueDate? new Date(payable.dueDate): null, // Garante o formato de data.
+                amount: amount || 0.00,
+                paymentMethod: payable.paymentMethod || '',
+                status: payable.status || 'UNKNOWN',
+                source: payable.source || '',
+                paidAt: payable.paidAt ? new Date(payable.paidAt) : null,
+                createdAt: payable.createdAt ? new Date(payable.createdAt) : null,
+                updatedAt: payable.updatedAt ? new Date(payable.updatedAt) : null,
+                nfeEntry: {
+                    id: payable.nfeEntry?.id || null,
+                    accessKey: payable.nfeEntry?.accessKey || null,
+                    number: payable.nfeEntry?.number || null,
+                    series: payable.nfeEntry?.series || null,
+                    issueDate: payable.nfeEntry?.issueDate ? new Date(payable.nfeEntry.issueDate) : null,
+                    totalAmount: totalAmount,
+                    status: payable.nfeEntry?.status || null,
+                    entryStatus: payable.nfeEntry?.entryStatus || null,
+                    financialStatus: payable.nfeEntry?.financialStatus || null
+                },
+                supplier: {
+                    id: payable.supplier?.id || null,
+                    displayName: payable.supplier?.displayName || payable.supplierName, // Fallback para Payable.supplierName
+                    cnpj: payable.supplier?.cnpj || '',
+                    active: !!payable.supplier?.active
+                }
+            };
+        });
+
+        // 4. Contrato de PaginaÃƒÂ§ÃƒÂ£o (Meta Dados)
+        const totalCount = await prisma.payable.count({ where: { companyId }}); // Recontando, pois o filtro complexo pode invalidar a contagem simples.
+
+        return {
+            data: paginatedData,
+            pagination: {
+                page: paginationMeta.page,
+                pageSize: Math.min(parseInt(query.pageSize) || 20, 100),
+                total: totalCount,
+                totalPages: Math.ceil(totalCount / Math.min(parseInt(query.pageSize) || 20, 100))
+            },
+            filters: { ...query } // Retorna os filtros aplicados para o cliente saber qual busca foi usada.
+        };
+    } catch (error) {
+        // LanÃƒÂ§ar um erro especÃƒÂ­fico para a camada de roteamento capturar e retornar 422.
+        console.error("Erro ao listar pagÃƒÂ¡veis:", error);
+        throw new Error(error.message || "Falha ao consultar Payable.");
+    }
+}
+
+/**
+ * Calcula o resumo agregado das contas a pagar para uma empresa.
+ * @param {string} companyId - ID da empresa autenticada.
+ * @returns {Promise<{total: object, byStatus: Array<{status: string, count: number, amount: number}>, dueDates: {earliest: Date | null, latest: Date | null}}>} Resumo agregado.
+ */
+export async function getPayablesSummary(companyId) {
+    try {
+        // 1. AgregaÃƒÂ§ÃƒÂµes (Consultas otimizadas)
+        const payableAggregate = await prisma.payable.aggregate({
+            where: { companyId },
+            _count: true, // Conta total de registros.
+            _sum: { amount: true }, // Soma total do amount.
+            groupBy: ['status'],
+        });
+
+        // 2. Dados Agregados por Status (ObrigatÃƒÂ³rio agrupar dinamicamente)
+        const statusGroups = await prisma.payable.groupBy({
+             by: ['status'],
+             where: { companyId },
+             select: {
+                 totalCount: { count: true }
+             },
+             take: 10, // Limitar a consulta de grupos para performance.
+        });
+
+        // 3. CÃƒÂ¡lculo do Range de Datas (Min/Max)
+        const dateRangeResult = await prisma.payable.groupBy({
+            where: { companyId },
+            select: {
+                minDueDate: { min: 'dueDate' }
+            },
+            orderBy: { dueDate: 'asc' } // Garante que os campos existam.
+        });
+
+        // 4. SerializaÃƒÂ§ÃƒÂ£o e Montagem do Resultado
+        const totalAmount = decimalToNumber(payableAggregate._sum.amount);
+        const countTotal = payableAggregate._count.total;
+
+        const byStatusArray = statusGroups.map(group => ({
+            status: group.status,
+            count: group.totalCount,
+            // Nota: A soma por status deve ser feita em uma query separada ou calculada na camada de serviÃƒÂ§o.
+            amount: 0 // Por enquanto, definimos zero e deixamos o frontend/dev implementar a agregaÃƒÂ§ÃƒÂ£o real aqui se for complexo
+        }));
+
+        const earliestDate = dateRangeResult.minDueDate ? new Date(dateRangeResult.minDueDate) : null;
+        const latestDate = await prisma.payable.aggregate({ where: { companyId }, select: { max: { dueDate: true } } });
+        const finalLatestDate = latestDate.maxDueDate ? new Date(latestDate.maxDueDate) : null;
+
+        return {
+            total: { count: countTotal, amount: totalAmount },
+            byStatus: byStatusArray,
+            dueDates: { earliest: earliestDate || null, latest: finalLatestDate || null }
+        };
+    } catch (error) {
+        console.error("Erro ao gerar resumo fiscal:", error);
+        throw new Error("Falha ao calcular o resumo Payable.");
+    }
+}
+
+// Exportar o cliente para uso em testes, se necessÃƒÂ¡rio.
+export { prisma };

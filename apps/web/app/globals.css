@@ -10,7 +10,7 @@
 
 :root {
   color-scheme: light;
-  --background: #d7d7d4;
+  --background: #ffffff;
   --foreground: #252525;
 }
 
@@ -69,4 +69,3 @@ textarea {
     display: none;
   }
 }
-
